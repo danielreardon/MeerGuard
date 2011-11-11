@@ -103,8 +103,12 @@ def get_ctr_freq(infn):
     return freq
 
 
+def exclude_files(file_list, to_exclude):
+    return [f for f in file_list if f not in to_exclude]
+
+
 def get_files_from_glob(option, opt_str, value, parser):
-    """Callback function to turn a glob expression into
+    """optparse Callback function to turn a glob expression into
         a list of input files.
 
         Inputs:
@@ -121,7 +125,10 @@ def get_files_from_glob(option, opt_str, value, parser):
 
 
 def main():
-    to_combine = args + options.from_glob
+    file_list = args + options.from_glob
+    to_exclude = options.excluded_files + options.excluded_by_glob
+    to_combine = exclude_files(file_list, to_exclude)
+    
     print ""
     print "        combine.py"
     print "     Patrick  Lazarus"
@@ -146,5 +153,16 @@ if __name__=="__main__":
                             "should be properly quoted to not be expanded by " \
                             "the shell prematurely. (Default: no glob " \
                             "expression is used.)") 
+    parser.add_option('-x', '--exclude-file', dest='excluded_files', \
+                        type='string', action='append', default=[], \
+                        help="Exclude a single file. Multiple -x/--exclude-file " \
+                            "options can be provided. (Default: don't exclude " \
+                            "any files.)")
+    parser.add_option('--exclude-glob', dest='excluded_by_glob', action='callback', \
+                        callback=get_files_from_glob, default=[], type='string', \
+                        help="Glob expression of files to exclude as input. Glob " \
+                            "expression should be properly quoted to not be " \
+                            "expanded by the shell prematurely. (Default: " \
+                            "exclude any files.)")
     options, args = parser.parse_args()
     main()
