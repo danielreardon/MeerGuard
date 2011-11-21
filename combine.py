@@ -107,23 +107,6 @@ def exclude_files(file_list, to_exclude):
     return [f for f in file_list if f not in to_exclude]
 
 
-def get_files_from_glob(option, opt_str, value, parser):
-    """optparse Callback function to turn a glob expression into
-        a list of input files.
-
-        Inputs:
-            options: The Option instance.
-            opt_str: The option provided on the command line.
-            value: The value provided to the command line option.
-            parser: The OptionParser.
-
-        Outputs:
-            None
-    """
-    glob_file_list = getattr(parser.values, option.dest)
-    glob_file_list.extend(glob.glob(value))
-
-
 def main():
     file_list = args + options.from_glob
     to_exclude = options.excluded_files + options.excluded_by_glob
@@ -148,7 +131,8 @@ if __name__=="__main__":
                             "(Default: 'combine.out.ar')", \
                         default="combine.out.ar")
     parser.add_option('-g', '--glob', dest='from_glob', action='callback', \
-                        callback=get_files_from_glob, default=[], type='string', \
+                        callback=utils.get_files_from_glob, default=[], \
+                        type='string', \
                         help="Glob expression of input files. Glob expression " \
                             "should be properly quoted to not be expanded by " \
                             "the shell prematurely. (Default: no glob " \
@@ -159,7 +143,8 @@ if __name__=="__main__":
                             "options can be provided. (Default: don't exclude " \
                             "any files.)")
     parser.add_option('--exclude-glob', dest='excluded_by_glob', action='callback', \
-                        callback=get_files_from_glob, default=[], type='string', \
+                        callback=utils.get_files_from_glob, default=[], \
+                        type='string', \
                         help="Glob expression of files to exclude as input. Glob " \
                             "expression should be properly quoted to not be " \
                             "expanded by the shell prematurely. (Default: " \

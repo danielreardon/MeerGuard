@@ -65,6 +65,23 @@ def execute(cmd, stdout=subprocess.PIPE, stderr=sys.stderr, dir=None):
     return (stdoutdata, stderrdata)
 
 
+def get_files_from_glob(option, opt_str, value, parser):
+    """optparse Callback function to turn a glob expression into
+        a list of input files.
+
+        Inputs:
+            options: The Option instance.
+            opt_str: The option provided on the command line.
+            value: The value provided to the command line option.
+            parser: The OptionParser.
+
+        Outputs:
+            None
+    """
+    glob_file_list = getattr(parser.values, option.dest)
+    glob_file_list.extend(glob.glob(value))
+
+
 class DefaultOptions(optparse.OptionParser):
     def __init__(self, *args, **kwargs):
         optparse.OptionParser.__init__(self, *args, **kwargs)
