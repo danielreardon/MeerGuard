@@ -11,48 +11,24 @@ import types
 
 import utils
 
-def trim_edge_channels(num_to_trim=2, *infns):
-    """Trim the edge channels of each input file to remove 
+def trim_edge_channels(infn, num_to_trim=2):
+    """Trim the edge channels of an input file to remove 
         band-pass roll-off and the effect of aliasing. 
         The file is modified in-place. However, zero-weighting 
         is used for trimming, so the process is reversible.
 
         Inputs:
-            *infns: input files are given as positional arguments.
+            infn: names of file to trim.
             num_to_trim: The number of channels to remove from
                 each edge of the sub-band. (Default: 2)
 
         Outputs:
             None
     """
-    for infn in infns:
-        numchans = get_num_chans(infn)
-        utils.execute('paz -m -Z "0 %d" -Z "%d %d" %s' % \
-                    (num_to_trim-1, numchans-num_to_trim, numchans-1, infn))
-
-
-def get_num_chans(infn):
-    """Given a PSRCHIVE file find and return the number of channels.
-
-        This function calls PSRCHIVE's 'vap' and parses the output.
-
-        Input:
-            infn: The file for which the number of channels will be found.
-
-        Output:
-            nchans: The number of channels in the file.
-    """
-    out, err = utils.execute("vap -n -c nchan %s" % infn)
-
-    # Output format of 'vap -n -c nchan <filename>' is: 
-    #   <filename> <# channels>
-    nchans = int(out.split()[1])
-    return nchans
-    # Output format of 'vap -n -c freq <filename>' is: 
-    #   <filename> <freq (in MHz)>
-    freq = float(out.split()[1])
-    return freq
-
+    numchans = utils.get_header_param(infn, 'nchan')
+    utils.execute('paz -m -Z "0 %d" -Z "%d %d" %s' % \
+                (num_to_trim-1, numchans-num_to_trim, numchans-1, infn))
+    return infn
 
 def main():
     infns = args

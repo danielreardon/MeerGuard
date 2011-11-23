@@ -4,14 +4,20 @@ parts of the CoastGuard timing pipeline.
 
 Patrick Lazarus, Nov. 10, 2011
 """
-
+import glob
 import optparse
 import sys
 import subprocess
 import types
 
+import numpy as np
+
 import debug
 import errors
+
+def exclude_files(file_list, to_exclude):
+    return [f for f in file_list if f not in to_exclude]
+
 
 def execute(cmd, stdout=subprocess.PIPE, stderr=sys.stderr, dir=None): 
     """Execute the command 'cmd' after logging the command
@@ -64,6 +70,79 @@ def execute(cmd, stdout=subprocess.PIPE, stderr=sys.stderr, dir=None):
 
     return (stdoutdata, stderrdata)
 
+
+def get_header_param(infn, param):
+    """Given a PSRCHIVE file find and return a header value.
+
+        This function calls PSRCHIVE's 'vap' and parses the output.
+
+        Inputs:
+            infn: The file for which the centre frequency will be found.
+            param: The parameter name to grab from the achive's header.
+
+        Output:
+            val: The value corresponding to the parameter provided.
+    """
+    out, err = execute("vap -n -c %s %s" % (param, infn))
+
+    # Output format of 'vap -n -c <param> <filename>' is: 
+    #   <filename> <value>
+    val = float(out.split()[1])
+    return val
+
+
+def group_by_ctr_freq(infns):
+    """Given a list of input files group them according to their
+        centre frequencies.
+
+        Input:
+            infns: A list of input PSRCHIVE archive file names.
+
+        Outputs:
+            grouped: A dict where each key is the centre frequency
+                in MHz and where each value is a list of archive
+                names with all the same centre frequency.
+
+    """
+    ctr_freqs = np.asarray([get_header_param(fn, 'freq') for fn in infns])
+    groups_dict = {}
+    for ctr_freq in np.unique(ctr_freqs):
+        # Collect the input files that are part of this sub-band
+        indices = np.argwhere(ctr_freqs==ctr_freq)
+        groups_dict[ctr_freq] = [infns[ii] for ii in indices]
+    return groups_dict
+
+
+def apply_to_archives(infns, funcs, arglists, kwargdicts):
+    """Apply a function to each input file in 'infns' with the
+        args and kwargs provided.
+
+        Inputs:
+            infns: A list of input PSRCHIVE archive file names.
+            funcs: A list of functions to apply to each of the input 
+                archives. These functions should return the name of 
+                the processed archive. Functions are applied in order.
+            arglists: A list of tuples containing additional arguments
+                for each function.
+            kwargdicts: A list of dicts containing additional keyword
+                arguments for each function.
+
+        Output:
+            outfns: A list of output filenames.
+        
+        NOTE: 'func' is called in the following way:
+            <outfn> = func(<infn>, *args, **kwargs)
+    """
+    # Extend preargs and prekwargs to make sure they have at least the 
+    # same length as the list of functions.
+    arglists.extend([[]]*len(funcs))
+    kwargdicts.extend([{}]*len(funcs))
+    outfns = []
+    for infn in infns:
+        for func, args, kwargs in zip(funcs, arglists, kwargdicts):
+            outfns.append(func(infn, *args, **kwargs))
+    return outfns
+    
 
 def get_files_from_glob(option, opt_str, value, parser):
     """optparse Callback function to turn a glob expression into
