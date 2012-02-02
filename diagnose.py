@@ -24,13 +24,27 @@ def scale(data, weights=slice(None)):
     return data 
 
 
-def scale_subints(data, weights=slice(None)):
-    medfilt = scipy.signal.medfilt(data[weights], kernel_size=5)
-    data[weights] -= medfilt
-    return data
+def scale_subints(data, kernel_size=5, subintweights=None):
+    scaled = []
+    if subintweights is None:
+        subintweights = np.ones(len(data), dtype=bool)
+    else:
+        subintweights = np.asarray(subintweights).astype(bool)
+    for ii in range(len(data)):
+        lobin = ii-int(kernel_size/2)
+        if lobin < 0:
+            lobin=None
+        
+        hibin = ii+int(kernel_size/2)+1
+        if hibin > len(data):
+            hibin=None
+        neighbours = np.asarray(data[lobin:hibin])
+        neighbour_weights = subintweights[lobin:hibin]
+        scaled[ii] = data[ii] - np.median(neighbours[neighbour_weights])
+    return np.asarray(scaled)
 
 
-def scale_chans(data, nchans= 16):
+def scale_chans(data, nchans=16, chanweights=None):
     """ Find the median of each subband and subtract it from
         the data.
 
@@ -39,10 +53,16 @@ def scale_chans(data, nchans= 16):
             nchans: The number of channels to combine together for
                 each subband (Default: 16)
     """
+    if chanweights is None:
+        chanweights = np.ones(len(data), dtype=bool)
+    else:
+        chanweights = np.asarray(chanweights).astype(bool)
     scaled = []
     for lochan in range(0, len(data), nchans):
-        subscaled = data[lochan:lochan+nchans]
-        median = np.median(subscaled)
+        subscaled = np.asarray(data[lochan:lochan+nchans])
+        subweights = chanweights[lochan:lochan+nchans]
+
+        median = np.median(subscaled[subweights])
         subscaled -= median
         scaled.extend(subscaled)
     return np.asarray(scaled)
@@ -166,8 +186,8 @@ def plot(ar, basename=None):
         Outputs:
             None
     """
-    funcs = [lambda data: data.mean(axis=1), \
-             lambda data: data.std(axis=1), \
+    funcs = [lambda data: scale_subints(data.mean(axis=1)), \
+             lambda data: scale_subints(data.std(axis=1)), \
              lambda data: data.ptp(axis=1), \
              lambda data: scipy.stats.skew(data, axis=1), \
              lambda data: scipy.stats.kurtosis(data, axis=1), \
