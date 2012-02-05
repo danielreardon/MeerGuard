@@ -25,7 +25,7 @@ def scale(data, weights=slice(None)):
 
 
 def scale_subints(data, kernel_size=5, subintweights=None):
-    scaled = []
+    scaled = np.empty(len(data))
     if subintweights is None:
         subintweights = np.ones(len(data), dtype=bool)
     else:
@@ -41,7 +41,7 @@ def scale_subints(data, kernel_size=5, subintweights=None):
         neighbours = np.asarray(data[lobin:hibin])
         neighbour_weights = subintweights[lobin:hibin]
         scaled[ii] = data[ii] - np.median(neighbours[neighbour_weights])
-    return np.asarray(scaled)
+    return scaled
 
 
 def scale_chans(data, nchans=16, chanweights=None):
@@ -53,19 +53,20 @@ def scale_chans(data, nchans=16, chanweights=None):
             nchans: The number of channels to combine together for
                 each subband (Default: 16)
     """
+    scaled = np.empty(len(data))
     if chanweights is None:
         chanweights = np.ones(len(data), dtype=bool)
     else:
         chanweights = np.asarray(chanweights).astype(bool)
-    scaled = []
     for lochan in range(0, len(data), nchans):
         subscaled = np.asarray(data[lochan:lochan+nchans])
         subweights = chanweights[lochan:lochan+nchans]
 
         median = np.median(subscaled[subweights])
-        subscaled -= median
-        scaled.extend(subscaled)
-    return np.asarray(scaled)
+        subscaled[subweights] -= median
+        subscaled[~subweights] = 0
+        scaled[lochan:lochan+nchans] = subscaled
+    return scaled
 
 
 def get_profile(data):
@@ -175,6 +176,14 @@ def clean_iterative(ar, threshold=2.0):
     ar.unload(unloadfn)
 
 
+def get_robust_std(data, weights, trimfrac=0.1):
+    mdata = np.ma.masked_where(np.bitwise_not(weights), data)
+    unmasked = mdata.compressed()
+    mad = np.median(np.abs(unmasked-np.median(unmasked)))
+    return 1.4826*mad
+    #return scipy.stats.mstats.std(scipy.stats.mstats.trimboth(mdata, trimfrac))
+
+
 def plot(ar, basename=None):
     """Plot.
 
@@ -186,19 +195,6 @@ def plot(ar, basename=None):
         Outputs:
             None
     """
-    funcs = [lambda data: scale_subints(data.mean(axis=1)), \
-             lambda data: scale_subints(data.std(axis=1)), \
-             lambda data: data.ptp(axis=1), \
-             lambda data: scipy.stats.skew(data, axis=1), \
-             lambda data: scipy.stats.kurtosis(data, axis=1), \
-             lambda data: scipy.stats.mstats.normaltest(data, axis=1)[0]]
-    labels = ["Mean", "Std dev", "Max-min", "Skew", "Kurtosis", "Normality"]
-    thresholds = [1, 1, 1, 1, 1, 5]
-    scales = [1, 1, 1, 1, 1, 0]
-    width = 0.45
-    N = len(funcs)
-    dw = width/N
-
     clone = ar.clone()
     clone.remove_baseline()
     clone.set_dispersion_measure(0)
@@ -209,6 +205,19 @@ def plot(ar, basename=None):
     data = clone.get_data().squeeze()
     data = remove_profile(clone.get_data().squeeze())
     weights = get_subint_weights(ar).astype(bool)
+
+    funcs = [lambda data: scale_subints(data.mean(axis=1), subintweights=weights), \
+             lambda data: scale_subints(data.std(axis=1), subintweights=weights), \
+             lambda data: data.ptp(axis=1), \
+             lambda data: scipy.stats.skew(data, axis=1), \
+             lambda data: scipy.stats.kurtosis(data, axis=1), \
+             lambda data: scipy.stats.mstats.normaltest(data, axis=1)[0]]
+    labels = ["Mean", "Std dev", "Max-min", "Skew", "Kurtosis", "Normality"]
+    thresholds = [5, 5, 1, 1, 1, 5]
+    scales = [5, 5, 1, 1, 1, 0]
+    width = 0.45
+    N = len(funcs)
+    dw = width/N
 
     plt.figure(figsize=(11,8))
     ax = plt.axes([0.1,0.1,0.4,0.7])
@@ -231,13 +240,13 @@ def plot(ar, basename=None):
         
         # Print normality info for stat
         print label
-        sorted_stat = np.sort(stat)[::-1]
-        for jj in range(len(sorted_stat))[:30]:
-            normality = scipy.stats.normaltest(sorted_stat[jj:], axis=None)[0]
-            print "    %d: %g" % (jj, normality) 
+        isorts = np.argsort(stat)[::-1]
+        for jj, isort in enumerate(isorts[:30]):
+            normality = scipy.stats.normaltest(stat[isorts[jj:]], axis=None)[0]
+            print "    %d (%d): %g" % (jj, isort, normality) 
         
         if scl:
-            plt.plot(stat/np.std(stat), np.arange(nsubs), 'k-')
+            plt.plot(stat/get_robust_std(stat, weights), np.arange(nsubs), 'k-')
         else:
             plt.plot(stat, np.arange(nsubs), 'k-')
         plt.axvline(thresh, c='k', ls='--')
@@ -249,13 +258,6 @@ def plot(ar, basename=None):
     if basename is not None:
         plt.savefig(basename+"_time-vs-phase.png")
     
-    funcs = [lambda data: scale_chans(data.mean(axis=1)), \
-             lambda data: scale_chans(data.std(axis=1)), \
-             lambda data: data.ptp(axis=1), \
-             lambda data: scipy.stats.skew(data, axis=1), \
-             lambda data: scipy.stats.kurtosis(data, axis=1), \
-             lambda data: scipy.stats.mstats.normaltest(data, axis=1)[0]]
-    
     clone = ar.clone()
     clone.remove_baseline()
     clone.dedisperse()
@@ -265,6 +267,13 @@ def plot(ar, basename=None):
     data = remove_profile(clone.get_data().squeeze())
     weights = get_chan_weights(ar).astype(bool)
 
+    funcs = [lambda data: scale_chans(data.mean(axis=1), chanweights=weights), \
+             lambda data: scale_chans(data.std(axis=1), chanweights=weights), \
+             lambda data: data.ptp(axis=1), \
+             lambda data: scipy.stats.skew(data, axis=1), \
+             lambda data: scipy.stats.kurtosis(data, axis=1), \
+             lambda data: scipy.stats.mstats.normaltest(data, axis=1)[0]]
+    
     plt.figure(figsize=(11,8))
     ax = plt.axes([0.1,0.1,0.4,0.7])
     plt.imshow(data, origin='bottom', aspect='auto', \
@@ -283,9 +292,8 @@ def plot(ar, basename=None):
                     enumerate(zip(funcs, labels, thresholds, scales)):
         plt.axes([0.5+dw*ii,0.1,dw,0.7], sharey=ax)
         stat = func(data)
-        print stat.shape, nchans
         if scl:
-            plt.plot(stat/np.std(stat), np.arange(nchans), 'k-')
+            plt.plot(stat/get_robust_std(stat, weights), np.arange(nchans), 'k-')
         else:
             plt.plot(stat, np.arange(nchans), 'k-')
         plt.axvline(thresh, c='k', ls='--')
