@@ -18,6 +18,53 @@ import matplotlib.pyplot as plt
 import psrchive
 
 
+def get_hot_bins(data, normstat_thresh=6.3, max_num_hot=None, \
+                    only_decreasing=True):
+    """Return a list of indices that are bin numbers causing the
+        given data to be different from normally distributed.
+        The bins returned will contain the highest values in 'data'.
+
+        Inputs:
+            data: A 1-D array of data.
+            normstat_thresh: The threshold for the Omnibus K^2
+                statistic used to determine normality of data.
+                (Default 6.3 -- 95% quantile for 50-100 data points)
+            max_num_hot: The maximum number of hot bins to return.
+                (Default: None -- no limit)
+            only_decreasing: If True, stop collecting "hot" bins and return
+                the current list if the K^2 statistic begins to increase
+                as bins are removed. (Default: True)
+
+        Outputs:
+            hot_bins: A list of "hot" bins.
+            status: A return status.
+                    0 = Statistic is below threshold (success)
+                    1 = Statistic was found to be increasing (OK)
+                    2 = Max number of hot bins reached (not good)
+    """
+    hot_bins = []
+    tmp_data = list(data)
+
+    prev_stat = scipy.stats.normaltest(tmp_data)[0]
+    while tmp_data:
+        if prev_stat < normstat_thresh:
+            # Statistic is below threshold
+            return (hot_bins, 0)
+        elif (max_num_hot is not None) and (len(hot_bins) >= max_num_hot):
+            # Reached maximum number of hot bins
+            return (hot_bins, 2)
+
+        imax = np.argmax(tmp_data)
+        tmp_data.pop(imax)
+        curr_stat = scipy.stats.normaltest(tmp_data)[0]
+        if only_decreasing and (curr_stat > prev_stat):
+            # Stat is increasing and we don't want that!
+            return (hot_bins, 1)
+        hot_bins.append(imax)
+        # Iterate
+        prev_stat = curr_stat
+
+
 def scale(data, weights=slice(None)):
     medfilt = scipy.signal.medfilt(data[weights], kernel_size=5)
     data[weights] -= medfilt
@@ -83,29 +130,43 @@ def remove_profile(data):
 
 
 def get_chan_stats(ar):
+    nchans = ar.get_nchan()
+    data = get_chans(ar, remove_prof=True)
+    std = scale(data.std(axis=1), get_chan_weights(ar).astype(bool))
+    return std/np.std(std)
+
+
+def get_chans(ar, remove_prof=False):
     clone = ar.clone()
     clone.remove_baseline()
     clone.dedisperse()
     clone.pscrunch()
     clone.tscrunch()
-    nchans = clone.get_nchan()
-    data = remove_profile(clone.get_data().squeeze())
-    std = scale(data.std(axis=1), get_chan_weights(ar).astype(bool))
-    return std/np.std(std)
+    data = clone.get_data().squeeze()
+    if remove_prof:
+        data = remove_profile(data)
+    return data
     
 
 def get_subint_stats(ar):
+    nsubs = ar.get_nsubint()
+    data = get_subints(ar, remove_prof=True)
+    #std = scale(data.std(axis=1), get_subint_weights(ar).astype(bool))
+    normtest = scipy.stats.mstats.normaltest(data, axis=1)[0]
+    return normtest
+
+
+def get_subints(ar, remove_prof=False):
     clone = ar.clone()
     clone.remove_baseline()
     clone.set_dispersion_measure(0)
     clone.dedisperse()
     clone.pscrunch()
     clone.fscrunch()
-    nsubs = clone.get_nsubint()
-    data = remove_profile(clone.get_data().squeeze())
-    #std = scale(data.std(axis=1), get_subint_weights(ar).astype(bool))
-    normtest = scipy.stats.mstats.normaltest(data, axis=1)[0]
-    return normtest
+    data = clone.get_data().squeeze() 
+    if remove_prof:
+        data = remove_profile(data)
+    return data
 
 
 def zero_weight_subint(ar, isub):
@@ -127,6 +188,99 @@ def get_chan_weights(ar):
     return ar.get_weights().sum(axis=0)
 
 
+def deep_clean(ar):
+    plot(ar, "before_deep_clean")
+    
+    # First clean channels
+    chandata = get_chans(ar, remove_prof=True)
+    chanweights = get_chan_weights(ar).astype(bool)
+    chanmeans = scale_chans(chandata.mean(axis=1), chanweights=chanweights)
+    chanmeans /= get_robust_std(chanmeans, chanweights)
+    chanstds = scale_chans(chandata.std(axis=1), chanweights=chanweights)
+    chanstds /= get_robust_std(chanstds, chanweights)
+
+    badchans = np.concatenate((np.argwhere(chanmeans >= 5.0), \
+                                    np.argwhere(chanstds >= 5.0)))
+    for ichan in np.unique(badchans):
+        print "De-weighting chan# %d" % ichan
+        zero_weight_chan(ar, ichan)
+
+    plot(ar, "mid-chans_deep_clean")
+
+    # Next clean subints
+    subintdata = get_subints(ar, remove_prof=True)
+    subintweights = get_subint_weights(ar).astype(bool)
+    subintmeans = scale_subints(subintdata.mean(axis=1), \
+                                    subintweights=subintweights)
+    subintmeans /= get_robust_std(subintmeans, subintweights)
+    subintstds = scale_subints(subintdata.std(axis=1), \
+                                    subintweights=subintweights)
+    subintstds /= get_robust_std(subintstds, subintweights)
+
+    badsubints = np.concatenate((np.argwhere(subintmeans >= 5.0), \
+                                    np.argwhere(subintstds >= 5.0)))
+    for isub in np.unique(badsubints):
+        print "De-weighting subint# %d" % isub
+        zero_weight_subint(ar, isub)
+
+    plot(ar, "mid-subints_deep_clean")
+    
+    # Now replace hot bins
+    clean_hot_bins(ar, thresh=2.0)
+    plot(ar, "after_deep_clean")
+    unloadfn = "%s.deepcleaned" % ar.get_filename()
+    print "Unloading deep cleaned archive as %s" % unloadfn
+    ar.unload(unloadfn)
+
+
+def clean_hot_bins(ar, thresh=2.0):
+    subintdata = get_subints(ar, remove_prof=True)
+    subintweights = get_subint_weights(ar).astype(bool)
+    
+    # re-disperse archive because subintdata is at DM=0
+    orig_dm = ar.get_dispersion_measure()
+    ar.set_dispersion_measure(0)
+    ar.dedisperse()
+    
+    # Clean hot bins
+    for isub, subintweight in enumerate(subintweights):
+        if subintweight:
+            # Identify hot bins
+            subint = subintdata[isub,:]
+            hot_bins = get_hot_bins(subint, normstat_thresh=2)[0]
+            if len(hot_bins):
+                print "Cleaning %d bins in subint# %d" % (len(hot_bins), isub)
+                clean_subint(ar, isub, hot_bins)
+        else:
+            # Subint is masked. Nothing to do.
+            pass
+
+    # Re-dedisperse data using original DM
+    ar.set_dispersion_measure(orig_dm)
+    ar.dedisperse()
+
+
+def clean_subint(ar, isub, bins):
+    npol = ar.get_npol()
+    nchan = ar.get_nchan()
+    nbins = ar.get_nbin()
+    mask = np.zeros(nbins)
+    mask[bins] = 1
+
+    subint = ar.get_Integration(int(isub))
+    for ichan in range(nchan):
+        for ipol in range(npol):
+            prof = subint.get_Profile(ipol, ichan)
+            if prof.get_weight():
+                data = prof.get_amps()
+                masked_data = np.ma.array(data, mask=mask)
+                std = masked_data.std()
+                mean = masked_data.mean()
+                noise = scipy.stats.norm.rvs(loc=mean, scale=std, size=len(bins))
+                for ii, newval in zip(bins, noise):
+                    data[ii] = newval
+
+
 def clean_simple(ar, timethresh=1.0, freqthresh=3.0):
     plot(ar, "before_simple_clean")
     # Get stats for subints
@@ -143,7 +297,7 @@ def clean_simple(ar, timethresh=1.0, freqthresh=3.0):
         zero_weight_chan(ar, ichan)
     plot(ar, "after_simple_clean")
     unloadfn = "%s.cleaned" % ar.get_filename()
-    print "Unoading cleaned archive as %s" % unloadfn
+    print "Unloading cleaned archive as %s" % unloadfn
     ar.unload(unloadfn)
 
 
@@ -172,7 +326,7 @@ def clean_iterative(ar, threshold=2.0):
         plot(ar, "bogus_%d" % ii)
         ii += 1
     unloadfn = "%s.cleaned" % ar.get_filename()
-    print "Unoading cleaned archive as %s" % unloadfn
+    print "Unloading cleaned archive as %s" % unloadfn
     ar.unload(unloadfn)
 
 
@@ -206,15 +360,17 @@ def plot(ar, basename=None):
     data = remove_profile(clone.get_data().squeeze())
     weights = get_subint_weights(ar).astype(bool)
 
+    num_hot = lambda row: len(get_hot_bins(row, normstat_thresh=3)[0])
     funcs = [lambda data: scale_subints(data.mean(axis=1), subintweights=weights), \
              lambda data: scale_subints(data.std(axis=1), subintweights=weights), \
              lambda data: data.ptp(axis=1), \
              lambda data: scipy.stats.skew(data, axis=1), \
              lambda data: scipy.stats.kurtosis(data, axis=1), \
-             lambda data: scipy.stats.mstats.normaltest(data, axis=1)[0]]
-    labels = ["Mean", "Std dev", "Max-min", "Skew", "Kurtosis", "Normality"]
-    thresholds = [5, 5, 1, 1, 1, 5]
-    scales = [5, 5, 1, 1, 1, 0]
+             lambda data: scipy.stats.mstats.normaltest(data, axis=1)[0], \
+             lambda data: np.apply_along_axis(num_hot, 1, data)]
+    labels = ["Mean", "Std dev", "Max-min", "Skew", "Kurtosis", "Normality", "Num to Norm"]
+    thresholds = [5, 5, 1, 1, 1, 5, 0]
+    scales = [5, 5, 1, 1, 1, 0, 0]
     width = 0.45
     N = len(funcs)
     dw = width/N
@@ -239,11 +395,11 @@ def plot(ar, basename=None):
         stat = func(data)
         
         # Print normality info for stat
-        print label
-        isorts = np.argsort(stat)[::-1]
-        for jj, isort in enumerate(isorts[:30]):
-            normality = scipy.stats.normaltest(stat[isorts[jj:]], axis=None)[0]
-            print "    %d (%d): %g" % (jj, isort, normality) 
+        #print label
+        #isorts = np.argsort(stat)[::-1]
+        #for jj, isort in enumerate(isorts[:30]):
+        #    normality = scipy.stats.normaltest(stat[isorts[jj:]], axis=None)[0]
+        #    print "    %d (%d): %g" % (jj, isort, normality) 
         
         if scl:
             plt.plot(stat/get_robust_std(stat, weights), np.arange(nsubs), 'k-')
@@ -309,7 +465,8 @@ def plot(ar, basename=None):
 def main():
     ar = psrchive.Archive_load(sys.argv[1])
     #clean_simple(ar, timethresh=5.0, freqthresh=3.0)
-    plot(ar, "%s.testplot" % ar.get_filename())
+    deep_clean(ar)
+    #plot(ar, "%s.testplot" % ar.get_filename())
 
 
 if __name__ == '__main__':
