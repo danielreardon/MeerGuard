@@ -7,6 +7,8 @@ Patrick Lazarus, Dec. 12, 2011
 """
 
 import sys
+import os.path
+import optparse
 
 import numpy as np
 import scipy.signal
@@ -17,349 +19,197 @@ import matplotlib.pyplot as plt
 
 import psrchive
 
-
-def get_hot_bins(data, normstat_thresh=6.3, max_num_hot=None, \
-                    only_decreasing=True):
-    """Return a list of indices that are bin numbers causing the
-        given data to be different from normally distributed.
-        The bins returned will contain the highest values in 'data'.
-
-        Inputs:
-            data: A 1-D array of data.
-            normstat_thresh: The threshold for the Omnibus K^2
-                statistic used to determine normality of data.
-                (Default 6.3 -- 95% quantile for 50-100 data points)
-            max_num_hot: The maximum number of hot bins to return.
-                (Default: None -- no limit)
-            only_decreasing: If True, stop collecting "hot" bins and return
-                the current list if the K^2 statistic begins to increase
-                as bins are removed. (Default: True)
-
-        Outputs:
-            hot_bins: A list of "hot" bins.
-            status: A return status.
-                    0 = Statistic is below threshold (success)
-                    1 = Statistic was found to be increasing (OK)
-                    2 = Max number of hot bins reached (not good)
-    """
-    hot_bins = []
-    tmp_data = list(data)
-
-    prev_stat = scipy.stats.normaltest(tmp_data)[0]
-    while tmp_data:
-        if prev_stat < normstat_thresh:
-            # Statistic is below threshold
-            return (hot_bins, 0)
-        elif (max_num_hot is not None) and (len(hot_bins) >= max_num_hot):
-            # Reached maximum number of hot bins
-            return (hot_bins, 2)
-
-        imax = np.argmax(tmp_data)
-        tmp_data.pop(imax)
-        curr_stat = scipy.stats.normaltest(tmp_data)[0]
-        if only_decreasing and (curr_stat > prev_stat):
-            # Stat is increasing and we don't want that!
-            return (hot_bins, 1)
-        hot_bins.append(imax)
-        # Iterate
-        prev_stat = curr_stat
+import clean_utils
 
 
-def scale(data, weights=slice(None)):
-    medfilt = scipy.signal.medfilt(data[weights], kernel_size=5)
-    data[weights] -= medfilt
-    return data 
+func_info = {'std': ("Standard Deviation", np.std), \
+             'mean': ("Average", np.mean), \
+             'median': ("Median", np.median), \
+             'ptp': ("Max - Min", np.ptp), \
+             'normality': ("Test of Normality", \
+                    lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[0])}
 
 
-def scale_subints(data, kernel_size=5, subintweights=None):
-    scaled = np.empty(len(data))
-    if subintweights is None:
-        subintweights = np.ones(len(data), dtype=bool)
-    else:
-        subintweights = np.asarray(subintweights).astype(bool)
-    for ii in range(len(data)):
-        lobin = ii-int(kernel_size/2)
-        if lobin < 0:
-            lobin=None
-        
-        hibin = ii+int(kernel_size/2)+1
-        if hibin > len(data):
-            hibin=None
-        neighbours = np.asarray(data[lobin:hibin])
-        neighbour_weights = subintweights[lobin:hibin]
-        scaled[ii] = data[ii] - np.median(neighbours[neighbour_weights])
-    return scaled
+# Set plotting defaults
+plt.rc(('xtick.major', 'ytick.major'), size=6)
+plt.rc(('xtick.minor', 'ytick.minor'), size=3)
+plt.rc('axes', labelsize='small')
+plt.rc(('xtick', 'ytick'), labelsize='x-small')
 
 
-def scale_chans(data, nchans=16, chanweights=None):
-    """ Find the median of each subband and subtract it from
-        the data.
-
-        Inputs:
-            data: The channel data to scale.
-            nchans: The number of channels to combine together for
-                each subband (Default: 16)
-    """
-    scaled = np.empty(len(data))
-    if chanweights is None:
-        chanweights = np.ones(len(data), dtype=bool)
-    else:
-        chanweights = np.asarray(chanweights).astype(bool)
-    for lochan in range(0, len(data), nchans):
-        subscaled = np.asarray(data[lochan:lochan+nchans])
-        subweights = chanweights[lochan:lochan+nchans]
-
-        median = np.median(subscaled[subweights])
-        subscaled[subweights] -= median
-        subscaled[~subweights] = 0
-        scaled[lochan:lochan+nchans] = subscaled
-    return scaled
-
-
-def get_profile(data):
-    return np.sum(data, axis=0)
-
-
-def remove_profile(data):
-    template = get_profile(data)
-    num = data.shape[0]
-    err = lambda amps: np.ravel(amps[:,np.newaxis]*template - data)
-    amps = opt.leastsq(err, np.zeros(num))[0]
-    data -= template*amps[:,np.newaxis]
-    return data
-
-
-def get_chan_stats(ar):
-    nchans = ar.get_nchan()
-    data = get_chans(ar, remove_prof=True)
-    std = scale(data.std(axis=1), get_chan_weights(ar).astype(bool))
-    return std/np.std(std)
-
-
-def get_chans(ar, remove_prof=False):
-    clone = ar.clone()
-    clone.remove_baseline()
-    clone.dedisperse()
-    clone.pscrunch()
-    clone.tscrunch()
-    data = clone.get_data().squeeze()
-    if remove_prof:
-        data = remove_profile(data)
-    return data
-    
-
-def get_subint_stats(ar):
-    nsubs = ar.get_nsubint()
-    data = get_subints(ar, remove_prof=True)
-    #std = scale(data.std(axis=1), get_subint_weights(ar).astype(bool))
-    normtest = scipy.stats.mstats.normaltest(data, axis=1)[0]
-    return normtest
-
-
-def get_subints(ar, remove_prof=False):
-    clone = ar.clone()
-    clone.remove_baseline()
-    clone.set_dispersion_measure(0)
-    clone.dedisperse()
-    clone.pscrunch()
-    clone.fscrunch()
-    data = clone.get_data().squeeze() 
-    if remove_prof:
-        data = remove_profile(data)
-    return data
-
-
-def zero_weight_subint(ar, isub):
-    subint = ar.get_Integration(int(isub))
-    subint.uniform_weight(0.0)
-
-
-def zero_weight_chan(ar, ichan):
-    for isub in range(ar.get_nsubint()):
-        subint = ar.get_Integration(int(isub))
-        subint.set_weight(int(ichan), 0.0)
-
-
-def get_subint_weights(ar):
-    return ar.get_weights().sum(axis=1)
-
-
-def get_chan_weights(ar):
-    return ar.get_weights().sum(axis=0)
-
-
-def deep_clean(ar):
-    plot(ar, "before_deep_clean")
-    
-    # First clean channels
-    chandata = get_chans(ar, remove_prof=True)
-    chanweights = get_chan_weights(ar).astype(bool)
-    chanmeans = scale_chans(chandata.mean(axis=1), chanweights=chanweights)
-    chanmeans /= get_robust_std(chanmeans, chanweights)
-    chanstds = scale_chans(chandata.std(axis=1), chanweights=chanweights)
-    chanstds /= get_robust_std(chanstds, chanweights)
-
-    badchans = np.concatenate((np.argwhere(chanmeans >= 5.0), \
-                                    np.argwhere(chanstds >= 5.0)))
-    for ichan in np.unique(badchans):
-        print "De-weighting chan# %d" % ichan
-        zero_weight_chan(ar, ichan)
-
-    plot(ar, "mid-chans_deep_clean")
-
-    # Next clean subints
-    subintdata = get_subints(ar, remove_prof=True)
-    subintweights = get_subint_weights(ar).astype(bool)
-    subintmeans = scale_subints(subintdata.mean(axis=1), \
-                                    subintweights=subintweights)
-    subintmeans /= get_robust_std(subintmeans, subintweights)
-    subintstds = scale_subints(subintdata.std(axis=1), \
-                                    subintweights=subintweights)
-    subintstds /= get_robust_std(subintstds, subintweights)
-
-    badsubints = np.concatenate((np.argwhere(subintmeans >= 5.0), \
-                                    np.argwhere(subintstds >= 5.0)))
-    for isub in np.unique(badsubints):
-        print "De-weighting subint# %d" % isub
-        zero_weight_subint(ar, isub)
-
-    plot(ar, "mid-subints_deep_clean")
-    
-    # Now replace hot bins
-    clean_hot_bins(ar, thresh=2.0)
-    plot(ar, "after_deep_clean")
-    unloadfn = "%s.deepcleaned" % ar.get_filename()
-    print "Unloading deep cleaned archive as %s" % unloadfn
-    ar.unload(unloadfn)
-
-
-def clean_hot_bins(ar, thresh=2.0):
-    subintdata = get_subints(ar, remove_prof=True)
-    subintweights = get_subint_weights(ar).astype(bool)
-    
-    # re-disperse archive because subintdata is at DM=0
-    orig_dm = ar.get_dispersion_measure()
-    ar.set_dispersion_measure(0)
-    ar.dedisperse()
-    
-    # Clean hot bins
-    for isub, subintweight in enumerate(subintweights):
-        if subintweight:
-            # Identify hot bins
-            subint = subintdata[isub,:]
-            hot_bins = get_hot_bins(subint, normstat_thresh=2)[0]
-            if len(hot_bins):
-                print "Cleaning %d bins in subint# %d" % (len(hot_bins), isub)
-                clean_subint(ar, isub, hot_bins)
-        else:
-            # Subint is masked. Nothing to do.
-            pass
-
-    # Re-dedisperse data using original DM
-    ar.set_dispersion_measure(orig_dm)
-    ar.dedisperse()
-
-
-def clean_subint(ar, isub, bins):
-    npol = ar.get_npol()
-    nchan = ar.get_nchan()
-    nbins = ar.get_nbin()
-    mask = np.zeros(nbins)
-    mask[bins] = 1
-
-    subint = ar.get_Integration(int(isub))
-    for ichan in range(nchan):
-        for ipol in range(npol):
-            prof = subint.get_Profile(ipol, ichan)
-            if prof.get_weight():
-                data = prof.get_amps()
-                masked_data = np.ma.array(data, mask=mask)
-                std = masked_data.std()
-                mean = masked_data.mean()
-                noise = scipy.stats.norm.rvs(loc=mean, scale=std, size=len(bins))
-                for ii, newval in zip(bins, noise):
-                    data[ii] = newval
-
-
-def clean_simple(ar, timethresh=1.0, freqthresh=3.0):
-    plot(ar, "before_simple_clean")
-    # Get stats for subints
-    subint_stats = get_subint_stats(ar)
-    
-    # Get stats for chans
-    chan_stats = get_chan_stats(ar)
-
-    for isub in np.argwhere(subint_stats >= timethresh):
-        print "De-weighting subint# %d" % isub
-        zero_weight_subint(ar, isub)
-    for ichan in np.argwhere(chan_stats >= freqthresh):
-        print "De-weighting chan# %d" % ichan
-        zero_weight_chan(ar, ichan)
-    plot(ar, "after_simple_clean")
-    unloadfn = "%s.cleaned" % ar.get_filename()
-    print "Unloading cleaned archive as %s" % unloadfn
-    ar.unload(unloadfn)
-
-
-def clean_iterative(ar, threshold=2.0):
-    ii = 0
-    while True:
-        # Get stats for subints
-        subint_stats = get_subint_stats(ar)
-        worst_subint = np.argmax(subint_stats)
-        
-        # Get stats for chans
-        chan_stats = get_chan_stats(ar)
-        worst_chan = np.argmax(chan_stats)
-
-        # Check that at least something should be masked
-        if (chan_stats[worst_chan] < threshold) and \
-                    (subint_stats[worst_subint] < threshold):
-            break
-        else:
-            if subint_stats[worst_subint] > chan_stats[worst_chan]:
-                print "De-weighting subint# %d" % worst_subint
-                zero_weight_subint(ar, worst_subint)
-            else:
-                print "De-weighting chan# %d" % worst_chan
-                zero_weight_chan(ar, worst_chan)
-        plot(ar, "bogus_%d" % ii)
-        ii += 1
-    unloadfn = "%s.cleaned" % ar.get_filename()
-    print "Unloading cleaned archive as %s" % unloadfn
-    ar.unload(unloadfn)
-
-
-def get_robust_std(data, weights, trimfrac=0.1):
-    mdata = np.ma.masked_where(np.bitwise_not(weights), data)
-    unmasked = mdata.compressed()
-    mad = np.median(np.abs(unmasked-np.median(unmasked)))
-    return 1.4826*mad
-    #return scipy.stats.mstats.std(scipy.stats.mstats.trimboth(mdata, trimfrac))
-
-
-def plot(ar, basename=None):
+def plot(ar, data, func_key='std', log=False, vmin=0, vmax=1):
     """Plot.
 
         Inputs:
-            ar: The archive to make the plot for.
+            ar: The archive (this is used only to print text information).
+            data: The archive data to make the plot for.
+            func_key: A key indicating which function to plot.
+                (Default: 'std')
+            log: A boolean value. True to plot colours in log scale.
+                (Default: Use linear scale)
+            vmin: Fraction of colour range to show as black.
+                (Default: 0.0)
+            vmax: Fraction of colour range to show as white.
+                (Default: 1.0_)
+
+        Outputs:
+            None
+    """
+    nsubs, nchans, nbins = data.shape
+    
+    title, func = func_info[func_key]
+    
+    sub_chan = func(data, axis=2)
+    sub_phs = func(data, axis=1)
+    chan_phs = func(data, axis=0)
+
+    plt.figure(figsize=(11,8))
+    
+    # Create colour normaliser
+    if log:
+        normcls = matplotlib.colors.LogNorm
+    else:
+        normcls = matplotlib.colors.Normalize
+
+    # Add text
+    plt.figtext(0.02, 0.95, title, size='large', ha='left', va='center')
+    plt.figtext(0.02, 0.925, os.path.split(ar.get_filename())[-1], \
+                    size='x-small', ha='left', va='center')
+    plt.figtext(0.02, 0.85, "Number of sub-ints: %d" % nsubs, \
+                    size='small', ha='left', va='center')
+    plt.figtext(0.02, 0.83, "Number of channels: %d" % nchans, \
+                    size='small', ha='left', va='center')
+    plt.figtext(0.02, 0.81, "Number of phase bins: %d" % nbins, \
+                    size='small', ha='left', va='center')
+    plt.figtext(0.02, 0.79, "Dedispered at: %.2f pc cm$^{\mathrm{-3}}$" % \
+                    ar.get_dispersion_measure(), \
+                    size='small', ha='left', va='center')
+    plt.figtext(0.02, 0.77, "Centre Frequency: %.2f MHz" % \
+                    ar.get_centre_frequency(), \
+                    size='small', ha='left', va='center')
+    plt.figtext(0.02, 0.75, "Bandwidth: %.2f MHz" % \
+                    ar.get_bandwidth(), \
+                    size='small', ha='left', va='center')
+    # Plot profile
+    prof_ax = plt.axes((0.05, 0.55, 0.4, 0.15))
+    prof = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
+    plt.plot(np.arange(nbins), prof, 'k-')
+    plt.axis('tight')
+    plt.xlabel("Phase Bins")
+    plt.ylabel("Intensity")
+
+    # Plot image data
+    sub_chan_ax = plt.axes((0.05, 0.05, 0.45, 0.45))
+    loval = np.min(sub_chan)
+    ptp = np.ptp(sub_chan)
+    norm = normcls(loval+ptp*vmin, loval+ptp*vmax, clip=True)
+    plt.imshow(sub_chan, origin='bottom', aspect='auto', norm=norm, \
+                cmap=matplotlib.cm.gist_heat, interpolation='nearest')
+    plt.xlabel("Channels")
+    plt.ylabel("Sub-ints")
+    
+    sub_phs_ax = plt.axes((0.5, 0.05, 0.45, 0.45))
+    loval = np.min(sub_phs)
+    ptp = np.ptp(sub_phs)
+    norm = normcls(loval+ptp*vmin, loval+ptp*vmax, clip=True)
+    plt.imshow(sub_phs, origin='bottom', aspect='auto', norm=norm, \
+                cmap=matplotlib.cm.gist_heat, interpolation='nearest')
+    plt.xlabel("Phase bins")
+    plt.setp(sub_phs_ax.yaxis.get_ticklabels(), visible=False)
+    
+    chan_phs_ax = plt.axes((0.5, 0.5, 0.45, 0.45))
+    loval = np.min(chan_phs)
+    ptp = np.ptp(chan_phs)
+    norm = normcls(loval+ptp*vmin, loval+ptp*vmax, clip=True)
+    plt.imshow(chan_phs, origin='bottom', aspect='auto', norm=norm, \
+                cmap=matplotlib.cm.gist_heat, interpolation='nearest')
+    plt.setp(chan_phs_ax.xaxis.get_ticklabels(), visible=False)
+    plt.ylabel("Channels")
+   
+    # Link the axes
+    prof_ax.callbacks.connect('xlim_changed', lambda ax: (chan_phs_ax.get_xlim()==ax.get_xlim() or \
+                                                            chan_phs_ax.set_xlim(ax.get_xlim()), \
+                                                          sub_phs_ax.get_xlim()==ax.get_xlim() or \
+                                                            sub_phs_ax.set_xlim(ax.get_xlim())))
+    sub_chan_ax.callbacks.connect('xlim_changed', lambda ax: (chan_phs_ax.get_ylim()==ax.get_xlim() or \
+                                                                chan_phs_ax.set_ylim(ax.get_xlim())))
+    sub_chan_ax.callbacks.connect('ylim_changed', lambda ax: (sub_phs_ax.get_ylim()==ax.get_ylim() or \
+                                                                sub_phs_ax.set_ylim(ax.get_ylim())))
+    sub_phs_ax.callbacks.connect('xlim_changed', lambda ax: (chan_phs_ax.get_xlim()==ax.get_xlim() or \
+                                                                chan_phs_ax.set_xlim(ax.get_xlim()), \
+                                                              prof_ax.get_xlim()==ax.get_xlim() or \
+                                                                prof_ax.set_xlim(ax.get_xlim())))
+    sub_phs_ax.callbacks.connect('ylim_changed', lambda ax: (sub_chan_ax.get_ylim()==ax.get_ylim() or \
+                                                                sub_chan_ax.set_ylim(ax.get_ylim())))
+    chan_phs_ax.callbacks.connect('xlim_changed', lambda ax: (sub_phs_ax.get_xlim()==ax.get_xlim() or \
+                                                                sub_phs_ax.set_xlim(ax.get_xlim()), \
+                                                              prof_ax.get_xlim()==ax.get_xlim() or \
+                                                                prof_ax.set_xlim(ax.get_xlim())))
+    chan_phs_ax.callbacks.connect('ylim_changed', lambda ax: (sub_chan_ax.get_xlim()==ax.get_ylim() or \
+                                                                sub_chan_ax.set_xlim(ax.get_ylim())))
+
+
+def plot_box(data, basename=None):
+    """Plot.
+
+        Inputs:
+            data: The archive data to make the plot for.
             basename: The basename of the output plots.
                 (Default: Do not output plots.)
 
         Outputs:
             None
     """
-    clone = ar.clone()
-    clone.remove_baseline()
-    clone.set_dispersion_measure(0)
-    clone.dedisperse()
-    clone.pscrunch()
-    clone.fscrunch()
-    nsubs = clone.get_nsubint()
-    data = clone.get_data().squeeze()
-    data = remove_profile(clone.get_data().squeeze())
-    weights = get_subint_weights(ar).astype(bool)
+    nsubs, nchans, nbins = data.shape
+    
+    print data.shape
+    print nsubs, nchans, nbins
+    print np.std(data, axis=2).shape
+    func = np.std
+    title = "Standard Deviation"
+    
+    sub_chan = func(data, axis=2)
+    sub_phs = func(data, axis=1)
+    chan_phs = func(data, axis=0)
 
+    plt.figure(figsize=(8,8))
+    plt.axes((.375, .5, .25, .25))
+    plt.imshow(sub_phs, origin='bottom', aspect='auto', \
+                cmap=matplotlib.cm.gist_heat, interpolation='nearest')
+    plt.xticks([])
+    plt.yticks([])
+    plt.axes((.375, .75, .25, .25))
+    plt.imshow(chan_phs, origin='bottom', aspect='auto', \
+                cmap=matplotlib.cm.gist_heat, interpolation='nearest')
+    plt.xticks([])
+    plt.yticks([])
+    plt.axes((.625, .5, .25, .25))
+    plt.imshow(sub_chan, origin='bottom', aspect='auto', \
+                cmap=matplotlib.cm.gist_heat, interpolation='nearest')
+    plt.xticks([])
+    plt.yticks([])
+    plt.axes((.125, .5, .25, .25))
+    plt.imshow(np.fliplr(sub_chan), origin='bottom', aspect='auto', \
+                cmap=matplotlib.cm.gist_heat, interpolation='nearest')
+    plt.xticks([])
+    plt.yticks([])
+    plt.axes((.375, .25, .25, .25))
+    plt.imshow(np.flipud(chan_phs), origin='bottom', aspect='auto', \
+                cmap=matplotlib.cm.gist_heat, interpolation='nearest')
+    plt.xticks([])
+    plt.yticks([])
+    plt.axes((.375, 0, .25, .25))
+    plt.imshow(np.flipud(sub_phs), origin='bottom', aspect='auto', \
+                cmap=matplotlib.cm.gist_heat, interpolation='nearest')
+    plt.xticks([])
+    plt.yticks([])
+    if basename is not None:
+        plt.savefig(basename+"_datacube.png", dpb=300, papertype="a4", format="png")
+        plt.savefig(basename+"_datacube.pdf", dpb=300, papertype="a4", format="pdf")
+    plt.show()
+
+
+def foo():
     num_hot = lambda row: len(get_hot_bins(row, normstat_thresh=3)[0])
     funcs = [lambda data: scale_subints(data.mean(axis=1), subintweights=weights), \
              lambda data: scale_subints(data.std(axis=1), subintweights=weights), \
@@ -464,10 +314,70 @@ def plot(ar, basename=None):
 
 def main():
     ar = psrchive.Archive_load(sys.argv[1])
-    #clean_simple(ar, timethresh=5.0, freqthresh=3.0)
-    deep_clean(ar)
-    #plot(ar, "%s.testplot" % ar.get_filename())
+    ar.pscrunch()
+   
+    if options.remove_baseline:
+        print "Removing baseline..."
+        ar.remove_baseline()
+    if options.dedisperse:
+        print "Dedispersing..."
+        ar.dedisperse()
+    else:
+        ar.set_dispersion_measure(0)
+        ar.dedisperse()
+    data = ar.get_data().squeeze()
+    if options.remove_profile:
+        print "Removing profile..."
+        template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
+        data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
+                                            template, options.nthreads)
+    for func_key in options.funcs_to_plot:
+        plot(ar, data, func_key, log=options.log_colours, \
+            vmin=options.black_level, vmax=options.white_level)
+    plt.gcf().canvas.mpl_connect('key_press_event', \
+                lambda ev: (ev.key in ('q', 'Q')) and plt.close())
+    plt.show()
 
 
 if __name__ == '__main__':
+    parser = optparse.OptionParser()
+    parser.add_option('-d', '--dedisperse', dest='dedisperse', \
+        action='store_true', default=False, \
+        help="Dedisperse archive before producing diagnostics. " \
+             "(Default: Keep archive in dispersed (DM=0) state)")
+    parser.add_option('-b', '--remove-baseline', dest='remove_baseline', \
+        action='store_true', default=False, \
+        help="Remove baselines from all profiles using archive's " \
+                "'remove_baseline()' method. (Default: Do not " \
+                "remove baseline)")
+    parser.add_option('-p', '--remove-profile', dest='remove_profile', \
+        action='store_true', default=False, \
+        help="Remove profile. (Default: Do not remove profile)")
+    parser.add_option('--num-subbands', dest='num_subbands', \
+        type='int', default=None, \
+        help="The number of subbands. This is used for scaling channels. " \
+             "(Default: Do not scale channels)")
+    parser.add_option('-n', '--num-threads', dest='nthreads', \
+        type='int', default=None, \
+        help="The number of threads to use when removing profiles. " \
+                "(Default: Use as many threads as there are CPUs)")
+    parser.add_option('-f', '--func-to-plot', dest='funcs_to_plot', \
+        action='append', default=[], \
+        help="Plot the given function. Possible choices are: " + \
+             "; ".join(["%s: %s" % (key, info[0]) for key, info \
+                                            in func_info.iteritems()]))
+    parser.add_option('--log-colours', dest='log_colours', \
+        action='store_true', default=False, \
+        help="Plot colours on a logarithmic scale. (Default: use linear scale)")
+    parser.add_option('--white-level', dest='white_level', \
+        type='float', default=1.0, \
+        help="Values whose normalised colour is larger than this value " \
+                "(on a 0-1 scale) will be shown as white. (Default: 1.0)")
+    parser.add_option('--black-level', dest='black_level', \
+        type='float', default=0.0, \
+        help="Values whose normalised clour is smaller than this value " \
+                "(on a 0-1 scale) will be shown as black. (Default: 0.0)")
+    options, args = parser.parse_args()
+    if not options.funcs_to_plot:
+        options.funcs_to_plot = ['std']
     main()
