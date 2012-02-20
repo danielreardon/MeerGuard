@@ -87,6 +87,22 @@ def deep_clean(ar):
     chanstds = clean_utils.scale_chans(chandata.std(axis=1), chanweights=chanweights)
     chanstds /= clean_utils.get_robust_std(chanstds, chanweights)
 
+    plt.figure()
+    plt.subplot(2,1,1)
+    plt.plot(chanstds, 'k')
+    plt.axhline(5.0, c='k', ls='--')
+    plt.ylabel("Scaled std")
+    plt.subplot(2,1,2)
+    plt.plot(chandata.std(axis=1))
+
+    plt.figure()
+    plt.subplot(2,1,1)
+    plt.plot(chanmeans, 'k')
+    plt.axhline(5.0, c='k', ls='--')
+    plt.ylabel("Scaled mean")
+    plt.subplot(2,1,2)
+    plt.plot(chandata.mean(axis=1))
+    plt.show()
     badchans = np.concatenate((np.argwhere(chanmeans >= 5.0), \
                                     np.argwhere(chanstds >= 5.0)))
     for ichan in np.unique(badchans):

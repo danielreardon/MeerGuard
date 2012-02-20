@@ -140,7 +140,7 @@ class DiagnosticFigure(matplotlib.figure.Figure):
 
     def replot(self):
         self.disconnect_event_triggers()
-        print self.sub_lims, self.chan_lims, self.bin_lims
+        #print self.sub_lims, self.chan_lims, self.bin_lims
         subset = self.data[slice(*self.sub_lims), \
                             slice(*self.chan_lims), \
                             slice(*self.bin_lims)]
@@ -191,8 +191,8 @@ class DiagnosticFigure(matplotlib.figure.Figure):
         self.sub_phs_ax.set_xlabel("Phase bins")
         plt.setp(self.sub_phs_ax.yaxis.get_ticklabels(), visible=False)
 
-        plt.figure()
-        plt.plot(sub_chan.sum(axis=0), 'k')
+        #plt.figure()
+        #plt.plot(sub_chan.sum(axis=0), 'k')
 
         # Channels vs. Phase
         loval = np.min(chan_phs)
@@ -490,7 +490,7 @@ def foo():
 
 
 def main():
-    ar = psrchive.Archive_load(sys.argv[1])
+    ar = psrchive.Archive_load(args[0])
     ar.pscrunch()
    
     if options.remove_baseline:
@@ -508,6 +508,7 @@ def main():
         template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
         data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
                                             template, options.nthreads)
+    data = clean_utils.apply_weights(data, ar.get_weights())
     for func_key in options.funcs_to_plot:
         DiagnosticFigure(ar, data, func_key, log=options.log_colours, \
             vmin=options.black_level, vmax=options.white_level)

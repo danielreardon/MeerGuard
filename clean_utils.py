@@ -98,32 +98,45 @@ def get_chan_stats(ar):
     return std/np.std(std)
 
 
-def get_chans(ar, remove_prof=False):
+def get_chans(ar, remove_prof=False, use_weights=True):
     clone = ar.clone()
     clone.remove_baseline()
     clone.dedisperse()
     clone.pscrunch()
-    clone.tscrunch()
+    #clone.tscrunch()
     data = clone.get_data().squeeze()
+    if use_weights:
+        data = apply_weights(data, ar.get_weights())
     template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
     if remove_prof:
         data = remove_profile(data, clone.get_nsubint(), clone.get_nchan(), \
                                 template)
+    data = data.sum(axis=0)
     return data
     
 
-def get_subints(ar, remove_prof=False):
+def get_subints(ar, remove_prof=False, use_weights=True):
     clone = ar.clone()
     clone.remove_baseline()
     clone.set_dispersion_measure(0)
     clone.dedisperse()
     clone.pscrunch()
-    clone.fscrunch()
-    data = clone.get_data().squeeze() 
+    #clone.fscrunch()
+    data = clone.get_data().squeeze()
+    if use_weights:
+        data = apply_weights(data, ar.get_weights())
     template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
     if remove_prof:
         data = remove_profile(data, clone.get_nsubint(), clone.get_nchan(), \
                                 template)
+    data = data.sum(axis=1)
+    return data
+
+
+def apply_weights(data, weights):
+    nsubs, nchans, nbins = data.shape
+    for isub in range(nsubs):
+        data[isub] = data[isub]*weights[isub,...,np.newaxis]
     return data
 
 
@@ -200,8 +213,8 @@ def clean_hot_bins(ar, thresh=2.0):
             subint = subintdata[isub,:]
             hot_bins = get_hot_bins(subint, normstat_thresh=thresh)[0]
             print "Cleaning %d bins in subint# %d" % (len(hot_bins), isub)
-            #if len(hot_bins):
-            #    clean_subint(ar, isub, hot_bins)
+            if len(hot_bins):
+                clean_subint(ar, isub, hot_bins)
         else:
             # Subint is masked. Nothing to do.
             pass
