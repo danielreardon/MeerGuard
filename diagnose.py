@@ -14,7 +14,7 @@ import numpy as np
 import scipy.signal
 import scipy.stats
 import scipy.optimize as opt
-import matplotlib.cm
+import matplotlib
 import matplotlib.pyplot as plt
 
 import psrchive
@@ -35,6 +35,181 @@ plt.rc(('xtick.major', 'ytick.major'), size=6)
 plt.rc(('xtick.minor', 'ytick.minor'), size=3)
 plt.rc('axes', labelsize='small')
 plt.rc(('xtick', 'ytick'), labelsize='x-small')
+plt.rc('figure', figsize=(11,8))
+
+
+class DiagnosticFigure(matplotlib.figure.Figure):
+    def __init__(self, ar, data, func_key, log=False, vmin=0, vmax=0, \
+                    *args, **kwargs):
+        super(DiagnosticFigure, self).__init__(*args, **kwargs)
+        self.ar = ar
+        self.data = data
+        self.log = log
+        self.vmin = vmin
+        self.vmax = vmax
+
+        self.nsubs, self.nchans, self.nbins = self.data.shape
+        self.sub_lims = (0, self.nsubs)
+        self.chan_lims = (0, self.nchans)
+        self.bin_lims = (0, self.nbins)
+
+        self.title, self.func = func_info[func_key]
+
+        # Add text
+        plt.figtext(0.02, 0.95, ar.get_source(), size='large', ha='left', va='center')
+        plt.figtext(0.02, 0.925, os.path.split(ar.get_filename())[-1], \
+                        size='x-small', ha='left', va='center')
+        plt.figtext(0.02, 0.87, "Plotting: %s" % self.title.lower(), \
+                        size='small', ha='left', va='center')
+        plt.figtext(0.02, 0.85, "Number of sub-ints: %d" % self.nsubs, \
+                        size='small', ha='left', va='center')
+        plt.figtext(0.02, 0.83, "Number of channels: %d" % self.nchans, \
+                        size='small', ha='left', va='center')
+        plt.figtext(0.02, 0.81, "Number of phase bins: %d" % self.nbins, \
+                        size='small', ha='left', va='center')
+        plt.figtext(0.02, 0.79, "Dedispersed at: %.2f pc cm$^{\mathrm{-3}}$" % \
+                        self.ar.get_dispersion_measure(), \
+                        size='small', ha='left', va='center')
+        plt.figtext(0.02, 0.77, "Centre Frequency: %.2f MHz" % \
+                        self.ar.get_centre_frequency(), \
+                        size='small', ha='left', va='center')
+        plt.figtext(0.02, 0.75, "Bandwidth: %.2f MHz" % \
+                        self.ar.get_bandwidth(), \
+                        size='small', ha='left', va='center')
+        
+        # Make axes
+        self.prof_ax = plt.axes((0.05, 0.55, 0.4, 0.15)) 
+        self.sub_chan_ax = plt.axes((0.05, 0.05, 0.45, 0.45))
+        self.sub_phs_ax = plt.axes((0.5, 0.05, 0.45, 0.45))
+        self.chan_phs_ax = plt.axes((0.5, 0.5, 0.45, 0.45))
+        
+        # Connect events to update plots on zoom
+        self.connect_event_triggers()
+
+        # Plot data
+        self.replot()
+
+    def connect_event_triggers(self):
+        self.prof_xlim_evid = self.prof_ax.callbacks.connect('xlim_changed', \
+                                    lambda ax: self.change_bin_lims(*ax.get_xlim()))
+        self.sub_chan_xlim_evid = self.sub_chan_ax.callbacks.connect('xlim_changed', \
+                                    lambda ax: self.change_chan_lims(*ax.get_xlim()))
+        self.sub_chan_ylim_evid = self.sub_chan_ax.callbacks.connect('ylim_changed', \
+                                    lambda ax: self.change_sub_lims(*ax.get_ylim()))
+        self.sub_phs_xlim_evid = self.sub_phs_ax.callbacks.connect('xlim_changed', \
+                                    lambda ax: self.change_bin_lims(*ax.get_xlim()))
+        self.sub_phs_ylim_evid = self.sub_phs_ax.callbacks.connect('ylim_changed', \
+                                    lambda ax: self.change_sub_lims(*ax.get_ylim()))
+        self.chan_phs_xlim_evid = self.chan_phs_ax.callbacks.connect('xlim_changed', \
+                                    lambda ax: self.change_bin_lims(*ax.get_xlim()))
+        self.chan_phs_ylim_evid = self.chan_phs_ax.callbacks.connect('ylim_changed', \
+                                    lambda ax: self.change_chan_lims(*ax.get_ylim()))
+
+    def disconnect_event_triggers(self):
+        self.prof_ax.callbacks.disconnect(self.prof_xlim_evid)
+        self.sub_chan_ax.callbacks.disconnect(self.sub_chan_xlim_evid)
+        self.sub_chan_ax.callbacks.disconnect(self.sub_chan_ylim_evid)
+        self.sub_phs_ax.callbacks.disconnect(self.sub_phs_xlim_evid)
+        self.sub_phs_ax.callbacks.disconnect(self.sub_phs_ylim_evid)
+        self.chan_phs_ax.callbacks.disconnect(self.chan_phs_xlim_evid)
+        self.chan_phs_ax.callbacks.disconnect(self.chan_phs_ylim_evid)
+
+    def change_bin_lims(self, lobin, hibin):
+        #print "Changing bin lims: (%f, %f)" % (lobin, hibin)
+        lobin = int(np.round(lobin).clip(0, self.nbins))
+        hibin = int(np.round(hibin).clip(0, self.nbins))
+        if self.bin_lims != (lobin, hibin):
+            self.bin_lims = (lobin, hibin)
+            self.replot()
+
+    def change_chan_lims(self, lochan, hichan):
+        #print "Changing chan lims: (%f, %f)" % (lochan, hichan)
+        lochan = int(np.round(lochan).clip(0, self.nchans))
+        hichan = int(np.round(hichan).clip(0, self.nchans))
+        if self.chan_lims != (lochan, hichan):
+            self.chan_lims = (lochan, hichan)
+            self.replot()
+
+    def change_sub_lims(self, losub, hisub):
+        #print "Changing sub lims: (%f, %f)" % (losub, hisub)
+        losub = int(np.round(losub).clip(0, self.nsubs))
+        hisub = int(np.round(hisub).clip(0, self.nsubs))
+        if self.sub_lims != (losub, hisub):
+            self.sub_lims = (losub, hisub)
+            self.replot()
+
+    def replot(self):
+        self.disconnect_event_triggers()
+        print self.sub_lims, self.chan_lims, self.bin_lims
+        subset = self.data[slice(*self.sub_lims), \
+                            slice(*self.chan_lims), \
+                            slice(*self.bin_lims)]
+        prof = np.apply_over_axes(np.sum, subset, (0, 1)).squeeze()
+        sub_chan = self.func(subset, axis=2)
+        sub_phs = self.func(subset, axis=1)
+        chan_phs = self.func(subset, axis=0)
+        
+        # Create colour normaliser
+        if self.log:
+            normcls = matplotlib.colors.LogNorm
+        else:
+            normcls = matplotlib.colors.Normalize
+        
+        # Profile
+        self.prof_ax.cla()
+        self.prof_ax.plot(np.arange(*self.bin_lims), prof, 'k-')
+        self.prof_ax.relim()
+        self.prof_ax.autoscale_view(tight=True)
+        self.prof_ax.set_xlabel("Phase Bins")
+        self.prof_ax.set_ylabel("Intensity")
+
+        # Sub-ints vs. Channels
+        loval = np.min(sub_chan)
+        ptp = np.ptp(sub_chan)
+        norm = normcls(loval+ptp*self.vmin, loval+ptp*self.vmax, clip=True)
+        self.sub_chan_ax.cla()
+        self.sub_chan_ax.imshow(sub_chan, origin='bottom', aspect='auto', norm=norm, \
+                    extent=self.chan_lims+self.sub_lims, \
+                    cmap=matplotlib.cm.gist_heat, interpolation='nearest')
+        self.sub_chan_ax.format_coord = lambda x,y: "Chan: %d, Sub-int: %d, Value: %g" % \
+                                            (x,y,sub_chan[int(y)-self.sub_lims[0],
+                                                            int(x)-self.chan_lims[0]])
+        self.sub_chan_ax.set_xlabel("Channels")
+        self.sub_chan_ax.set_ylabel("Sub-ints")
+        
+        # Sub-ints vs. Phase
+        loval = np.min(sub_phs)
+        ptp = np.ptp(sub_phs)
+        norm = normcls(loval+ptp*self.vmin, loval+ptp*self.vmax, clip=True)
+        self.sub_phs_ax.cla()
+        self.sub_phs_ax.imshow(sub_phs, origin='bottom', aspect='auto', norm=norm, \
+                    extent=self.bin_lims+self.sub_lims, \
+                    cmap=matplotlib.cm.gist_heat, interpolation='nearest')
+        self.sub_phs_ax.format_coord = lambda x,y: "Bin: %d, Sub-int: %d, Value: %g" % \
+                                            (x,y,sub_phs[int(y)-self.sub_lims[0],
+                                                            int(x)-self.bin_lims[0]])
+        self.sub_phs_ax.set_xlabel("Phase bins")
+        plt.setp(self.sub_phs_ax.yaxis.get_ticklabels(), visible=False)
+
+        plt.figure()
+        plt.plot(sub_chan.sum(axis=0), 'k')
+
+        # Channels vs. Phase
+        loval = np.min(chan_phs)
+        ptp = np.ptp(chan_phs)
+        norm = normcls(loval+ptp*self.vmin, loval+ptp*self.vmax, clip=True)
+        self.chan_phs_ax.cla()
+        self.chan_phs_ax.imshow(chan_phs, origin='bottom', aspect='auto', norm=norm, \
+                    extent=self.bin_lims+self.chan_lims, \
+                    cmap=matplotlib.cm.gist_heat, interpolation='nearest')
+        self.chan_phs_ax.format_coord = lambda x,y: "Bin: %d, Chan: %d, Value: %g" % \
+                                            (x,y,chan_phs[int(y)-self.chan_lims[0],
+                                                            int(x)-self.bin_lims[0]])
+        plt.setp(self.chan_phs_ax.xaxis.get_ticklabels(), visible=False)
+        self.chan_phs_ax.set_ylabel("Channels")
+        
+        plt.draw()
+        self.connect_event_triggers()
 
 
 def plot(ar, data, func_key='std', log=False, vmin=0, vmax=1):
@@ -72,9 +247,11 @@ def plot(ar, data, func_key='std', log=False, vmin=0, vmax=1):
         normcls = matplotlib.colors.Normalize
 
     # Add text
-    plt.figtext(0.02, 0.95, title, size='large', ha='left', va='center')
+    plt.figtext(0.02, 0.95, ar.get_name(), size='large', ha='left', va='center')
     plt.figtext(0.02, 0.925, os.path.split(ar.get_filename())[-1], \
                     size='x-small', ha='left', va='center')
+    plt.figtext(0.02, 0.87, "Plotting: %s" % title.lower(), \
+                    size='small', ha='left', va='center')
     plt.figtext(0.02, 0.85, "Number of sub-ints: %d" % nsubs, \
                     size='small', ha='left', va='center')
     plt.figtext(0.02, 0.83, "Number of channels: %d" % nchans, \
@@ -332,10 +509,14 @@ def main():
         data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
                                             template, options.nthreads)
     for func_key in options.funcs_to_plot:
-        plot(ar, data, func_key, log=options.log_colours, \
+        DiagnosticFigure(ar, data, func_key, log=options.log_colours, \
             vmin=options.black_level, vmax=options.white_level)
-    plt.gcf().canvas.mpl_connect('key_press_event', \
-                lambda ev: (ev.key in ('q', 'Q')) and plt.close())
+        plt.savefig("%s.%s.diag.png" % (ar.get_filename(), func_key), dpi=600)
+        
+    #    plot(ar, data, func_key, log=options.log_colours, \
+    #        vmin=options.black_level, vmax=options.white_level)
+    #plt.gcf().canvas.mpl_connect('key_press_event', \
+    #            lambda ev: (ev.key in ('q', 'Q')) and plt.close())
     plt.show()
 
 

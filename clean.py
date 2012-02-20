@@ -9,48 +9,113 @@ import optparse
 import sys
 import types
 
+import numpy as np
+import matplotlib.pyplot as plt
+import psrchive
+
 import utils
+import clean_utils
+
+def power_wash(ar):
+    """Power wash RFI out of the data.
+
+        Input:
+            ar: The archive to be cleaned.
+        Outputs:
+            None - The archive is cleaned in place.
+    """
+    ar.pscrunch()
+    ar.remove_baseline()
+    ar.dedisperse()
+
+    # Remove profile
+    data = ar.get_data().squeeze()
+    template = np.apply_over_axes(np.sum, data, (0,1)).squeeze()
+    data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
+                                        template, 4)
+
+    bad_chans = []
+    bad_subints = []
+    bad_pairs = []
+    std_sub_vs_chan = np.std(data, axis=2)
+    print std_sub_vs_chan.shape
+    #mean_sub_vs_chan = np.mean(data, axis=2)
+
+    # Identify bad sub-int/channel pairs
+    subintweights = clean_utils.get_subint_weights(ar).astype(bool)
+    chanweights = clean_utils.get_chan_weights(ar).astype(bool)
+    for isub in range(ar.get_nsubint()):
+        for ichan in range(ar.get_nchan()):
+            plt.figure()
+            plt.subplot(2,1,1)
+            plt.plot(std_sub_vs_chan[isub, :], 'k-')
+            subint = clean_utils.scale_chans(std_sub_vs_chan[isub, :], \
+                                                chanweights=chanweights)
+            print clean_utils.get_hot_bins(subint)
+            plt.subplot(2,1,2)
+            plt.plot(subint, 'r-')
+            plt.title("Subint #%d" % isub)
+            plt.figure()
+            plt.subplot(2,1,1)
+            plt.plot(std_sub_vs_chan[:, ichan], 'k-')
+            chan = clean_utils.scale_subints(std_sub_vs_chan[:, ichan], \
+                                                subintweights=subintweights)
+            print clean_utils.get_hot_bins(chan)
+            plt.subplot(2,1,2)
+            plt.plot(chan, 'r-')
+            plt.title("Chan #%d" % ichan)
+            plt.show() 
+    
+    chanstds = np.sum(std_sub_vs_chan, axis=0)
+    plt.subplot(2,1,1)
+    plt.plot(chanstds)
+    chanstds = clean_utils.scale_chans(chanstds, chanweights=chanweights)
+    plt.subplot(2,1,2)
+    plt.plot(chanstds)
+    bad_chans.extend(np.argwhere(chanstds > 1).squeeze())
+    plt.show()
+
 
 def deep_clean(ar):
-    plot(ar, "before_deep_clean")
+    #plot(ar, "before_deep_clean")
     
     # First clean channels
-    chandata = get_chans(ar, remove_prof=True)
-    chanweights = get_chan_weights(ar).astype(bool)
-    chanmeans = scale_chans(chandata.mean(axis=1), chanweights=chanweights)
-    chanmeans /= get_robust_std(chanmeans, chanweights)
-    chanstds = scale_chans(chandata.std(axis=1), chanweights=chanweights)
-    chanstds /= get_robust_std(chanstds, chanweights)
+    chandata = clean_utils.get_chans(ar, remove_prof=True)
+    chanweights = clean_utils.get_chan_weights(ar).astype(bool)
+    chanmeans = clean_utils.scale_chans(chandata.mean(axis=1), chanweights=chanweights)
+    chanmeans /= clean_utils.get_robust_std(chanmeans, chanweights)
+    chanstds = clean_utils.scale_chans(chandata.std(axis=1), chanweights=chanweights)
+    chanstds /= clean_utils.get_robust_std(chanstds, chanweights)
 
     badchans = np.concatenate((np.argwhere(chanmeans >= 5.0), \
                                     np.argwhere(chanstds >= 5.0)))
     for ichan in np.unique(badchans):
         print "De-weighting chan# %d" % ichan
-        zero_weight_chan(ar, ichan)
+        clean_utils.zero_weight_chan(ar, ichan)
 
-    plot(ar, "mid-chans_deep_clean")
+    #plot(ar, "mid-chans_deep_clean")
 
     # Next clean subints
-    subintdata = get_subints(ar, remove_prof=True)
-    subintweights = get_subint_weights(ar).astype(bool)
-    subintmeans = scale_subints(subintdata.mean(axis=1), \
+    subintdata = clean_utils.get_subints(ar, remove_prof=True)
+    subintweights = clean_utils.get_subint_weights(ar).astype(bool)
+    subintmeans = clean_utils.scale_subints(subintdata.mean(axis=1), \
                                     subintweights=subintweights)
-    subintmeans /= get_robust_std(subintmeans, subintweights)
-    subintstds = scale_subints(subintdata.std(axis=1), \
+    subintmeans /= clean_utils.get_robust_std(subintmeans, subintweights)
+    subintstds = clean_utils.scale_subints(subintdata.std(axis=1), \
                                     subintweights=subintweights)
-    subintstds /= get_robust_std(subintstds, subintweights)
+    subintstds /= clean_utils.get_robust_std(subintstds, subintweights)
 
     badsubints = np.concatenate((np.argwhere(subintmeans >= 5.0), \
                                     np.argwhere(subintstds >= 5.0)))
     for isub in np.unique(badsubints):
         print "De-weighting subint# %d" % isub
-        zero_weight_subint(ar, isub)
+        clean_utils.zero_weight_subint(ar, isub)
 
-    plot(ar, "mid-subints_deep_clean")
+    #plot(ar, "mid-subints_deep_clean")
     
     # Now replace hot bins
-    clean_hot_bins(ar, thresh=2.0)
-    plot(ar, "after_deep_clean")
+    clean_utils.clean_hot_bins(ar, thresh=2.0)
+    #plot(ar, "after_deep_clean")
     unloadfn = "%s.deepcleaned" % ar.get_filename()
     print "Unloading deep cleaned archive as %s" % unloadfn
     ar.unload(unloadfn)
@@ -135,7 +200,10 @@ def main():
         print "Trimming the edges... (# Chans: %d)" % \
                                 options.num_chans_to_trim
         trim_edge_channels(options.num_chans_to_trim, *infns)
-   
+    for fn in infns:
+        ar = psrchive.Archive_load(fn)
+        deep_clean(ar)
+
 
 if __name__=="__main__":
     parser = utils.DefaultOptions(usage="%prog [OPTIONS] FILES ...", \

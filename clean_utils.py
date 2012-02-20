@@ -30,10 +30,20 @@ def get_profile(data):
     return np.sum(data, axis=0)
 
 
-def scale(data, weights=slice(None)):
-    medfilt = scipy.signal.medfilt(data[weights], kernel_size=5)
-    data[weights] -= medfilt
-    return data 
+def scale_data(data, weights, subband_size=16, time_kernel_size=5):
+    nsubs, nchans, nbins = data.shape
+    # First scale chans
+    for ichan in nchans:
+        for isub in nsubs:
+            chans = data[isub, :]
+            data[isub, :] = scale_chans(chans, subband_size, weights[isub, :])
+
+    # Now scale subints
+    for isub in nsubs:
+        for ichan in nchans:
+            subints = data[:, ichan]
+            data[:, ichan] = scale_subints(subints, time_kernel_size, weights[:, ichan])
+    return data
 
 
 def scale_subints(data, kernel_size=5, subintweights=None):
@@ -95,8 +105,10 @@ def get_chans(ar, remove_prof=False):
     clone.pscrunch()
     clone.tscrunch()
     data = clone.get_data().squeeze()
+    template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
     if remove_prof:
-        data = remove_profile(data)
+        data = remove_profile(data, clone.get_nsubint(), clone.get_nchan(), \
+                                template)
     return data
     
 
@@ -108,8 +120,10 @@ def get_subints(ar, remove_prof=False):
     clone.pscrunch()
     clone.fscrunch()
     data = clone.get_data().squeeze() 
+    template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
     if remove_prof:
-        data = remove_profile(data)
+        data = remove_profile(data, clone.get_nsubint(), clone.get_nchan(), \
+                                template)
     return data
 
 
@@ -184,17 +198,19 @@ def clean_hot_bins(ar, thresh=2.0):
         if subintweight:
             # Identify hot bins
             subint = subintdata[isub,:]
-            hot_bins = get_hot_bins(subint, normstat_thresh=2)[0]
-            if len(hot_bins):
-                print "Cleaning %d bins in subint# %d" % (len(hot_bins), isub)
-                clean_subint(ar, isub, hot_bins)
+            hot_bins = get_hot_bins(subint, normstat_thresh=thresh)[0]
+            print "Cleaning %d bins in subint# %d" % (len(hot_bins), isub)
+            #if len(hot_bins):
+            #    clean_subint(ar, isub, hot_bins)
         else:
             # Subint is masked. Nothing to do.
             pass
 
     # Re-dedisperse data using original DM
+    print "Re-dedispersing data"
     ar.set_dispersion_measure(orig_dm)
     ar.dedisperse()
+    print "Done re-dedispersing data"
 
 
 def clean_subint(ar, isub, bins):
@@ -242,25 +258,37 @@ def get_hot_bins(data, normstat_thresh=6.3, max_num_hot=None, \
                     1 = Statistic was found to be increasing (OK)
                     2 = Max number of hot bins reached (not good)
     """
-    hot_bins = []
-    tmp_data = list(data)
+    masked_data = np.ma.masked_array(data, mask=np.zeros_like(data))
 
-    prev_stat = scipy.stats.normaltest(tmp_data)[0]
-    while tmp_data:
+    prev_stat = scipy.stats.normaltest(masked_data.compressed())[0]
+    while masked_data.count():
         if prev_stat < normstat_thresh:
             # Statistic is below threshold
-            return (hot_bins, 0)
+            return (np.flatnonzero(masked_data.mask), 0)
         elif (max_num_hot is not None) and (len(hot_bins) >= max_num_hot):
             # Reached maximum number of hot bins
-            return (hot_bins, 2)
+            return (np.flatnonzero(masked_data.mask), 2)
 
-        imax = np.argmax(tmp_data)
-        tmp_data.pop(imax)
-        curr_stat = scipy.stats.normaltest(tmp_data)[0]
+        imax = np.argmax(masked_data)
+        imin = np.argmin(masked_data)
+        median = np.median(masked_data)
+        # find which (max or min) has largest deviation from the median
+        median_to_max = masked_data[imax] - median
+        median_to_min = median - masked_data[imin]
+
+        if median_to_max > median_to_min:
+            to_mask = imax
+        else:
+            to_mask = imin
+        masked_data.mask[to_mask] = True
+        curr_stat = scipy.stats.normaltest(masked_data.compressed())[0]
+        print "hottest bin: %d, stat before: %g, stat after: %g" % \
+                        (to_mask, prev_stat, curr_stat)
         if only_decreasing and (curr_stat > prev_stat):
             # Stat is increasing and we don't want that!
-            return (hot_bins, 1)
-        hot_bins.append(imax)
+            # Undo what we just masked and return the mask
+            masked_data.mask[to_mask] = False
+            return (np.flatnonzero(masked_data.mask), 1)
         # Iterate
         prev_stat = curr_stat
 
