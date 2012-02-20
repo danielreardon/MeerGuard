@@ -15,6 +15,60 @@ import numpy as np
 import debug
 import errors
 
+site_to_telescope = {'i': 'WSRT',
+                     'wt': 'WSRT',
+                     'wsrt': 'WSRT',
+                     'westerbork': 'WSRT',
+                     'g': 'Effelsberg', 
+                     'ef': 'Effelsberg',
+                     'eff': 'Effelsberg',
+                     'effelsberg': 'Effelsberg',
+                     '8': 'Jodrell',
+                     'jb': 'Jodrell',
+                     'jbo': 'Jodrell',
+                     'jodrell bank': 'Jodrell',
+                     'jodrell bank observatory': 'Jodrell',
+                     'lovell': 'Jodrell',
+                     'f': 'Nancay',
+                     'nc': 'Nancay',
+                     'ncy': 'Nancay',
+                     'nancay': 'Nancay',
+                     'sardinia': 'SRT',
+                     'srt': 'SRT'}
+
+
+def parse_psrfits_header(fn, hdritems):
+    """Get a set of header params from the given file.
+        Returns a dictionary.
+
+        Inputs:
+            fn: The name of the file to get params for.
+            hdritems: List of parameter names to fetch.
+
+        Output:
+            params: A dictionary. The keys are values requested from 'psredit'
+                the values are the values reported by 'psredit'.
+    """
+    hdrstr = ",".join(hdritems)
+    if '=' in hdrstr:
+        raise ValueError("'hdritems' passed to 'parse_psrfits_header' " \
+                         "should not perform and assignments!")
+    cmd = "psredit -q -Q -c '%s' %s" % (hdrstr, fn)
+    outstr, errstr = execute(cmd)
+    outvals = outstr.split()
+    if errstr:
+        raise errors.SystemCallError("The command: %s\nprinted to stderr:\n%s" % \
+                                (cmd, errstr))
+    elif len(outvals) != len(hdritems):
+        raise errors.SystemCallError("The command: %s\nreturn the wrong " \
+                            "number of values. (Was expecting %d, got %d.)" % \
+                            (cmd, len(hdritems), len(outvals)))
+    params = {}
+    for key, val in zip(hdritems, outstr.split()):
+        params[key] = val
+    return params
+
+
 def exclude_files(file_list, to_exclude):
     return [f for f in file_list if f not in to_exclude]
 
