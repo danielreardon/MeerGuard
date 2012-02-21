@@ -76,7 +76,7 @@ def power_wash(ar):
     plt.show()
 
 
-def deep_clean(ar):
+def deep_clean(ar, chanthresh=5.0, subintthresh=5.0, binthresh=2.0):
     #plot(ar, "before_deep_clean")
     
     # First clean channels
@@ -87,24 +87,24 @@ def deep_clean(ar):
     chanstds = clean_utils.scale_chans(chandata.std(axis=1), chanweights=chanweights)
     chanstds /= clean_utils.get_robust_std(chanstds, chanweights)
 
-    plt.figure()
-    plt.subplot(2,1,1)
-    plt.plot(chanstds, 'k')
-    plt.axhline(5.0, c='k', ls='--')
-    plt.ylabel("Scaled std")
-    plt.subplot(2,1,2)
-    plt.plot(chandata.std(axis=1))
+    #plt.figure()
+    #plt.subplot(2,1,1)
+    #plt.plot(chanstds, 'k')
+    #plt.axhline(chanthresh, c='k', ls='--')
+    #plt.ylabel("Scaled std")
+    #plt.subplot(2,1,2)
+    #plt.plot(chandata.std(axis=1))
 
-    plt.figure()
-    plt.subplot(2,1,1)
-    plt.plot(chanmeans, 'k')
-    plt.axhline(5.0, c='k', ls='--')
-    plt.ylabel("Scaled mean")
-    plt.subplot(2,1,2)
-    plt.plot(chandata.mean(axis=1))
-    plt.show()
-    badchans = np.concatenate((np.argwhere(chanmeans >= 5.0), \
-                                    np.argwhere(chanstds >= 5.0)))
+    #plt.figure()
+    #plt.subplot(2,1,1)
+    #plt.plot(chanmeans, 'k')
+    #plt.axhline(chanthresh, c='k', ls='--')
+    #plt.ylabel("Scaled mean")
+    #plt.subplot(2,1,2)
+    #plt.plot(chandata.mean(axis=1))
+    #plt.show()
+    badchans = np.concatenate((np.argwhere(chanmeans >= chanthresh), \
+                                    np.argwhere(chanstds >= chanthresh)))
     for ichan in np.unique(badchans):
         print "De-weighting chan# %d" % ichan
         clean_utils.zero_weight_chan(ar, ichan)
@@ -121,8 +121,8 @@ def deep_clean(ar):
                                     subintweights=subintweights)
     subintstds /= clean_utils.get_robust_std(subintstds, subintweights)
 
-    badsubints = np.concatenate((np.argwhere(subintmeans >= 5.0), \
-                                    np.argwhere(subintstds >= 5.0)))
+    badsubints = np.concatenate((np.argwhere(subintmeans >= subintthresh), \
+                                    np.argwhere(subintstds >= subintthresh)))
     for isub in np.unique(badsubints):
         print "De-weighting subint# %d" % isub
         clean_utils.zero_weight_subint(ar, isub)
@@ -130,7 +130,7 @@ def deep_clean(ar):
     #plot(ar, "mid-subints_deep_clean")
     
     # Now replace hot bins
-    clean_utils.clean_hot_bins(ar, thresh=2.0)
+    clean_utils.clean_hot_bins(ar, thresh=binthresh)
     #plot(ar, "after_deep_clean")
     unloadfn = "%s.deepcleaned" % ar.get_filename()
     print "Unloading deep cleaned archive as %s" % unloadfn
