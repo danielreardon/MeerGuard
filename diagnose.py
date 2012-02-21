@@ -507,7 +507,7 @@ def main():
         print "Removing profile..."
         template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
         data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
-                                            template, options.nthreads)
+                                            template)
     data = clean_utils.apply_weights(data, ar.get_weights())
     for func_key in options.funcs_to_plot:
         DiagnosticFigure(ar, data, func_key, log=options.log_colours, \

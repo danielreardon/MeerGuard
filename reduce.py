@@ -12,12 +12,11 @@ import tempfile
 
 import utils
 import clean
+import clean_utils
 import combine
+import config
 
-def reduce_archives(infns, outfn, 
-                    preprocess=[], preargs=[], prekwargs=[], \
-                    interprocess=[], interargs=[], interkwargs=[], \
-                    postprocess=[], postargs=[], postkwargs=[]):
+def reduce_archives(infns, outfn, cfg): 
     """Given a list of PSRCHIVE file names group them into sub-bands
         then remove the edges of each sub-band to remove the artifacts
         caused by aliasing. Finally, combine the sub-bands into a single 
@@ -28,38 +27,10 @@ def reduce_archives(infns, outfn,
         Inputs:
             infns: A list of input PSRCHIVE archive file names.
             outfn: The output file's name.
-            preprocess: A list of functions to apply to each of the
-                input archives. The functions are applied in order.
-            preargs: A list where each entry is a list of positional 
-                arguments to be passed to the preprocess function with
-                the same index.
-            prekwargs: A list where each entry is a dictionary of keyword
-                arguments to be passed to the proprocess function with
-                the same index.
-            interprocess: A same as 'preprocess', but applied to combined
-                subbands.
-            interargs: Same as 'preargs', but for 'interprocess' functions.
-            interkwargs: Same as 'prekwargs', but for 'interprocess' functions.
-            postprocess: A same as 'preprocess', but applied to the fully
-                combined archive.
-            postargs: Same as 'preargs', but for 'postprocess' functions.
-            postkwargs: Same as 'prekwargs', but for 'postprocess' functions.
 
         Outputs:
             None
-
-        NOTE: All pre/inter/post-processing functions will be called in the
-            following way (for example, using a preprocessing function):
-                
-            <outfn> = preprocess[ii](<infn>, *preargs[ii], **prekwargs[ii])
     """
-    if len(preprocess):
-        # Pre-process files
-        preprocessed = utils.apply_to_archives(infns, preprocess, \
-                                                    preargs, prekwargs)
-    else:
-        preprocessed = infns
-
     # Combine files from the same sub-band in the time direction
     tmp_combined_subbands = []
     for ctr_freq, to_combine in utils.group_by_ctr_freq(preprocessed).iteritems():
@@ -72,25 +43,58 @@ def reduce_archives(infns, outfn,
         combine.combine_subints(to_combine, tmpfn)
         tmp_combined_subbands.append(tmpfn)
    
-    if len(interprocess):
-        # Apply intermediate processing to combined subbands
-        interprocessed = utils.apply_to_archives(tmp_combined_subbands, \
-                                        interprocess, interargs, interkwargs)
-    else:
-        interprocessed = tmp_combined_subbands
+    if cfg.nchan_to_trim > 0:
+        print "Will trim subband edges (# Chans trimmed at each edge: %d)" % \
+                cfg.nchan_to_trim
+        clean.trim_edge_channels(num_to_trim=cfg.nchan_to_trim)
 
     # Combine the temporary sub-bands together in the frequency direction
-    combine.combine_subbands(interprocessed, outfn)
-
-    if len(postprocess):
-        # Post-process output file
-        postprocessed = utils.apply_to_archives([outfn], postprocess, \
-                                            postargs, postkwargs)[0]
-        os.rename(postprocessed, outfn)
+    combine.combine_subbands(tmp_combined_subbands, outfn)
 
     # Remove the temporary combined files
     for to_remove in tmp_combined_subbands:
         os.remove(to_remove)
+    
+    # Create diagnostic plots for pre-cleaned data
+    ar = psrchive.Archive_load(outfn)
+    ar.pscrunch()
+    ar.remove_baseline()
+    ar.dedisperse()
+    data = ar.get_data().squeeze()
+    template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
+    data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
+                                        template, options.nthreads)
+    data = clean_utils.apply_weights(data, ar.get_weights())
+    for func_key in cfg.funcs_to_plot:
+        DiagnosticFigure(ar, data, func_key)
+        plt.savefig("%s.%s.png" % (ar.get_filename(), func_key), dpi=600)
+
+    # Clean the data
+    cleanfn = os.path.splitext(outfn)[-1]+".clean"
+    ar = psrchive.Archive_load(outfn)
+    clean.deep_clean(ar, cleanfn, cfg.clean_chanthresh, \
+                        cfg.clean_subintthresh, cfg.clean_binthresh)
+    
+    # Re-create diagnostic plots for clean data
+    ar = psrchive.Archive_load(cleanfn)
+    ar.pscrunch()
+    ar.remove_baseline()
+    ar.dedisperse()
+    data = ar.get_data().squeeze()
+    template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
+    data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
+                                        template)
+    data = clean_utils.apply_weights(data, ar.get_weights())
+    for func_key in cfg.funcs_to_plot:
+        DiagnosticFigure(ar, data, func_key)
+        plt.savefig("%s.%s.png" % (ar.get_filename(), func_key), dpi=600)
+
+    # Make TOAs
+    stdout, stderr = utils.execute("pat -F -T -s %s -A %s -f %s -K " \
+                                   "%s.toa/PNG -t %s" % \
+            (cfg.standard_profile, cfg.toa_method, cfg.toa_method, \
+                cleanfn, cleanfn)) 
+    print stdout
 
 
 def main():
@@ -104,22 +108,12 @@ def main():
     print ""
     print "Number of input files: %d" % len(to_reduce)
     print "Output file name: %s" % options.outfn
-    interprocess = []
-    interargs = []
-    interkwargs = []
-
-    if options.num_chans_to_trim > 0:
-        print "Will trim subband edges (# Chans trimmed at each edge: %d)" % \
-                options.num_chans_to_trim
-        interprocess.append(clean.trim_edge_channels)
-        interargs.append([])
-        interkwargs.append({'num_to_trim':options.num_chans_to_trim})
     
-    reduce_archives(to_reduce, options.outfn, 
-                    interprocess=interprocess, \
-                    interargs=interargs, \
-                    interkwargs=interkwargs
-                    )
+    cfg = config.CoastGuardConfigs()
+    cfg.get_default_configs()
+    cfg.get_configs_for_archive(to_reduce[0])
+   
+    reduce_archives(to_reduce, options.outfn, cfg)
 
 
 if __name__=="__main__":
@@ -151,10 +145,5 @@ if __name__=="__main__":
                             "expression should be properly quoted to not be " \
                             "expanded by the shell prematurely. (Default: " \
                             "exclude any files.)")
-    parser.add_option('--trim-edge-channels', dest='num_chans_to_trim', \
-                        help="Trim the edges of each input file to remove " \
-                            "band-pass roll-off and the effect of aliasing. " \
-                            "(Default: 0, don't trim edges.)", \
-                        default=0, type='int')
     options, args = parser.parse_args()
     main()

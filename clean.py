@@ -76,7 +76,8 @@ def power_wash(ar):
     plt.show()
 
 
-def deep_clean(ar, chanthresh=5.0, subintthresh=5.0, binthresh=2.0):
+def deep_clean(ar, unloadfn, chanthresh=5.0, \
+                    subintthresh=5.0, binthresh=2.0):
     #plot(ar, "before_deep_clean")
     
     # First clean channels
@@ -132,7 +133,6 @@ def deep_clean(ar, chanthresh=5.0, subintthresh=5.0, binthresh=2.0):
     # Now replace hot bins
     clean_utils.clean_hot_bins(ar, thresh=binthresh)
     #plot(ar, "after_deep_clean")
-    unloadfn = "%s.deepcleaned" % ar.get_filename()
     print "Unloading deep cleaned archive as %s" % unloadfn
     ar.unload(unloadfn)
 

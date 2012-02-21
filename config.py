@@ -50,18 +50,17 @@ class CoastGuardConfigs(object):
         default_config_fn = os.path.join(self.base_config_dir, "default.cfg")
         self.read_file(default_config_fn, required=True)
 
-    def get_configs_for_archive(self, ar):
-        """Given a psrchive archive object return relevant configurations.
+    def get_configs_for_archive(self, fn):
+        """Given a psrchive archive file return relevant configurations.
             This will include configurations for the telescope, frontend,
             backend, and pulsar.
  
             Inputs:
-                ar: The psrchive archive to get configurations for.
+                fn: The psrchive archive to get configurations for.
  
             Outputs:
                 None
         """
-        fn = ar.get_filename()
         hdrparams = utils.parse_psrfits_header(fn, \
                             ['site', 'be:name', 'rcvr:name', 'name'])
         
@@ -91,9 +90,7 @@ class CoastGuardConfigs(object):
 def main():
     cfg = CoastGuardConfigs()
     cfg.get_default_configs()
-    import psrchive
-    ar = psrchive.Archive_load(sys.argv[1])
-    cfg.get_configs_for_archive(ar)
+    cfg.get_configs_for_archive(sys.argv[1])
     print '-'*25
     print cfg['default']['conf'], cfg['default'].conf, cfg.conf
 
