@@ -37,25 +37,25 @@ site_to_telescope = {'i': 'WSRT',
                      'srt': 'SRT'}
 
 
-def parse_psrfits_header(fn, hdritems):
+def get_header_vals(fn, hdritems):
     """Get a set of header params from the given file.
         Returns a dictionary.
 
         Inputs:
             fn: The name of the file to get params for.
-            hdritems: List of parameter names to fetch.
+            hdritems: List of parameters (recognized by vap) to fetch.
 
         Output:
-            params: A dictionary. The keys are values requested from 'psredit'
-                the values are the values reported by 'psredit'.
+            params: A dictionary. The keys are values requested from 'vap'
+                the values are the values reported by 'vap'.
     """
     hdrstr = ",".join(hdritems)
     if '=' in hdrstr:
-        raise ValueError("'hdritems' passed to 'parse_psrfits_header' " \
+        raise ValueError("'hdritems' passed to 'get_header_vals' " \
                          "should not perform and assignments!")
-    cmd = "psredit -q -Q -c '%s' %s" % (hdrstr, fn)
+    cmd = "vap -n -c '%s' %s" % (hdrstr, fn)
     outstr, errstr = execute(cmd)
-    outvals = outstr.split()
+    outvals = outstr.split()[1:] # First value is filename (we don't need it)
     if errstr:
         raise errors.SystemCallError("The command: %s\nprinted to stderr:\n%s" % \
                                 (cmd, errstr))
@@ -64,7 +64,7 @@ def parse_psrfits_header(fn, hdritems):
                             "number of values. (Was expecting %d, got %d.)" % \
                             (cmd, len(hdritems), len(outvals)))
     params = {}
-    for key, val in zip(hdritems, outstr.split()):
+    for key, val in zip(hdritems, outvals):
         params[key] = val
     return params
 
@@ -125,26 +125,6 @@ def execute(cmd, stdout=subprocess.PIPE, stderr=sys.stderr, dir=None):
     return (stdoutdata, stderrdata)
 
 
-def get_header_param(infn, param):
-    """Given a PSRCHIVE file find and return a header value.
-
-        This function calls PSRCHIVE's 'vap' and parses the output.
-
-        Inputs:
-            infn: The file for which the centre frequency will be found.
-            param: The parameter name to grab from the achive's header.
-
-        Output:
-            val: The value corresponding to the parameter provided.
-    """
-    out, err = execute("vap -n -c %s %s" % (param, infn))
-
-    # Output format of 'vap -n -c <param> <filename>' is: 
-    #   <filename> <value>
-    val = float(out.split()[1])
-    return val
-
-
 def group_by_ctr_freq(infns):
     """Given a list of input files group them according to their
         centre frequencies.
@@ -158,7 +138,8 @@ def group_by_ctr_freq(infns):
                 names with all the same centre frequency.
 
     """
-    ctr_freqs = np.asarray([get_header_param(fn, 'freq') for fn in infns])
+    get_freq = lambda fn: float(get_header_vals(fn, ['freq'])['freq'])
+    ctr_freqs = np.asarray([get_freq(fn) for fn in infns])
     groups_dict = {}
     for ctr_freq in np.unique(ctr_freqs):
         # Collect the input files that are part of this sub-band

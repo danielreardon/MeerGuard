@@ -61,18 +61,18 @@ class CoastGuardConfigs(object):
             Outputs:
                 None
         """
-        hdrparams = utils.parse_psrfits_header(fn, \
-                            ['site', 'be:name', 'rcvr:name', 'name'])
+        hdrparams = utils.get_header_vals(fn, \
+                            ['telescop', 'backend', 'rcvr', 'name'])
         
         # Create a list of all the configuration files to check
         config_files = []
-        telescope = utils.site_to_telescope[hdrparams['site'].lower()]
+        telescope = utils.site_to_telescope[hdrparams['telescop'].lower()]
         config_files.append(os.path.join(self.base_config_dir, 'telescopes', \
                                 "%s.cfg" % telescope.lower()))
         config_files.append(os.path.join(self.base_config_dir, 'receivers', \
-                                "%s.cfg" % hdrparams['rcvr:name'].lower()))
+                                "%s.cfg" % hdrparams['rcvr'].lower()))
         config_files.append(os.path.join(self.base_config_dir, 'backends', \
-                                "%s.cfg" % hdrparams['be:name'].lower()))
+                                "%s.cfg" % hdrparams['backend'].lower()))
         config_files.append(os.path.join(self.base_config_dir, 'pulsars', \
                                 "%s.cfg" % hdrparams['name'].upper()))
         config_files.append(os.path.join(self.base_config_dir, 'observations', \

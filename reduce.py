@@ -10,6 +10,11 @@ import optparse
 import os
 import tempfile
 
+import numpy as np
+import matplotlib.pyplot as plt
+import psrchive
+
+import diagnose
 import utils
 import clean
 import clean_utils
@@ -33,7 +38,7 @@ def reduce_archives(infns, outfn, cfg):
     """
     # Combine files from the same sub-band in the time direction
     tmp_combined_subbands = []
-    for ctr_freq, to_combine in utils.group_by_ctr_freq(preprocessed).iteritems():
+    for ctr_freq, to_combine in utils.group_by_ctr_freq(infns).iteritems():
         # Create a temporary output file
         tmphandle, tmpfn = tempfile.mkstemp(suffix=".%dMHz.tmp" % ctr_freq, \
                                             prefix="combined", dir=os.getcwd())
@@ -44,9 +49,10 @@ def reduce_archives(infns, outfn, cfg):
         tmp_combined_subbands.append(tmpfn)
    
     if cfg.nchan_to_trim > 0:
-        print "Will trim subband edges (# Chans trimmed at each edge: %d)" % \
-                cfg.nchan_to_trim
-        clean.trim_edge_channels(num_to_trim=cfg.nchan_to_trim)
+        print "Will trim subband edges " \
+                "(# Chans trimmed at each edge: %d)" % cfg.nchan_to_trim
+        for subfn in tmp_combined_subbands:
+            clean.trim_edge_channels(subfn, num_to_trim=cfg.nchan_to_trim)
 
     # Combine the temporary sub-bands together in the frequency direction
     combine.combine_subbands(tmp_combined_subbands, outfn)
@@ -63,14 +69,14 @@ def reduce_archives(infns, outfn, cfg):
     data = ar.get_data().squeeze()
     template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
     data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
-                                        template, options.nthreads)
+                                        template)
     data = clean_utils.apply_weights(data, ar.get_weights())
     for func_key in cfg.funcs_to_plot:
-        DiagnosticFigure(ar, data, func_key)
+        diagnose.DiagnosticFigure(ar, data, func_key)
         plt.savefig("%s.%s.png" % (ar.get_filename(), func_key), dpi=600)
 
     # Clean the data
-    cleanfn = os.path.splitext(outfn)[-1]+".clean"
+    cleanfn = os.path.splitext(outfn)[0]+".clean"
     ar = psrchive.Archive_load(outfn)
     clean.deep_clean(ar, cleanfn, cfg.clean_chanthresh, \
                         cfg.clean_subintthresh, cfg.clean_binthresh)
@@ -86,7 +92,7 @@ def reduce_archives(infns, outfn, cfg):
                                         template)
     data = clean_utils.apply_weights(data, ar.get_weights())
     for func_key in cfg.funcs_to_plot:
-        DiagnosticFigure(ar, data, func_key)
+        diagnose.DiagnosticFigure(ar, data, func_key)
         plt.savefig("%s.%s.png" % (ar.get_filename(), func_key), dpi=600)
 
     # Make TOAs
@@ -113,7 +119,7 @@ def main():
     cfg.get_default_configs()
     cfg.get_configs_for_archive(to_reduce[0])
    
-    reduce_archives(to_reduce, options.outfn, cfg)
+    reduce_archives(to_reduce, options.outfn, options.verbose, cfg)
 
 
 if __name__=="__main__":
@@ -145,5 +151,9 @@ if __name__=="__main__":
                             "expression should be properly quoted to not be " \
                             "expanded by the shell prematurely. (Default: " \
                             "exclude any files.)")
+    parser.add_option('-v', '--verbose', dest='verbose', action='store_true', \
+                        type='bool', default=False, \
+                        help="Be verbose. Print extra information to " \
+                             "scree. (Default: Don't be verbose.)")
     options, args = parser.parse_args()
     main()
