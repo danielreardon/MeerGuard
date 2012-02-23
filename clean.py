@@ -13,6 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import psrchive
 
+import config
 import utils
 import clean_utils
 
@@ -106,8 +107,12 @@ def deep_clean(ar, unloadfn, chanthresh=5.0, \
     #plt.show()
     badchans = np.concatenate((np.argwhere(chanmeans >= chanthresh), \
                                     np.argwhere(chanstds >= chanthresh)))
-    for ichan in np.unique(badchans):
-        print "De-weighting chan# %d" % ichan
+    badchans = np.unique(badchans)
+    if config.verbosity > 1:
+        print "Number of channels to be de-weighted: %d" % len(badchans)
+    for ichan in badchans:
+        if config.verbosity > 2:
+            print "De-weighting chan# %d" % ichan
         clean_utils.zero_weight_chan(ar, ichan)
 
     #plot(ar, "mid-chans_deep_clean")
@@ -124,16 +129,24 @@ def deep_clean(ar, unloadfn, chanthresh=5.0, \
 
     badsubints = np.concatenate((np.argwhere(subintmeans >= subintthresh), \
                                     np.argwhere(subintstds >= subintthresh)))
-    for isub in np.unique(badsubints):
-        print "De-weighting subint# %d" % isub
+    
+    badsubints = np.unique(badsubints)
+    if config.verbosity > 1:
+        print "Number of sub-ints to be de-weighted: %d" % len(badsubints)
+    for isub in badsubints:
+        if config.verbosity > 2:
+            print "De-weighting subint# %d" % isub
         clean_utils.zero_weight_subint(ar, isub)
 
     #plot(ar, "mid-subints_deep_clean")
     
     # Now replace hot bins
+    if config.verbosity > 1:
+        print "Will find and clean 'hot' bins"
     clean_utils.clean_hot_bins(ar, thresh=binthresh)
     #plot(ar, "after_deep_clean")
-    print "Unloading deep cleaned archive as %s" % unloadfn
+    if config.verbosity > 1:
+        print "Unloading deep cleaned archive as %s" % unloadfn
     ar.unload(unloadfn)
 
 

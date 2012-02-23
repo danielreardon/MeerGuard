@@ -9,7 +9,10 @@ Patrick Lazarus, Nov. 11, 2011
 
 modes = [('syscalls', 'Print commands being executed as system calls.'), \
          ('intermediate', 'Do not remove intermediate files ' \
-                            'when reducing data.'), 
+                            'when reducing data.'), \
+         ('config', 'Print information when configuration files are loaded.'), \
+         ('clean', 'Print debugging information relevant to ' \
+                            'cleaning algorithms. '), \
         ]
 
 modes.sort()

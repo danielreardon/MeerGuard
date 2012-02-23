@@ -10,6 +10,8 @@ import numpy as np
 import scipy.stats
 import scipy.optimize
 
+import config
+
 def get_subint_weights(ar):
     return ar.get_weights().sum(axis=1)
 
@@ -212,7 +214,8 @@ def clean_hot_bins(ar, thresh=2.0):
             # Identify hot bins
             subint = subintdata[isub,:]
             hot_bins = get_hot_bins(subint, normstat_thresh=thresh)[0]
-            print "Cleaning %d bins in subint# %d" % (len(hot_bins), isub)
+            if config.verbosity > 1:
+                print "Cleaning %d bins in subint# %d" % (len(hot_bins), isub)
             if len(hot_bins):
                 clean_subint(ar, isub, hot_bins)
         else:
@@ -220,10 +223,12 @@ def clean_hot_bins(ar, thresh=2.0):
             pass
 
     # Re-dedisperse data using original DM
-    print "Re-dedispersing data"
+    if config.debug.CLEAN:
+        print "Re-dedispersing data"
     ar.set_dispersion_measure(orig_dm)
     ar.dedisperse()
-    print "Done re-dedispersing data"
+    if config.debug.CLEAN:
+        print "Done re-dedispersing data"
 
 
 def clean_subint(ar, isub, bins):
@@ -295,7 +300,8 @@ def get_hot_bins(data, normstat_thresh=6.3, max_num_hot=None, \
             to_mask = imin
         masked_data.mask[to_mask] = True
         curr_stat = scipy.stats.normaltest(masked_data.compressed())[0]
-        print "hottest bin: %d, stat before: %g, stat after: %g" % \
+        if config.debug.CLEAN:
+            print "hottest bin: %d, stat before: %g, stat after: %g" % \
                         (to_mask, prev_stat, curr_stat)
         if only_decreasing and (curr_stat > prev_stat):
             # Stat is increasing and we don't want that!

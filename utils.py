@@ -12,7 +12,7 @@ import types
 
 import numpy as np
 
-import debug
+import config
 import errors
 
 site_to_telescope = {'i': 'WSRT',
@@ -88,7 +88,7 @@ def execute(cmd, stdout=subprocess.PIPE, stderr=sys.stderr, dir=None):
         unless subprocess.PIPE is provided.
     """
     # Log command to stdout
-    if debug.SYSCALLS:
+    if config.debug.SYSCALLS:
         sys.stdout.write("\n'"+cmd+"'\n")
         sys.stdout.flush()
 
@@ -203,8 +203,21 @@ class DefaultOptions(optparse.OptionParser):
     def parse_args(self, *args, **kwargs):
         # Add debug group just before parsing so it is the last set of
         # options displayed in help text
+        self.add_standard_group()
         self.add_debug_group()
         return optparse.OptionParser.parse_args(self, *args, **kwargs)
+
+    def add_standard_group(self):
+        group = optparse.OptionGroup(self, "Standard Options", \
+                    "The following options are used to set standard " \
+                    "behaviour shared by multiple modules.")
+        group.add_option('-v', '--more-verbose', action='callback', \
+                          callback=self.more_verbosity, \
+                          help="Turn up verbosity level.")
+        group.add_option('-c', '--toggle-colour', action='callback', \
+                          callback=self.toggle_colours, \
+                          help="Toggle colourised output.")
+        self.add_option_group(group)
 
     def add_debug_group(self):
         group = optparse.OptionGroup(self, "Debug Options", \
@@ -217,15 +230,22 @@ class DefaultOptions(optparse.OptionParser):
         group.add_option('--debug-all', action='callback', \
                           callback=self.debugall_callback, \
                           help="Turn on all debugging modes. (Same as -d/--debug).")
-        for m, desc in debug.modes:
+        for m, desc in config.debug.modes:
             group.add_option('--debug-%s' % m.lower(), action='callback', \
                               callback=self.debug_callback, \
                               callback_args=(m,), \
                               help=desc)
         self.add_option_group(group)
 
+    def more_verbosity(self, option, opt_str, value, parser):
+        config.verbosity += 1
+
+    def toggle_colours(self, option, opt_str, value, parser):
+        config.colour = not config.colour
+
+
     def debug_callback(self, option, opt_str, value, parser, mode):
-        debug.set_mode_on(mode)
+        config.debug.set_mode_on(mode)
 
     def debugall_callback(self, option, opt_str, value, parser):
-        debug.set_allmodes_on()
+        config.debug.set_allmodes_on()

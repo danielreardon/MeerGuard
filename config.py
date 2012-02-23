@@ -4,9 +4,11 @@ import os.path
 import ConfigParser
 
 import utils
+import debug
 
-DEBUG = 0
-DEFAULT_CONFIG_DIR = os.path.join(os.path.split(__file__)[0], "configurations")
+# Read in global configurations
+execfile(os.path.join(os.path.split(__file__)[0], "global.cfg"), {}, locals())
+
 
 class ConfigDict(dict):
     def __getattr__(self, key):
@@ -14,7 +16,7 @@ class ConfigDict(dict):
 
 
 class CoastGuardConfigs(object):
-    def __init__(self, base_config_dir=DEFAULT_CONFIG_DIR):
+    def __init__(self, base_config_dir=default_config_dir):
         self.base_config_dir = base_config_dir
         self.config_dicts = {}
         self.configs = ConfigDict()
@@ -78,7 +80,7 @@ class CoastGuardConfigs(object):
         config_files.append(os.path.join(self.base_config_dir, 'observations', \
                                 "%s.cfg" % os.path.split(fn)[-1]))
  
-        if DEBUG:
+        if debug.CONFIG:
             print "Checking for the following configurations:"
             for cfg in config_files:
                 print "    %s" % cfg

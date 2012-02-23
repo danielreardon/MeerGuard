@@ -24,7 +24,7 @@ import config
 
 
 
-def reduce_archives(infns, cfg, verbose=False): 
+def reduce_archives(infns, cfg): 
     """Given a list of PSRCHIVE file names group them into sub-bands
         then remove the edges of each sub-band to remove the artifacts
         caused by aliasing. Finally, combine the sub-bands into a single 
@@ -35,8 +35,6 @@ def reduce_archives(infns, cfg, verbose=False):
         Inputs:
             infns: A list of input PSRCHIVE archive file names.
             cfg: A CoastGuardConfig object containing configurations.
-            verbose: A boolean value. If True, print info to scree.
-                (Default: Don't be verbose.)
 
         Outputs:
             outfn: The final reduced file name.
@@ -46,35 +44,38 @@ def reduce_archives(infns, cfg, verbose=False):
     hdr = utils.get_header_vals(infns[0], ['name', 'mjd'])
     basenm = "%s_MJD%.2f" % (hdr['name'], float(hdr['mjd']))
 
-    # Combine files from the same sub-band in the time direction
-    tmp_combined_subbands = []
-    for ii, (ctr_freq, to_combine) in \
-            enumerate(utils.group_by_ctr_freq(infns).iteritems()):
-        subfn = basenm + ".sub%d.tmp" % ii
-        # Combine sub-integrations for this sub-band
-        combine.combine_subints(to_combine, subfn)
-        tmp_combined_subbands.append(subfn)
-   
-    if cfg.nchan_to_trim > 0:
-        if verbose:
-            print "Will trim subband edges " \
-                    "(# Chans trimmed at each edge: %d)" % cfg.nchan_to_trim
-        for subfn in tmp_combined_subbands:
-            clean.trim_edge_channels(subfn, num_to_trim=cfg.nchan_to_trim)
-
-    # Combine the temporary sub-bands together in the frequency direction
-    if verbose:
-        print "Combining %d subbands" % len(tmp_combined_subbands)
-    combinefn = basenm + ".cmb.tmp"
-    combine.combine_subbands(tmp_combined_subbands, combinefn)
-
-    if not debug.INTERMEDIATE:
-        # Remove the temporary combined files
-        for subfn in tmp_combined_subbands:
-            os.remove(subfn)
+    if len(infns) > 1:
+        # Combine files from the same sub-band in the time direction
+        tmp_combined_subbands = []
+        for ii, (ctr_freq, to_combine) in \
+                enumerate(utils.group_by_ctr_freq(infns).iteritems()):
+            subfn = basenm + ".sub%d.tmp" % ii
+            # Combine sub-integrations for this sub-band
+            combine.combine_subints(to_combine, subfn)
+            tmp_combined_subbands.append(subfn)
+       
+        if cfg.nchan_to_trim > 0:
+            if config.verbosity:
+                print "Trimming %d channels from each subband edge " % \
+                            cfg.nchan_to_trim
+            for subfn in tmp_combined_subbands:
+                clean.trim_edge_channels(subfn, num_to_trim=cfg.nchan_to_trim)
+ 
+        # Combine the temporary sub-bands together in the frequency direction
+        if config.verbosity:
+            print "Combining %d subbands" % len(tmp_combined_subbands)
+        combinefn = basenm + ".cmb.tmp"
+        combine.combine_subbands(tmp_combined_subbands, combinefn)
+ 
+        if not config.debug.INTERMEDIATE:
+            # Remove the temporary combined files
+            for subfn in tmp_combined_subbands:
+                os.remove(subfn)
+    else:
+        combinefn = infns[0]
     
     # Create diagnostic plots for pre-cleaned data
-    if verbose:
+    if config.verbosity:
         print "Creating diagnostics for %s" % combinefn
     ar = psrchive.Archive_load(combinefn)
     ar.pscrunch()
@@ -90,17 +91,17 @@ def reduce_archives(infns, cfg, verbose=False):
         plt.savefig("%s.%s.png" % (ar.get_filename(), func_key), dpi=600)
 
     # Clean the data
-    if verbose:
+    if config.verbosity:
         print "Cleaning %s" % combinefn
     cleanfn = basenm + ".clean"
     ar = psrchive.Archive_load(combinefn)
     clean.deep_clean(ar, cleanfn, cfg.clean_chanthresh, \
                         cfg.clean_subintthresh, cfg.clean_binthresh)
     
-    if not debug.INTERMEDIATE:
+    if not config.debug.INTERMEDIATE:
         os.remove(combinefn)
     # Re-create diagnostic plots for clean data
-    if verbose:
+    if config.verbosity:
         print "Creating diagnostics for %s" % cleanfn
     ar = psrchive.Archive_load(cleanfn)
     ar.pscrunch()
@@ -116,9 +117,12 @@ def reduce_archives(infns, cfg, verbose=False):
         plt.savefig("%s.%s.png" % (ar.get_filename(), func_key), dpi=600)
 
     # Make TOAs
-    if verbose:
+    if config.verbosity:
         print "Generating TOAs"
-    toastrs = toas.get_toas(cleanfn, cfg.ntoa_time, cfg.ntoa_freq)
+    stdfn = toas.get_standard(cleanfn, cfg.base_standards_dir)
+    if config.verbosity > 1:
+        print "Standard profile: %s" % stdfn
+    toastrs = toas.get_toas(cleanfn, stdfn, cfg.ntoa_time, cfg.ntoa_freq)
     return cleanfn, toastrs
 
 
@@ -137,7 +141,7 @@ def main():
     cfg.get_default_configs()
     cfg.get_configs_for_archive(to_reduce[0])
    
-    outfn, toastrs = reduce_archives(to_reduce, cfg, options.verbose)
+    outfn, toastrs = reduce_archives(to_reduce, cfg)
     print "Output file name: %s" % outfn
     print "TOAs:"
     print "\n".join(toastrs)
@@ -168,9 +172,5 @@ if __name__=="__main__":
                             "expression should be properly quoted to not be " \
                             "expanded by the shell prematurely. (Default: " \
                             "exclude any files.)")
-    parser.add_option('-v', '--verbose', dest='verbose', action='store_true', \
-                        default=False, \
-                        help="Be verbose. Print extra information to " \
-                             "screen. (Default: Don't be verbose.)")
     options, args = parser.parse_args()
     main()
