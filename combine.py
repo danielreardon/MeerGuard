@@ -11,36 +11,55 @@ import sys
 import tempfile
 
 import utils
+import clean
+import config
 
-def combine_all(infns, outfn):
+def combine_all(infns, outfn, num_to_trim=0):
     """Given a list of PSRCHIVE file names group them into sub-bands
-        then combine the sub-bands into a single output file.
+        then remove the edges of each sub-band to remove the artifacts
+        caused by aliasing. Finally, combine the sub-bands into a single 
+        output file.
 
         The combined sub-band files are not saved.
 
         Inputs:
             infns: A list of input PSRCHIVE archive file names.
             outfn: The output file's name.
+            num_to_trim: The number of channels to zero-weight at the
+                top and bottom of each subband. (Default: 0, no trimming).
 
         Outputs:
             None
     """
-    for to_combine in utils.group_by_ctr_freq(infns).itervalues(): 
-        # Create a temporary output file
-        tmphandle, tmpfn = tempfile.mkstemp(suffix=".%dMHz.tmp" % ctr_freq, \
-                                            prefix="combined", dir=os.getcwd())
-        os.close(tmphandle)
+    # Generate a filename
+    hdr = utils.get_header_vals(infns[0], ['name', 'mjd'])
+    basenm = "%s_MJD%.2f" % (hdr['name'], float(hdr['mjd']))
 
+    # Combine files from the same sub-band in the time direction
+    tmp_combined_subbands = []
+    for ii, (ctr_freq, to_combine) in \
+            enumerate(utils.group_by_ctr_freq(infns).iteritems()):
+        subfn = basenm + ".sub%d.tmp" % ii
         # Combine sub-integrations for this sub-band
-        combine_subints(to_combine, tmpfn)
-        tmp_combined_subbands.append(tmpfn)
-
+        combine_subints(to_combine, subfn)
+        tmp_combined_subbands.append(subfn)
+    
+    if num_to_trim > 0:
+        if config.verbosity > 1:
+            print "Trimming %d channels from each subband edge " % \
+                        num_to_trim
+        for subfn in tmp_combined_subbands:
+            clean.trim_edge_channels(subfn, num_to_trim=num_to_trim)
+ 
     # Combine the temporary sub-bands together in the frequency direction
+    if config.verbosity:
+        print "Combining %d subbands" % len(tmp_combined_subbands)
     combine_subbands(tmp_combined_subbands, outfn)
-
-    # Remove the temporary combined sub-band files
-    for to_remove in tmp_combined_subbands:
-        os.remove(to_remove)
+ 
+    if not config.debug.INTERMEDIATE:
+        # Remove the temporary combined files
+        for subfn in tmp_combined_subbands:
+            os.remove(subfn)
 
 
 def combine_subints(infns, outfn):
@@ -84,7 +103,12 @@ def main():
     print ""
     print "Number of input files: %d" % len(to_combine)
     print "Output file name: %s" % options.outfn
-    combine_all(to_combine, options.outfn)
+    
+    cfg = config.CoastGuardConfigs()
+    cfg.get_default_configs()
+    cfg.get_configs_for_archive(to_combine[0])
+   
+    combine_all(to_combine, options.outfn, num_to_trim=cfg.nchan_to_trim)
 
 
 if __name__=="__main__":

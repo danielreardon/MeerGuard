@@ -11,7 +11,8 @@ import types
 
 import numpy as np
 import matplotlib.pyplot as plt
-import psrchive
+
+# import psrchive
 
 import config
 import utils
@@ -79,6 +80,8 @@ def power_wash(ar):
 
 def deep_clean(ar, unloadfn, chanthresh=5.0, \
                     subintthresh=5.0, binthresh=2.0):
+    import psrchive # Temporarily, because python bindings 
+                    # are not available on all computers
     #plot(ar, "before_deep_clean")
     
     # First clean channels

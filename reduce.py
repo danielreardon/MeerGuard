@@ -45,32 +45,8 @@ def reduce_archives(infns, cfg):
     basenm = "%s_MJD%.2f" % (hdr['name'], float(hdr['mjd']))
 
     if len(infns) > 1:
-        # Combine files from the same sub-band in the time direction
-        tmp_combined_subbands = []
-        for ii, (ctr_freq, to_combine) in \
-                enumerate(utils.group_by_ctr_freq(infns).iteritems()):
-            subfn = basenm + ".sub%d.tmp" % ii
-            # Combine sub-integrations for this sub-band
-            combine.combine_subints(to_combine, subfn)
-            tmp_combined_subbands.append(subfn)
-       
-        if cfg.nchan_to_trim > 0:
-            if config.verbosity:
-                print "Trimming %d channels from each subband edge " % \
-                            cfg.nchan_to_trim
-            for subfn in tmp_combined_subbands:
-                clean.trim_edge_channels(subfn, num_to_trim=cfg.nchan_to_trim)
- 
-        # Combine the temporary sub-bands together in the frequency direction
-        if config.verbosity:
-            print "Combining %d subbands" % len(tmp_combined_subbands)
         combinefn = basenm + ".cmb.tmp"
-        combine.combine_subbands(tmp_combined_subbands, combinefn)
- 
-        if not config.debug.INTERMEDIATE:
-            # Remove the temporary combined files
-            for subfn in tmp_combined_subbands:
-                os.remove(subfn)
+        combine.combine_all(infns, combinefn, cfg.nchan_to_trim) 
     else:
         combinefn = infns[0]
     
