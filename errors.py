@@ -10,3 +10,7 @@ class CoastGuardError(Exception):
 
 class SystemCallError(CoastGuardError):
     pass
+
+
+class NoStandardProfileError(CoastGuardError):
+    pass

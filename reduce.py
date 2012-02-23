@@ -14,6 +14,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import psrchive
 
+import toas
 import diagnose
 import utils
 import clean
@@ -21,7 +22,9 @@ import clean_utils
 import combine
 import config
 
-def reduce_archives(infns, outfn, cfg): 
+
+
+def reduce_archives(infns, cfg, verbose=False): 
     """Given a list of PSRCHIVE file names group them into sub-bands
         then remove the edges of each sub-band to remove the artifacts
         caused by aliasing. Finally, combine the sub-bands into a single 
@@ -31,38 +34,49 @@ def reduce_archives(infns, outfn, cfg):
 
         Inputs:
             infns: A list of input PSRCHIVE archive file names.
-            outfn: The output file's name.
+            cfg: A CoastGuardConfig object containing configurations.
+            verbose: A boolean value. If True, print info to scree.
+                (Default: Don't be verbose.)
 
         Outputs:
-            None
+            outfn: The final reduced file name.
+            toas: TOA strings.
     """
+    # Generate a filename
+    hdr = utils.get_header_vals(infns[0], ['name', 'mjd'])
+    basenm = "%s_MJD%.2f" % (hdr['name'], float(hdr['mjd']))
+
     # Combine files from the same sub-band in the time direction
     tmp_combined_subbands = []
-    for ctr_freq, to_combine in utils.group_by_ctr_freq(infns).iteritems():
-        # Create a temporary output file
-        tmphandle, tmpfn = tempfile.mkstemp(suffix=".%dMHz.tmp" % ctr_freq, \
-                                            prefix="combined", dir=os.getcwd())
-        os.close(tmphandle)
-
+    for ii, (ctr_freq, to_combine) in \
+            enumerate(utils.group_by_ctr_freq(infns).iteritems()):
+        subfn = basenm + ".sub%d.tmp" % ii
         # Combine sub-integrations for this sub-band
-        combine.combine_subints(to_combine, tmpfn)
-        tmp_combined_subbands.append(tmpfn)
+        combine.combine_subints(to_combine, subfn)
+        tmp_combined_subbands.append(subfn)
    
     if cfg.nchan_to_trim > 0:
-        print "Will trim subband edges " \
-                "(# Chans trimmed at each edge: %d)" % cfg.nchan_to_trim
+        if verbose:
+            print "Will trim subband edges " \
+                    "(# Chans trimmed at each edge: %d)" % cfg.nchan_to_trim
         for subfn in tmp_combined_subbands:
             clean.trim_edge_channels(subfn, num_to_trim=cfg.nchan_to_trim)
 
     # Combine the temporary sub-bands together in the frequency direction
-    combine.combine_subbands(tmp_combined_subbands, outfn)
+    if verbose:
+        print "Combining %d subbands" % len(tmp_combined_subbands)
+    combinefn = basenm + ".cmb.tmp"
+    combine.combine_subbands(tmp_combined_subbands, combinefn)
 
-    # Remove the temporary combined files
-    for to_remove in tmp_combined_subbands:
-        os.remove(to_remove)
+    if not debug.INTERMEDIATE:
+        # Remove the temporary combined files
+        for subfn in tmp_combined_subbands:
+            os.remove(subfn)
     
     # Create diagnostic plots for pre-cleaned data
-    ar = psrchive.Archive_load(outfn)
+    if verbose:
+        print "Creating diagnostics for %s" % combinefn
+    ar = psrchive.Archive_load(combinefn)
     ar.pscrunch()
     ar.remove_baseline()
     ar.dedisperse()
@@ -76,12 +90,18 @@ def reduce_archives(infns, outfn, cfg):
         plt.savefig("%s.%s.png" % (ar.get_filename(), func_key), dpi=600)
 
     # Clean the data
-    cleanfn = os.path.splitext(outfn)[0]+".clean"
-    ar = psrchive.Archive_load(outfn)
+    if verbose:
+        print "Cleaning %s" % combinefn
+    cleanfn = basenm + ".clean"
+    ar = psrchive.Archive_load(combinefn)
     clean.deep_clean(ar, cleanfn, cfg.clean_chanthresh, \
                         cfg.clean_subintthresh, cfg.clean_binthresh)
     
+    if not debug.INTERMEDIATE:
+        os.remove(combinefn)
     # Re-create diagnostic plots for clean data
+    if verbose:
+        print "Creating diagnostics for %s" % cleanfn
     ar = psrchive.Archive_load(cleanfn)
     ar.pscrunch()
     ar.remove_baseline()
@@ -96,11 +116,10 @@ def reduce_archives(infns, outfn, cfg):
         plt.savefig("%s.%s.png" % (ar.get_filename(), func_key), dpi=600)
 
     # Make TOAs
-    stdout, stderr = utils.execute("pat -F -T -s %s -A %s -f %s -K " \
-                                   "%s.toa/PNG -t %s" % \
-            (cfg.standard_profile, cfg.toa_method, cfg.toa_method, \
-                cleanfn, cleanfn)) 
-    print stdout
+    if verbose:
+        print "Generating TOAs"
+    toastrs = toas.get_toas(cleanfn, cfg.ntoa_time, cfg.ntoa_freq)
+    return cleanfn, toastrs
 
 
 def main():
@@ -113,13 +132,15 @@ def main():
     print "     Patrick  Lazarus"
     print ""
     print "Number of input files: %d" % len(to_reduce)
-    print "Output file name: %s" % options.outfn
     
     cfg = config.CoastGuardConfigs()
     cfg.get_default_configs()
     cfg.get_configs_for_archive(to_reduce[0])
    
-    reduce_archives(to_reduce, options.outfn, options.verbose, cfg)
+    outfn, toastrs = reduce_archives(to_reduce, cfg, options.verbose)
+    print "Output file name: %s" % outfn
+    print "TOAs:"
+    print "\n".join(toastrs)
 
 
 if __name__=="__main__":
@@ -128,10 +149,6 @@ if __name__=="__main__":
                                     "reduce them so they are ready to " \
                                     "generate TOAs. A single output file " \
                                     "is produced.")
-    parser.add_option('-o', '--outname', dest='outfn', type='string', \
-                        help="The output (reduced) file's name. " \
-                            "(Default: 'reduce.out.ar')", \
-                        default="reduce.out.ar")
     parser.add_option('-g', '--glob', dest='from_glob', action='callback', \
                         callback=utils.get_files_from_glob, default=[], \
                         type='string', \
@@ -152,8 +169,8 @@ if __name__=="__main__":
                             "expanded by the shell prematurely. (Default: " \
                             "exclude any files.)")
     parser.add_option('-v', '--verbose', dest='verbose', action='store_true', \
-                        type='bool', default=False, \
+                        default=False, \
                         help="Be verbose. Print extra information to " \
-                             "scree. (Default: Don't be verbose.)")
+                             "screen. (Default: Don't be verbose.)")
     options, args = parser.parse_args()
     main()

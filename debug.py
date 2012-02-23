@@ -8,7 +8,9 @@ Patrick Lazarus, Nov. 11, 2011
 """
 
 modes = [('syscalls', 'Print commands being executed as system calls.'), \
-            ]
+         ('intermediate', 'Do not remove intermediate files ' \
+                            'when reducing data.'), 
+        ]
 
 modes.sort()
 
