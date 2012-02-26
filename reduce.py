@@ -7,8 +7,12 @@ produce TOAs.
 Patrick Lazarus, Nov. 22, 2011
 """
 import optparse
+import datetime
+import os.path
 import os
 import tempfile
+import sys
+import traceback
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -21,85 +25,186 @@ import clean
 import clean_utils
 import combine
 import config
+import errors
 
-
-
-def reduce_archives(infns, cfg): 
-    """Given a list of PSRCHIVE file names group them into sub-bands
-        then remove the edges of each sub-band to remove the artifacts
-        caused by aliasing. Finally, combine the sub-bands into a single 
-        output file.
-
-        The combined sub-band files are not saved.
-
-        Inputs:
-            infns: A list of input PSRCHIVE archive file names.
-            cfg: A CoastGuardConfig object containing configurations.
-
-        Outputs:
-            outfn: The final reduced file name.
-            toas: TOA strings.
+class ReductionLog(object):
+    """An object to log reduction of timing data.
     """
-    # Generate a filename
-    hdr = utils.get_header_vals(infns[0], ['name', 'mjd'])
-    basenm = "%s_MJD%.2f" % (hdr['name'], float(hdr['mjd']))
+    def __init__(self, infns):
+        # calculate MD5 checksum of all input file
+        self.infile_md5s = {}
+        for infn in infns:
+            self.infile_md5s[infn] = utils.get_md5sum(infn)
+        
+        # Find the git hash of the code
+        self.githash = utils.get_githash()
+        self.dityrepo = utils.is_gitrepo_dirty()
 
-    if len(infns) > 1:
-        combinefn = basenm + ".cmb.tmp"
-        combine.combine_all(infns, combinefn, cfg.nchan_to_trim) 
-    else:
-        combinefn = infns[0]
+        # Report the pwd
+        self.workdir = os.getcwd()
+
+        # Report the command line used 
+        self.cmdline = " ".join(sys.argv)
+
+    def start(self):
+        self.starttime = datetime.datetime.now()
+
+    def finish(self):
+        self.endtime = datetime.datetime.now()
+        self.time_elapsed = self.endtime - self.starttime
+
+    def failure(self, exctype, excval, exctb):
+        # Make sure we don't get colour tags in our log's traceback,
+        # they're distracting
+        tmp = config.colour
+        config.colour = False
+        self.epilog = "".join(traceback.format_exception(exctype, excval, exctb))
+        config.colour = tmp
+
+    def success(self, outfn, toastrs):
+        self.epilog  = "Output data file:\n    %s (MD5: %s)\n" % \
+                        (outfn, utils.get_md5sum(outfn))
+        self.epilog += "Generated %d TOAs:\n    %s" % \
+                    (len(toastrs), "\n    ".join(toastrs))
+
+    def to_file(self, fn):
+        f = open(fn, 'w')
+        f.write("Starting data reduction: %s\n" % str(self.starttime))
+        f.write("Current Coast Guard git hash: %s" % self.githash)
+        if self.dirtyrepo:
+            f.write(" (dirty)\n")
+        else:
+            f.write("\n")
+        f.write("Current working directory: %s\n" % self.workdir)
+        f.write("Complete command line: %s\n" % self.cmdline)
+        f.write("Reduced %d files:\n" % len(self.infile_md5s))
+        for infn in sorted(self.infile_md5s.keys()):
+            f.write("    %s (MD5: %s)\n" % (infn, self.infile_md5s[infn]))
+        f.write("Reduction finished: %s (Time elapsed: %s)\n" % \
+                (str(self.endtime), str(self.time_elapsed)))
+        f.write(self.epilog+"\n")
+        f.close()
+
+
+class ReductionJob(object):
+    """An object to represent the reduction of an observation.
+    """
+    def __init__(self, infns):
+        """Given a list of PSRCHIVE file names create a
+            ReductionJob object.
+
+            Input:
+                infns: A list of input PSRCHIVE archive file names.
+
+            Output:
+                job: The Reduction job object.
+        """
+        self.infns = infns
+        self.log = ReductionLog(infns)
+        
+        # Generate a filename
+        hdr = utils.get_header_vals(self.infns[0], ['name', 'mjd'])
+        self.basenm = "%s_MJD%.2f" % (hdr['name'], float(hdr['mjd']))
     
-    # Create diagnostic plots for pre-cleaned data
-    if config.verbosity:
-        print "Creating diagnostics for %s" % combinefn
-    ar = psrchive.Archive_load(combinefn)
-    ar.pscrunch()
-    ar.remove_baseline()
-    ar.dedisperse()
-    data = ar.get_data().squeeze()
-    template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
-    data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
-                                        template)
-    data = clean_utils.apply_weights(data, ar.get_weights())
-    for func_key in cfg.funcs_to_plot:
-        diagnose.DiagnosticFigure(ar, data, func_key)
-        plt.savefig("%s.%s.png" % (ar.get_filename(), func_key), dpi=600)
+        self.cfg = config.CoastGuardConfigs()
+        self.cfg.get_default_configs()
+        self.cfg.get_configs_for_archive(self.infns[0])
+ 
+    def run(self):
+        """Call method to reduce archives, and take care of logging.
 
-    # Clean the data
-    if config.verbosity:
-        print "Cleaning %s" % combinefn
-    cleanfn = basenm + ".clean"
-    ar = psrchive.Archive_load(combinefn)
-    clean.deep_clean(ar, cleanfn, cfg.clean_chanthresh, \
-                        cfg.clean_subintthresh, cfg.clean_binthresh)
-    
-    if not config.debug.INTERMEDIATE:
-        os.remove(combinefn)
-    # Re-create diagnostic plots for clean data
-    if config.verbosity:
-        print "Creating diagnostics for %s" % cleanfn
-    ar = psrchive.Archive_load(cleanfn)
-    ar.pscrunch()
-    ar.remove_baseline()
-    ar.dedisperse()
-    data = ar.get_data().squeeze()
-    template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
-    data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
-                                        template)
-    data = clean_utils.apply_weights(data, ar.get_weights())
-    for func_key in cfg.funcs_to_plot:
-        diagnose.DiagnosticFigure(ar, data, func_key)
-        plt.savefig("%s.%s.png" % (ar.get_filename(), func_key), dpi=600)
+            Inputs:
+                None
 
-    # Make TOAs
-    if config.verbosity:
-        print "Generating TOAs"
-    stdfn = toas.get_standard(cleanfn, cfg.base_standards_dir)
-    if config.verbosity > 1:
-        print "Standard profile: %s" % stdfn
-    toastrs = toas.get_toas(cleanfn, stdfn, cfg.ntoa_time, cfg.ntoa_freq)
-    return cleanfn, toastrs
+            Outputs:
+                None
+        """
+        
+        self.log.start()
+        try:
+            outfn, toastrs = self.reduce_archives()
+        except Exception:
+            self.log.failure(*sys.exc_info())
+            raise errors.DataReductionFailed("Data reduction failed! " \
+                        "Check log file: %s" % (self.basenm+".log"))
+        else:
+            self.log.success(outfn, toastrs)
+        finally:
+            self.log.finish()
+            self.log.to_file(self.basenm+".log")
+        return outfn, toastrs
+
+    def reduce_archives(self): 
+        """Group input files into sub-bands then remove the edges of each 
+            sub-band to remove the artifacts caused by aliasing. Finally, 
+            combine the sub-bands into a single output file.
+ 
+            The combined sub-band files are not saved.
+ 
+            Inputs:
+                None
+                
+            Outputs:
+                outfn: The final reduced file name.
+                toas: TOA strings.
+        """
+        if len(self.infns) > 1:
+            combinefn = self.basenm + ".cmb.tmp"
+            combine.combine_all(infns, combinefn, self.cfg.nchan_to_trim) 
+        else:
+            combinefn = self.infns[0]
+        
+        # Create diagnostic plots for pre-cleaned data
+        if config.verbosity:
+            print "Creating diagnostics for %s" % combinefn
+        ar = psrchive.Archive_load(combinefn)
+        ar.pscrunch()
+        ar.remove_baseline()
+        ar.dedisperse()
+        data = ar.get_data().squeeze()
+        template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
+        data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
+                                            template)
+        data = clean_utils.apply_weights(data, ar.get_weights())
+        for func_key in self.cfg.funcs_to_plot:
+            diagnose.DiagnosticFigure(ar, data, func_key)
+            plt.savefig("%s.%s.png" % (ar.get_filename(), func_key), dpi=600)
+ 
+        # Clean the data
+        if config.verbosity:
+            print "Cleaning %s" % combinefn
+        cleanfn = self.basenm + ".clean"
+        ar = psrchive.Archive_load(combinefn)
+        clean.deep_clean(ar, cleanfn, self.cfg.clean_chanthresh, \
+                            self.cfg.clean_subintthresh, self.cfg.clean_binthresh)
+        
+        if not config.debug.INTERMEDIATE:
+            os.remove(combinefn)
+        # Re-create diagnostic plots for clean data
+        if config.verbosity:
+            print "Creating diagnostics for %s" % cleanfn
+        ar = psrchive.Archive_load(cleanfn)
+        ar.pscrunch()
+        ar.remove_baseline()
+        ar.dedisperse()
+        data = ar.get_data().squeeze()
+        template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
+        data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
+                                            template)
+        data = clean_utils.apply_weights(data, ar.get_weights())
+        for func_key in self.cfg.funcs_to_plot:
+            diagnose.DiagnosticFigure(ar, data, func_key)
+            plt.savefig("%s.%s.png" % (ar.get_filename(), func_key), dpi=600)
+ 
+        # Make TOAs
+        if config.verbosity:
+            print "Generating TOAs"
+        stdfn = toas.get_standard(cleanfn, self.cfg.base_standards_dir)
+        if config.verbosity > 1:
+            print "Standard profile: %s" % stdfn
+        toastrs = toas.get_toas(cleanfn, stdfn, self.cfg.ntoa_time, \
+                                    self.cfg.ntoa_freq)
+        return cleanfn, toastrs
 
 
 def main():
@@ -113,11 +218,8 @@ def main():
     print ""
     print "Number of input files: %d" % len(to_reduce)
     
-    cfg = config.CoastGuardConfigs()
-    cfg.get_default_configs()
-    cfg.get_configs_for_archive(to_reduce[0])
-   
-    outfn, toastrs = reduce_archives(to_reduce, cfg)
+    job = ReductionJob(to_reduce)
+    outfn, toastrs = job.run()
     print "Output file name: %s" % outfn
     print "TOAs:"
     print "\n".join(toastrs)
