@@ -97,18 +97,23 @@ def main():
     to_exclude = options.excluded_files + options.excluded_by_glob
     to_combine = utils.exclude_files(file_list, to_exclude)
     
+    # Interpolate filename
+    outfn = utils.get_outfn(options.outfn, to_combine[0])
+    
+    # Read configurations
+    cfg = config.CoastGuardConfigs()
+    cfg.get_default_configs()
+    cfg.get_configs_for_archive(to_combine[0])
+  
     print ""
     print "        combine.py"
     print "     Patrick  Lazarus"
     print ""
     print "Number of input files: %d" % len(to_combine)
-    print "Output file name: %s" % options.outfn
+    print "Output file name: %s" % outfn
     
-    cfg = config.CoastGuardConfigs()
-    cfg.get_default_configs()
-    cfg.get_configs_for_archive(to_combine[0])
-   
-    combine_all(to_combine, options.outfn, num_to_trim=cfg.nchan_to_trim)
+    # Combine files
+    combine_all(to_combine, outfn, num_to_trim=cfg.nchan_to_trim)
 
 
 if __name__=="__main__":
