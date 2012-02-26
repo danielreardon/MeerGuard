@@ -123,8 +123,8 @@ if __name__=="__main__":
                                     "the sub-bands into a single output file.")
     parser.add_option('-o', '--outname', dest='outfn', type='string', \
                         help="The output (combined) file's name. " \
-                            "(Default: 'combine.out.ar')", \
-                        default="combine.out.ar")
+                            "(Default: '%(name)s_%(yyyymmdd)s_%(secs)05d_combined.ar')", \
+                        default="%(name)s_%(yyyymmdd)s_%(secs)05d_combined.ar")
     parser.add_option('-g', '--glob', dest='from_glob', action='callback', \
                         callback=utils.get_files_from_glob, default=[], \
                         type='string', \
