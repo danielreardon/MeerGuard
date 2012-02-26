@@ -408,7 +408,7 @@ def make_diagnostic_figure(arfn, rmbaseline=False, dedisp=False, \
 
 
 def main():
-    make_diagnostic_figure(args[0], \
+    fig = make_diagnostic_figure(args[0], \
                 rmbaseline=options.remove_baseline, \
                 dedisp=options.dedisperse, \
                 rmprof=options.remove_profile, \
@@ -416,11 +416,13 @@ def main():
                 func_key=options.func_to_plot, \
                 log=options.log_colours, \
                 vmin=options.black_level, \
-                vmax=options.white_level))
+                vmax=options.white_level)
     if options.savefn:
         savefn = utils.get_outfn(options.savefn, args[0]) 
         plt.savefig(savefn, dpi=600)
     if options.interactive:
+        fig.canvas.mpl_connect('key_press_event', \
+                lambda ev: (ev.key in ('q', 'Q')) and plt.close(fig))
         plt.show()
 
 
@@ -445,18 +447,21 @@ if __name__ == '__main__':
     #    type='int', default=None, \
     #    help="The number of subbands. This is used for scaling channels. " \
     #         "(Default: Do not scale channels)")
-    parser.add_option('-n', '--num-threads', dest='nthreads', \
+    parser.add_option('--num-threads', dest='nthreads', \
         type='int', default=None, \
         help="The number of threads to use when removing profiles. " \
                 "(Default: Use as many threads as there are CPUs)")
     parser.add_option('-f', '--func-to-plot', dest='func_to_plot', \
-        default=std, action='store', \
+        default='std', action='store', \
         help="Function to plot. Possible choices are: " + \
              "; ".join(["%s: %s" % (key, info[0]) for key, info \
                                             in func_info.iteritems()]))
     parser.add_option('-s', '--savefn', dest='savefn', \
         default=False,
         help="Save plot. Argument is file name to save as.")
+    parser.add_option('-n', '--non-interactive', dest='interactive', \
+        default=True, action='store_false', \
+        help="Do not interactively show the plot. (Default: Show the plot.)")
     parser.add_option('--log-colours', dest='log_colours', \
         action='store_true', default=False, \
         help="Plot colours on a logarithmic scale. (Default: use linear scale)")
@@ -469,6 +474,4 @@ if __name__ == '__main__':
         help="Values whose normalised clour is smaller than this value " \
                 "(on a 0-1 scale) will be shown as black. (Default: 0.0)")
     options, args = parser.parse_args()
-    if not options.funcs_to_plot:
-        options.funcs_to_plot = ['std']
     main()
