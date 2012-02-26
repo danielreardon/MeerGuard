@@ -19,8 +19,9 @@ import matplotlib.pyplot as plt
 
 import psrchive
 
+import utils
 import clean_utils
-
+import config
 
 func_info = {'std': ("Standard Deviation", np.std), \
              'mean': ("Average", np.mean), \
@@ -35,7 +36,6 @@ plt.rc(('xtick.major', 'ytick.major'), size=6)
 plt.rc(('xtick.minor', 'ytick.minor'), size=3)
 plt.rc('axes', labelsize='small')
 plt.rc(('xtick', 'ytick'), labelsize='x-small')
-plt.rc('figure', figsize=(11,8))
 
 
 class DiagnosticFigure(matplotlib.figure.Figure):
@@ -54,40 +54,40 @@ class DiagnosticFigure(matplotlib.figure.Figure):
         self.bin_lims = (0, self.nbins)
 
         self.title, self.func = func_info[func_key]
-
+        
+        if config.verbosity > 1:
+            print "Plotting %s..." % self.title.lower()
+        
         # Add text
-        plt.figtext(0.02, 0.95, ar.get_source(), size='large', ha='left', va='center')
-        plt.figtext(0.02, 0.925, os.path.split(ar.get_filename())[-1], \
+        self.text(0.02, 0.95, ar.get_source(), size='large', ha='left', va='center')
+        self.text(0.02, 0.925, os.path.split(ar.get_filename())[-1], \
                         size='x-small', ha='left', va='center')
-        plt.figtext(0.02, 0.87, "Plotting: %s" % self.title.lower(), \
+        self.text(0.02, 0.87, "Plotting: %s" % self.title.lower(), \
                         size='small', ha='left', va='center')
-        plt.figtext(0.02, 0.85, "Number of sub-ints: %d" % self.nsubs, \
+        self.text(0.02, 0.85, "Number of sub-ints: %d" % self.nsubs, \
                         size='small', ha='left', va='center')
-        plt.figtext(0.02, 0.83, "Number of channels: %d" % self.nchans, \
+        self.text(0.02, 0.83, "Number of channels: %d" % self.nchans, \
                         size='small', ha='left', va='center')
-        plt.figtext(0.02, 0.81, "Number of phase bins: %d" % self.nbins, \
+        self.text(0.02, 0.81, "Number of phase bins: %d" % self.nbins, \
                         size='small', ha='left', va='center')
-        plt.figtext(0.02, 0.79, "Dedispersed at: %.2f pc cm$^{\mathrm{-3}}$" % \
+        self.text(0.02, 0.79, "Dedispersed at: %.2f pc cm$^{\mathrm{-3}}$" % \
                         self.ar.get_dispersion_measure(), \
                         size='small', ha='left', va='center')
-        plt.figtext(0.02, 0.77, "Centre Frequency: %.2f MHz" % \
+        self.text(0.02, 0.77, "Centre Frequency: %.2f MHz" % \
                         self.ar.get_centre_frequency(), \
                         size='small', ha='left', va='center')
-        plt.figtext(0.02, 0.75, "Bandwidth: %.2f MHz" % \
+        self.text(0.02, 0.75, "Bandwidth: %.2f MHz" % \
                         self.ar.get_bandwidth(), \
                         size='small', ha='left', va='center')
         
         # Make axes
-        self.prof_ax = plt.axes((0.05, 0.55, 0.4, 0.15)) 
-        self.sub_chan_ax = plt.axes((0.05, 0.05, 0.45, 0.45))
-        self.sub_phs_ax = plt.axes((0.5, 0.05, 0.45, 0.45))
-        self.chan_phs_ax = plt.axes((0.5, 0.5, 0.45, 0.45))
+        self.prof_ax = self.add_axes((0.05, 0.55, 0.4, 0.15)) 
+        self.sub_chan_ax = self.add_axes((0.05, 0.05, 0.45, 0.45))
+        self.sub_phs_ax = self.add_axes((0.5, 0.05, 0.45, 0.45))
+        self.chan_phs_ax = self.add_axes((0.5, 0.5, 0.45, 0.45))
         
         # Connect events to update plots on zoom
         self.connect_event_triggers()
-
-        # Plot data
-        self.replot()
 
     def connect_event_triggers(self):
         self.prof_xlim_evid = self.prof_ax.callbacks.connect('xlim_changed', \
@@ -120,7 +120,7 @@ class DiagnosticFigure(matplotlib.figure.Figure):
         hibin = int(np.round(hibin).clip(0, self.nbins))
         if self.bin_lims != (lobin, hibin):
             self.bin_lims = (lobin, hibin)
-            self.replot()
+            self.plot()
 
     def change_chan_lims(self, lochan, hichan):
         #print "Changing chan lims: (%f, %f)" % (lochan, hichan)
@@ -128,7 +128,7 @@ class DiagnosticFigure(matplotlib.figure.Figure):
         hichan = int(np.round(hichan).clip(0, self.nchans))
         if self.chan_lims != (lochan, hichan):
             self.chan_lims = (lochan, hichan)
-            self.replot()
+            self.plot()
 
     def change_sub_lims(self, losub, hisub):
         #print "Changing sub lims: (%f, %f)" % (losub, hisub)
@@ -136,9 +136,9 @@ class DiagnosticFigure(matplotlib.figure.Figure):
         hisub = int(np.round(hisub).clip(0, self.nsubs))
         if self.sub_lims != (losub, hisub):
             self.sub_lims = (losub, hisub)
-            self.replot()
+            self.plot()
 
-    def replot(self):
+    def plot(self):
         self.disconnect_event_triggers()
         #print self.sub_lims, self.chan_lims, self.bin_lims
         subset = self.data[slice(*self.sub_lims), \
@@ -191,9 +191,6 @@ class DiagnosticFigure(matplotlib.figure.Figure):
         self.sub_phs_ax.set_xlabel("Phase bins")
         plt.setp(self.sub_phs_ax.yaxis.get_ticklabels(), visible=False)
 
-        #plt.figure()
-        #plt.plot(sub_chan.sum(axis=0), 'k')
-
         # Channels vs. Phase
         loval = np.min(chan_phs)
         ptp = np.ptp(chan_phs)
@@ -208,122 +205,8 @@ class DiagnosticFigure(matplotlib.figure.Figure):
         plt.setp(self.chan_phs_ax.xaxis.get_ticklabels(), visible=False)
         self.chan_phs_ax.set_ylabel("Channels")
         
-        plt.draw()
+        self.canvas.draw()
         self.connect_event_triggers()
-
-
-def plot(ar, data, func_key='std', log=False, vmin=0, vmax=1):
-    """Plot.
-
-        Inputs:
-            ar: The archive (this is used only to print text information).
-            data: The archive data to make the plot for.
-            func_key: A key indicating which function to plot.
-                (Default: 'std')
-            log: A boolean value. True to plot colours in log scale.
-                (Default: Use linear scale)
-            vmin: Fraction of colour range to show as black.
-                (Default: 0.0)
-            vmax: Fraction of colour range to show as white.
-                (Default: 1.0_)
-
-        Outputs:
-            None
-    """
-    nsubs, nchans, nbins = data.shape
-    
-    title, func = func_info[func_key]
-    
-    sub_chan = func(data, axis=2)
-    sub_phs = func(data, axis=1)
-    chan_phs = func(data, axis=0)
-
-    plt.figure(figsize=(11,8))
-    
-    # Create colour normaliser
-    if log:
-        normcls = matplotlib.colors.LogNorm
-    else:
-        normcls = matplotlib.colors.Normalize
-
-    # Add text
-    plt.figtext(0.02, 0.95, ar.get_name(), size='large', ha='left', va='center')
-    plt.figtext(0.02, 0.925, os.path.split(ar.get_filename())[-1], \
-                    size='x-small', ha='left', va='center')
-    plt.figtext(0.02, 0.87, "Plotting: %s" % title.lower(), \
-                    size='small', ha='left', va='center')
-    plt.figtext(0.02, 0.85, "Number of sub-ints: %d" % nsubs, \
-                    size='small', ha='left', va='center')
-    plt.figtext(0.02, 0.83, "Number of channels: %d" % nchans, \
-                    size='small', ha='left', va='center')
-    plt.figtext(0.02, 0.81, "Number of phase bins: %d" % nbins, \
-                    size='small', ha='left', va='center')
-    plt.figtext(0.02, 0.79, "Dedispered at: %.2f pc cm$^{\mathrm{-3}}$" % \
-                    ar.get_dispersion_measure(), \
-                    size='small', ha='left', va='center')
-    plt.figtext(0.02, 0.77, "Centre Frequency: %.2f MHz" % \
-                    ar.get_centre_frequency(), \
-                    size='small', ha='left', va='center')
-    plt.figtext(0.02, 0.75, "Bandwidth: %.2f MHz" % \
-                    ar.get_bandwidth(), \
-                    size='small', ha='left', va='center')
-    # Plot profile
-    prof_ax = plt.axes((0.05, 0.55, 0.4, 0.15))
-    prof = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
-    plt.plot(np.arange(nbins), prof, 'k-')
-    plt.axis('tight')
-    plt.xlabel("Phase Bins")
-    plt.ylabel("Intensity")
-
-    # Plot image data
-    sub_chan_ax = plt.axes((0.05, 0.05, 0.45, 0.45))
-    loval = np.min(sub_chan)
-    ptp = np.ptp(sub_chan)
-    norm = normcls(loval+ptp*vmin, loval+ptp*vmax, clip=True)
-    plt.imshow(sub_chan, origin='bottom', aspect='auto', norm=norm, \
-                cmap=matplotlib.cm.gist_heat, interpolation='nearest')
-    plt.xlabel("Channels")
-    plt.ylabel("Sub-ints")
-    
-    sub_phs_ax = plt.axes((0.5, 0.05, 0.45, 0.45))
-    loval = np.min(sub_phs)
-    ptp = np.ptp(sub_phs)
-    norm = normcls(loval+ptp*vmin, loval+ptp*vmax, clip=True)
-    plt.imshow(sub_phs, origin='bottom', aspect='auto', norm=norm, \
-                cmap=matplotlib.cm.gist_heat, interpolation='nearest')
-    plt.xlabel("Phase bins")
-    plt.setp(sub_phs_ax.yaxis.get_ticklabels(), visible=False)
-    
-    chan_phs_ax = plt.axes((0.5, 0.5, 0.45, 0.45))
-    loval = np.min(chan_phs)
-    ptp = np.ptp(chan_phs)
-    norm = normcls(loval+ptp*vmin, loval+ptp*vmax, clip=True)
-    plt.imshow(chan_phs, origin='bottom', aspect='auto', norm=norm, \
-                cmap=matplotlib.cm.gist_heat, interpolation='nearest')
-    plt.setp(chan_phs_ax.xaxis.get_ticklabels(), visible=False)
-    plt.ylabel("Channels")
-   
-    # Link the axes
-    prof_ax.callbacks.connect('xlim_changed', lambda ax: (chan_phs_ax.get_xlim()==ax.get_xlim() or \
-                                                            chan_phs_ax.set_xlim(ax.get_xlim()), \
-                                                          sub_phs_ax.get_xlim()==ax.get_xlim() or \
-                                                            sub_phs_ax.set_xlim(ax.get_xlim())))
-    sub_chan_ax.callbacks.connect('xlim_changed', lambda ax: (chan_phs_ax.get_ylim()==ax.get_xlim() or \
-                                                                chan_phs_ax.set_ylim(ax.get_xlim())))
-    sub_chan_ax.callbacks.connect('ylim_changed', lambda ax: (sub_phs_ax.get_ylim()==ax.get_ylim() or \
-                                                                sub_phs_ax.set_ylim(ax.get_ylim())))
-    sub_phs_ax.callbacks.connect('xlim_changed', lambda ax: (chan_phs_ax.get_xlim()==ax.get_xlim() or \
-                                                                chan_phs_ax.set_xlim(ax.get_xlim()), \
-                                                              prof_ax.get_xlim()==ax.get_xlim() or \
-                                                                prof_ax.set_xlim(ax.get_xlim())))
-    sub_phs_ax.callbacks.connect('ylim_changed', lambda ax: (sub_chan_ax.get_ylim()==ax.get_ylim() or \
-                                                                sub_chan_ax.set_ylim(ax.get_ylim())))
-    chan_phs_ax.callbacks.connect('xlim_changed', lambda ax: (sub_phs_ax.get_xlim()==ax.get_xlim() or \
-                                                                sub_phs_ax.set_xlim(ax.get_xlim()), \
-                                                              prof_ax.get_xlim()==ax.get_xlim() or \
-                                                                prof_ax.set_xlim(ax.get_xlim())))
-    chan_phs_ax.callbacks.connect('ylim_changed', lambda ax: (sub_chan_ax.get_xlim()==ax.get_ylim() or \
-                                                                sub_chan_ax.set_xlim(ax.get_ylim())))
 
 
 def plot_box(data, basename=None):
@@ -489,41 +372,61 @@ def foo():
         plt.savefig(basename+"_freq-vs-phase.png")
 
 
-def main():
-    ar = psrchive.Archive_load(args[0])
+def make_diagnostic_figure(arfn, rmbaseline=False, dedisp=False, \
+                            rmprof=False, centre_prof=False, **kwargs):
+    ar = psrchive.Archive_load(arfn)
     ar.pscrunch()
    
-    if options.remove_baseline:
-        print "Removing baseline..."
+    if centre_prof:
+        if config.verbosity > 1:
+            print "Centering profile..."
+        ar.centre_max_bin()
+    if rmbaseline:
+        if config.verbosity > 1:
+            print "Removing baseline..."
         ar.remove_baseline()
-    if options.dedisperse:
-        print "Dedispersing..."
+    if dedisp:
+        if config.verbosity > 1:
+            print "Dedispersing..."
         ar.dedisperse()
     else:
         ar.set_dispersion_measure(0)
         ar.dedisperse()
     data = ar.get_data().squeeze()
-    if options.remove_profile:
-        print "Removing profile..."
+    if rmprof:
+        if config.verbosity > 1:
+            print "Removing profile..."
         template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
         data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
                                             template)
     data = clean_utils.apply_weights(data, ar.get_weights())
-    for func_key in options.funcs_to_plot:
-        DiagnosticFigure(ar, data, func_key, log=options.log_colours, \
-            vmin=options.black_level, vmax=options.white_level)
-        plt.savefig("%s.%s.diag.png" % (ar.get_filename(), func_key), dpi=600)
-        
-    #    plot(ar, data, func_key, log=options.log_colours, \
-    #        vmin=options.black_level, vmax=options.white_level)
-    #plt.gcf().canvas.mpl_connect('key_press_event', \
-    #            lambda ev: (ev.key in ('q', 'Q')) and plt.close())
-    plt.show()
+    fig = plt.figure(figsize=(11,8), FigureClass=DiagnosticFigure, 
+                ar=ar, data=data, **kwargs)
+    # Plot data
+    fig.plot()
+    return fig
+
+
+def main():
+    make_diagnostic_figure(args[0], \
+                rmbaseline=options.remove_baseline, \
+                dedisp=options.dedisperse, \
+                rmprof=options.remove_profile, \
+                centre_prof=options.centre_profile, \
+                func_key=options.func_to_plot, \
+                log=options.log_colours, \
+                vmin=options.black_level, \
+                vmax=options.white_level))
+    if options.savefn:
+        savefn = utils.get_outfn(options.savefn, args[0]) 
+        plt.savefig(savefn, dpi=600)
+    if options.interactive:
+        plt.show()
 
 
 if __name__ == '__main__':
-    parser = optparse.OptionParser()
-    parser.add_option('-d', '--dedisperse', dest='dedisperse', \
+    parser = utils.DefaultOptions()
+    parser.add_option('-D', '--dedisperse', dest='dedisperse', \
         action='store_true', default=False, \
         help="Dedisperse archive before producing diagnostics. " \
              "(Default: Keep archive in dispersed (DM=0) state)")
@@ -532,22 +435,28 @@ if __name__ == '__main__':
         help="Remove baselines from all profiles using archive's " \
                 "'remove_baseline()' method. (Default: Do not " \
                 "remove baseline)")
-    parser.add_option('-p', '--remove-profile', dest='remove_profile', \
+    parser.add_option('-r', '--remove-profile', dest='remove_profile', \
         action='store_true', default=False, \
         help="Remove profile. (Default: Do not remove profile)")
-    parser.add_option('--num-subbands', dest='num_subbands', \
-        type='int', default=None, \
-        help="The number of subbands. This is used for scaling channels. " \
-             "(Default: Do not scale channels)")
+    parser.add_option('--centre-profile', dest='centre_profile', \
+        action='store_true', default=False, \
+        help="Centre profile. (Default: Do not centre profile)")
+    #parser.add_option('--num-subbands', dest='num_subbands', \
+    #    type='int', default=None, \
+    #    help="The number of subbands. This is used for scaling channels. " \
+    #         "(Default: Do not scale channels)")
     parser.add_option('-n', '--num-threads', dest='nthreads', \
         type='int', default=None, \
         help="The number of threads to use when removing profiles. " \
                 "(Default: Use as many threads as there are CPUs)")
-    parser.add_option('-f', '--func-to-plot', dest='funcs_to_plot', \
-        action='append', default=[], \
-        help="Plot the given function. Possible choices are: " + \
+    parser.add_option('-f', '--func-to-plot', dest='func_to_plot', \
+        default=std, action='store', \
+        help="Function to plot. Possible choices are: " + \
              "; ".join(["%s: %s" % (key, info[0]) for key, info \
                                             in func_info.iteritems()]))
+    parser.add_option('-s', '--savefn', dest='savefn', \
+        default=False,
+        help="Save plot. Argument is file name to save as.")
     parser.add_option('--log-colours', dest='log_colours', \
         action='store_true', default=False, \
         help="Plot colours on a logarithmic scale. (Default: use linear scale)")
