@@ -7,8 +7,8 @@ Patrick Lazarus, Nov. 10, 2011
 import colour
 
 class CoastGuardError(Exception):
-    def __init__(self, msg):
-        super(CoastGuardError, self).__init__(colour.cstring(msg, 'error'))
+    def __str__(self):
+       return colour.cstring(super(CoastGuardError, self).__str__(), 'error')
 
 
 class SystemCallError(CoastGuardError):
@@ -20,4 +20,12 @@ class NoStandardProfileError(CoastGuardError):
 
 
 class ToaError(CoastGuardError):
+    pass
+
+
+class DataReductionFailed(CoastGuardError):
+    pass
+
+
+class BadFileName(CoastGuardError):
     pass
