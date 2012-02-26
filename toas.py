@@ -17,11 +17,11 @@ def get_standard(fn, base_stddir='.'):
         Output:
             std: The name of the standard profile.
     """
-    hdr = utils.get_header_vals(fn, ['name', 'freq', 'telescop', 'backend', 'receiver'])
+    hdr = utils.get_header_vals(fn, ['name', 'freq', 'telescop', 'backend', 'rcvr'])
     stdfn = "%s_%s_%s_%s.std" % (hdr['name'].upper(), hdr['telescop'].lower(), \
-                            hdr['receiver'].lower(), hdr['backend'].lower())
+                            hdr['rcvr'].lower(), hdr['backend'].lower())
     stdpath = os.path.join(base_stddir, hdr['telescop'].lower(), \
-                            hdr['receiver'].lower(), hdr['backend'].lower())
+                            hdr['rcvr'].lower(), hdr['backend'].lower())
     stdfn = os.path.join(stdpath, stdfn)
 
     if not os.path.isfile(stdfn):
@@ -83,7 +83,7 @@ def get_toas(fn, stdfn, nsubint=1, nchan=1, makediag=True, \
 
     # Check that we have the right number of TOAs
     if len(toastrs) != nsubint*nchan:
-        raise ToaError("Wrong number of TOAs parsed from 'pat' output. " \
+        raise errors.ToaError("Wrong number of TOAs parsed from 'pat' output. " \
                             "Expecting %d. Got %d." % \
                             (nsubint*nchan, len(toastrs)))
     return toastrs
