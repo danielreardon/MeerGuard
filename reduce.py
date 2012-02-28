@@ -38,7 +38,7 @@ class ReductionLog(object):
         
         # Find the git hash of the code
         self.githash = utils.get_githash()
-        self.dityrepo = utils.is_gitrepo_dirty()
+        self.dirtyrepo = utils.is_gitrepo_dirty()
 
         # Report the pwd
         self.workdir = os.getcwd()
@@ -89,23 +89,25 @@ class ReductionLog(object):
 class ReductionJob(object):
     """An object to represent the reduction of an observation.
     """
-    def __init__(self, infns):
+    def __init__(self, infns, outfn):
         """Given a list of PSRCHIVE file names create a
             ReductionJob object.
 
             Input:
                 infns: A list of input PSRCHIVE archive file names.
+                outfn: The name of the reduced archive output.
 
             Output:
                 job: The Reduction job object.
         """
         self.infns = infns
+        self.outfn = outfn
         self.log = ReductionLog(infns)
         
         # Generate a filename
         hdr = utils.get_header_vals(self.infns[0], ['name', 'mjd'])
-        self.basenm = "%s_MJD%.2f" % (hdr['name'], float(hdr['mjd']))
-    
+        self.basenm = os.path.splitext(self.outfn)[0]
+
         self.cfg = config.CoastGuardConfigs()
         self.cfg.get_default_configs()
         self.cfg.get_configs_for_archive(self.infns[0])
@@ -122,17 +124,17 @@ class ReductionJob(object):
         
         self.log.start()
         try:
-            outfn, toastrs = self.reduce_archives()
+            toastrs = self.reduce_archives()
         except Exception:
             self.log.failure(*sys.exc_info())
             raise errors.DataReductionFailed("Data reduction failed! " \
                         "Check log file: %s" % (self.basenm+".log"))
         else:
-            self.log.success(outfn, toastrs)
+            self.log.success(self.outfn, toastrs)
         finally:
             self.log.finish()
             self.log.to_file(self.basenm+".log")
-        return outfn, toastrs
+        return toastrs
 
     def reduce_archives(self): 
         """Group input files into sub-bands then remove the edges of each 
@@ -157,54 +159,69 @@ class ReductionJob(object):
         # Create diagnostic plots for pre-cleaned data
         if config.verbosity:
             print "Creating diagnostics for %s" % combinefn
-        ar = psrchive.Archive_load(combinefn)
-        ar.pscrunch()
-        ar.remove_baseline()
-        ar.dedisperse()
-        data = ar.get_data().squeeze()
-        template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
-        data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
-                                            template)
-        data = clean_utils.apply_weights(data, ar.get_weights())
         for func_key in self.cfg.funcs_to_plot:
-            diagnose.DiagnosticFigure(ar, data, func_key)
-            plt.savefig("%s.%s.png" % (ar.get_filename(), func_key), dpi=600)
+            diagnose.make_diagnostic_figure(combinefn, \
+                                            rmbaseline=self.cfg.diagnostic_rmbaseline, \
+                                            dedisp=self.cfg.diagnostic_dedisp, \
+                                            centre_prof=self.cfg.diagnostic_centre_prof, \
+                                            rmprof=True, \
+                                            func_key=func_key, \
+                                            log=self.cfg.diagnostic_logcolours, \
+                                            vmin=self.cfg.diagnostic_vmin, \
+                                            vmax=self.cfg.diagnostic_vmax)
+            plt.savefig("%s_diag_noprof_%s.png" % (combinefn, func_key), dpi=600)
+            diagnose.make_diagnostic_figure(combinefn, \
+                                            rmbaseline=self.cfg.diagnostic_rmbaseline, \
+                                            dedisp=self.cfg.diagnostic_dedisp, \
+                                            centre_prof=self.cfg.diagnostic_centre_prof, \
+                                            rmprof=False, \
+                                            func_key=func_key, \
+                                            log=self.cfg.diagnostic_logcolours, \
+                                            vmin=self.cfg.diagnostic_vmin, \
+                                            vmax=self.cfg.diagnostic_vmax)
+            plt.savefig("%s_diag_%s.png" % (combinefn, func_key), dpi=600)
  
         # Clean the data
         if config.verbosity:
             print "Cleaning %s" % combinefn
-        cleanfn = self.basenm + ".clean"
         ar = psrchive.Archive_load(combinefn)
-        clean.deep_clean(ar, cleanfn, self.cfg.clean_chanthresh, \
+        clean.deep_clean(ar, self.outfn, self.cfg.clean_chanthresh, \
                             self.cfg.clean_subintthresh, self.cfg.clean_binthresh)
         
-        if not config.debug.INTERMEDIATE:
-            os.remove(combinefn)
         # Re-create diagnostic plots for clean data
         if config.verbosity:
-            print "Creating diagnostics for %s" % cleanfn
-        ar = psrchive.Archive_load(cleanfn)
-        ar.pscrunch()
-        ar.remove_baseline()
-        ar.dedisperse()
-        data = ar.get_data().squeeze()
-        template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
-        data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
-                                            template)
-        data = clean_utils.apply_weights(data, ar.get_weights())
+            print "Creating diagnostics for %s" % self.outfn
         for func_key in self.cfg.funcs_to_plot:
-            diagnose.DiagnosticFigure(ar, data, func_key)
-            plt.savefig("%s.%s.png" % (ar.get_filename(), func_key), dpi=600)
+            diagnose.make_diagnostic_figure(self.outfn, \
+                                            rmbaseline=self.cfg.diagnostic_rmbaseline, \
+                                            dedisp=self.cfg.diagnostic_dedisp, \
+                                            centre_prof=self.cfg.diagnostic_centre_prof, \
+                                            rmprof=True, \
+                                            func_key=func_key, \
+                                            log=self.cfg.diagnostic_logcolours, \
+                                            vmin=self.cfg.diagnostic_vmin, \
+                                            vmax=self.cfg.diagnostic_vmax)
+            plt.savefig("%s_diag_noprof_%s.png" % (self.outfn, func_key), dpi=600)
+            diagnose.make_diagnostic_figure(self.outfn, \
+                                            rmbaseline=self.cfg.diagnostic_rmbaseline, \
+                                            dedisp=self.cfg.diagnostic_dedisp, \
+                                            centre_prof=self.cfg.diagnostic_centre_prof, \
+                                            rmprof=False, \
+                                            func_key=func_key, \
+                                            log=self.cfg.diagnostic_logcolours, \
+                                            vmin=self.cfg.diagnostic_vmin, \
+                                            vmax=self.cfg.diagnostic_vmax)
+            plt.savefig("%s_diag_%s.png" % (self.outfn, func_key), dpi=600)
  
         # Make TOAs
         if config.verbosity:
             print "Generating TOAs"
-        stdfn = toas.get_standard(cleanfn, self.cfg.base_standards_dir)
+        stdfn = toas.get_standard(self.outfn, self.cfg.base_standards_dir)
         if config.verbosity > 1:
             print "Standard profile: %s" % stdfn
-        toastrs = toas.get_toas(cleanfn, stdfn, self.cfg.ntoa_time, \
+        toastrs = toas.get_toas(self.outfn, stdfn, self.cfg.ntoa_time, \
                                     self.cfg.ntoa_freq)
-        return cleanfn, toastrs
+        return toastrs
 
 
 def main():
@@ -212,15 +229,18 @@ def main():
     to_exclude = options.excluded_files + options.excluded_by_glob
     to_reduce = utils.exclude_files(file_list, to_exclude)
     
+    # Interpolate filename
+    outfn = utils.get_outfn(options.outfn, to_reduce[0])
+    
     print ""
     print "        reduce.py"
     print "     Patrick  Lazarus"
     print ""
     print "Number of input files: %d" % len(to_reduce)
-    
-    job = ReductionJob(to_reduce)
-    outfn, toastrs = job.run()
     print "Output file name: %s" % outfn
+    
+    job = ReductionJob(to_reduce, outfn)
+    toastrs = job.run()
     print "TOAs:"
     print "\n".join(toastrs)
 
@@ -231,6 +251,10 @@ if __name__=="__main__":
                                     "reduce them so they are ready to " \
                                     "generate TOAs. A single output file " \
                                     "is produced.")
+    parser.add_option('-o', '--outname', dest='outfn', type='string', \
+                        help="The output (reduced) file's name. " \
+                            "(Default: '%(name)s_%(yyyymmdd)s_%(secs)05d_reduced.ar')", \
+                        default="%(name)s_%(yyyymmdd)s_%(secs)05d_combined.ar")
     parser.add_option('-g', '--glob', dest='from_glob', action='callback', \
                         callback=utils.get_files_from_glob, default=[], \
                         type='string', \
