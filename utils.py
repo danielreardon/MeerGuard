@@ -62,6 +62,7 @@ def print_info(msg, level=1):
             fn, lineno, funcnm = inspect.stack()[1][1:4]
             colour.cprint("INFO [%s:%d - %s(...)]:" % 
                             (os.path.split(fn)[-1], lineno, funcnm), 'infohdr')
+            msg = msg.replace('\n', '\n    ')
             colour.cprint("    %s" % msg, 'info')
         else:
             colour.cprint(msg, 'info')
@@ -84,11 +85,15 @@ def print_debug(msg, category):
         if config.helpful_debugging:
             # Get caller info
             fn, lineno, funcnm = inspect.stack()[1][1:4]
-            colour.cprint("DEBUG [%s:%d - %s(...)]:" % 
-                            (os.path.split(fn)[-1], lineno, funcnm), 'debughdr')
-            colour.cprint("    %s" % msg, 'debug')
+            to_print = colour.cstring("DEBUG %s [%s:%d - %s(...)]:\n" % \
+                        (category.upper(), os.path.split(fn)[-1], lineno, funcnm), \
+                            'debughdr')
+            msg = msg.replace('\n', '\n    ')
+            to_print += colour.cstring("    %s" % msg, 'debug')
         else:
-            colour.cprint(msg, 'debug')
+            to_print = colour.cstring(msg, 'debug')
+        sys.stderr.write(to_print + '\n')
+        sys.stderr.flush()
 
 
 def get_md5sum(fn, block_size=16*8192):
@@ -201,9 +206,7 @@ def execute(cmd, stdout=subprocess.PIPE, stderr=sys.stderr, dir=None):
         unless subprocess.PIPE is provided.
     """
     # Log command to stdout
-    if config.debug.SYSCALLS:
-        sys.stdout.write("\n'"+cmd+"'\n")
-        sys.stdout.flush()
+    print_debug("'%s'" % cmd, 'syscalls')
 
     stdoutfile = False
     stderrfile = False
@@ -329,10 +332,9 @@ def enforce_file_consistency(infns, param, discard=False, warn=False):
             if count != len(outfns):
                 raise ValueError("Wrong number of files discarded! (%d != %d)" % \
                                     (len(infns)-count, len(infns)-len(outfns)))
-            if config.verbosity > 1:
-                print "Check of header parameter '%s' has caused %d files " \
+            utils.print_info("Check of header parameter '%s' has caused %d files " \
                         "with value != '%s' to be discarded" % \
-                                (param, len(infns)-count, mode)
+                                (param, len(infns)-count, mode), 2)
             return outfns
         else:
             return infns
@@ -521,11 +523,29 @@ class DefaultOptions(optparse.OptionParser):
                     "The following options are used to set standard " \
                     "behaviour shared by multiple modules.")
         group.add_option('-v', '--more-verbose', action='callback', \
-                          callback=self.more_verbosity, \
-                          help="Turn up verbosity level.")
+                          callback=self.increment_config, \
+                          callback_args=('verbosity',), \
+                          help="Turn up verbosity level. " \
+                                "(Default: level=%d)" % \
+                                config.verbosity)
+        group.add_option('--less-verbose', action='callback', \
+                          callback=self.decrement_config, \
+                          callback_args=('verbosity',), \
+                          help="Turn down verbosity level. " \
+                                "(Default: level=%d)" % \
+                                config.verbosity)
         group.add_option('-c', '--toggle-colour', action='callback', \
-                          callback=self.toggle_colours, \
-                          help="Toggle colourised output.")
+                          callback=self.toggle_config, \
+                          callback_args=('colour',), \
+                          help="Toggle colourised output. " \
+                                "(Default: colours are %s)" % \
+                                (config.colour and "on") or "off")
+        group.add_option('--toggle-exverb', action='callback', \
+                          callback=self.toggle_config, \
+                          callback_args=('excessive_verbosity',), \
+                          help="Toggle excessive verbosity. " \
+                                "(Default: excessive verbosity is %s)" % \
+                                (config.excessive_verbosity and "on") or "off")
         self.add_option_group(group)
 
     def add_debug_group(self):
@@ -533,6 +553,12 @@ class DefaultOptions(optparse.OptionParser):
                     "The following options turn on various debugging " \
                     "statements. Multiple debugging options can be " \
                     "provided.")
+        group.add_option('--toggle-helpful-debug', action='callback', \
+                          callback=self.toggle_config, \
+                          callback_args=('helpful_debugging',), \
+                          help="Toggle helpful debugging. " \
+                                "(Default: helpful debugging is %s)" % \
+                                (config.helpful_debugging and "on") or "off")
         group.add_option('-d', '--debug', action='callback', \
                           callback=self.debugall_callback, \
                           help="Turn on all debugging modes. (Same as --debug-all).")
@@ -546,11 +572,17 @@ class DefaultOptions(optparse.OptionParser):
                               help=desc)
         self.add_option_group(group)
 
-    def more_verbosity(self, option, opt_str, value, parser):
-        config.verbosity += 1
+    def increment_config(self, option, opt_str, value, parser, param):
+        val = getattr(config, param)
+        setattr(config, param, val+1)
 
-    def toggle_colours(self, option, opt_str, value, parser):
-        config.colour = not config.colour
+    def decrement_config(self, option, opt_str, value, parser, param):
+        val = getattr(config, param)
+        setattr(config, param, val-1)
+
+    def toggle_config(self, option, opt_str, value, parser, param):
+        val = getattr(config, param)
+        setattr(config, param, not val)
 
     def debug_callback(self, option, opt_str, value, parser, mode):
         config.debug.set_mode_on(mode)
