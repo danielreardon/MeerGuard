@@ -41,16 +41,15 @@ def combine_all(infns, outfn, maxspan=1890, maxgap=300, num_to_trim=0):
     # Combine files from the same sub-band in the time direction
     tmp_combined_subbands = []
     for ctr_freq, to_combine in utils.group_subints(infns).iteritems():
-        if config.verbosity > 1:
-            print "Combining %d subints at ctr freq %d MHz" % (len(to_combine), ctr_freq)
+        utils.print_info("Combining %d subints at ctr freq %d MHz" % \
+                            (len(to_combine), ctr_freq), 2)
         # Combine sub-integrations for this sub-band
         subfns = combine_subints(to_combine, maxspan, maxgap, ext="%dMHz" % ctr_freq)
         tmp_combined_subbands.extend(subfns)
     
     if num_to_trim > 0:
-        if config.verbosity > 1:
-            print "Trimming %d channels from each subband edge " % \
-                        num_to_trim
+        utils.print_info("Trimming %d channels from each subband edge " % \
+                        num_to_trim, 2)
         for subfn in tmp_combined_subbands:
             clean.trim_edge_channels(subfn, num_to_trim=num_to_trim)
  
@@ -58,8 +57,8 @@ def combine_all(infns, outfn, maxspan=1890, maxgap=300, num_to_trim=0):
     combinedfns = []
     for subbands in utils.group_subbands(tmp_combined_subbands):
         combinedfn = utils.get_outfn(outfn, subbands[0])
-        if config.verbosity > 1:
-            print "Combining %d subbands into %s" % (len(subbands), combinedfn)
+        utils.print_info("Combining %d subbands into %s" % \
+                            (len(subbands), combinedfn), 2)
         if combinedfn in combinedfns:
             warnings.warn("'combined_all(...)' is overwritting files it " \
                             "previously created!")

@@ -80,14 +80,14 @@ class CoastGuardConfigs(object):
         config_files.append(os.path.join(self.base_config_dir, 'observations', \
                                 "%s.cfg" % os.path.split(fn)[-1]))
  
-        if debug.CONFIG:
-            print "Checking for the following configurations:"
-            for cfg in config_files:
-                print "    %s" % cfg
+        msg = "\n    ".join(["Checking for the following configurations:"] + \
+                                config_files)
+        utils.print_debug(msg, 'config')
         
         for fn in config_files:
             if os.path.isfile(fn):
                 self.read_file(fn)
+             
 
 def main():
     cfg = CoastGuardConfigs()

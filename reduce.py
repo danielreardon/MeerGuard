@@ -158,8 +158,7 @@ class ReductionJob(object):
             combinefn = self.infns[0]
         
         # Create diagnostic plots for pre-cleaned data
-        if config.verbosity:
-            print "Creating diagnostics for %s" % combinefn
+        utils.print_info("Creating diagnostics for %s" % combinefn, 1)
         for func_key in self.cfg.funcs_to_plot:
             diagnose.make_diagnostic_figure(combinefn, \
                                             rmbaseline=self.cfg.diagnostic_rmbaseline, \
@@ -183,15 +182,13 @@ class ReductionJob(object):
             plt.savefig("%s_diag_%s.png" % (combinefn, func_key), dpi=600)
  
         # Clean the data
-        if config.verbosity:
-            print "Cleaning %s" % combinefn
+        utils.print_info("Cleaning %s" % combinefn, 1)
         ar = psrchive.Archive_load(combinefn)
         clean.deep_clean(ar, self.outfn, self.cfg.clean_chanthresh, \
                             self.cfg.clean_subintthresh, self.cfg.clean_binthresh)
         
         # Re-create diagnostic plots for clean data
-        if config.verbosity:
-            print "Creating diagnostics for %s" % self.outfn
+        utils.print_info("Creating diagnostics for %s" % self.outfn, 1)
         for func_key in self.cfg.funcs_to_plot:
             diagnose.make_diagnostic_figure(self.outfn, \
                                             rmbaseline=self.cfg.diagnostic_rmbaseline, \
@@ -215,11 +212,9 @@ class ReductionJob(object):
             plt.savefig("%s_diag_%s.png" % (self.outfn, func_key), dpi=600)
  
         # Make TOAs
-        if config.verbosity:
-            print "Generating TOAs"
+        utils.print_info("Generating TOAs", 1)
         stdfn = toas.get_standard(self.outfn, self.cfg.base_standards_dir)
-        if config.verbosity > 1:
-            print "Standard profile: %s" % stdfn
+        utils.print_info("Standard profile: %s" % stdfn, 2)
         toastrs = toas.get_toas(self.outfn, stdfn, self.cfg.ntoa_time, \
                                     self.cfg.ntoa_freq)
         return toastrs

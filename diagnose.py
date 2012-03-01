@@ -55,8 +55,7 @@ class DiagnosticFigure(matplotlib.figure.Figure):
 
         self.title, self.func = func_info[func_key]
         
-        if config.verbosity > 1:
-            print "Plotting %s..." % self.title.lower()
+        utils.print_info("Plotting %s..." % self.title.lower(), 2)
         
         # Add text
         self.text(0.02, 0.95, ar.get_source(), size='large', ha='left', va='center')
@@ -378,24 +377,20 @@ def make_diagnostic_figure(arfn, rmbaseline=False, dedisp=False, \
     ar.pscrunch()
    
     if centre_prof:
-        if config.verbosity > 1:
-            print "Centering profile..."
+        utils.print_info("Centering profile...", 2)
         ar.centre_max_bin()
     if rmbaseline:
-        if config.verbosity > 1:
-            print "Removing baseline..."
+        utils.print_info("Removing baseline...", 2)
         ar.remove_baseline()
     if dedisp:
-        if config.verbosity > 1:
-            print "Dedispersing..."
+        utils.print_info("Dedispersing...", 2)
         ar.dedisperse()
     else:
         ar.set_dispersion_measure(0)
         ar.dedisperse()
     data = ar.get_data().squeeze()
     if rmprof:
-        if config.verbosity > 1:
-            print "Removing profile..."
+        utils.print_info("Removing profile...", 2)
         template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
         data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
                                             template)
