@@ -18,8 +18,9 @@ DEFAULT_CODE = "\033[0;39;49m"
 # Dictionary for translating keywords to colour codes
 preset_codes = {"default": DEFAULT_CODE, \
                 "reset": DEFAULT_CODE, \
-                "debug": "\033[0;33m", \
-                "warning": "\033[0;33m", \
+                "info": "\033[1;34m", \
+                "debug": "\033[1;35m", \
+                "warning": "\033[1;33m", \
                 "error": "\033[1;31m"}
 
 attributes = {"reset": 0, \
