@@ -13,11 +13,13 @@ import optparse
 import sys
 import subprocess
 import types
+import inspect
 
 import numpy as np
 
 import config
 import errors
+import colour
 
 site_to_telescope = {'i': 'WSRT',
                      'wt': 'WSRT',
@@ -39,6 +41,55 @@ site_to_telescope = {'i': 'WSRT',
                      'nancay': 'Nancay',
                      'sardinia': 'SRT',
                      'srt': 'SRT'}
+
+def print_info(msg, level=1):
+    """Print an informative message if the current verbosity is
+        higher than the 'level' of this message.
+
+        The message will be colourized as 'info'.
+
+        Inputs:
+            msg: The message to print.
+            level: The verbosity level of the message.
+                (Default: 1 - i.e. don't print unless verbosity is on.)
+
+        Outputs:
+            None
+    """
+    if config.verbosity >= level:
+        if config.excessive_verbosity:
+            # Get caller info
+            fn, lineno, funcnm = inspect.stack()[1][1:4]
+            colour.cprint("INFO [%s:%d - %s(...)]:" % 
+                            (os.path.split(fn)[-1], lineno, funcnm), 'infohdr')
+            colour.cprint("    %s" % msg, 'info')
+        else:
+            colour.cprint(msg, 'info')
+
+
+def print_debug(msg, category):
+    """Print a debugging message if the given debugging category
+        is turned on.
+
+        The message will be colourized as 'debug'.
+
+        Inputs:
+            msg: The message to print.
+            category: The debugging category of the message.
+
+        Outputs:
+            None
+    """
+    if config.debug.is_on(category):
+        if config.helpful_debugging:
+            # Get caller info
+            fn, lineno, funcnm = inspect.stack()[1][1:4]
+            colour.cprint("DEBUG [%s:%d - %s(...)]:" % 
+                            (os.path.split(fn)[-1], lineno, funcnm), 'debughdr')
+            colour.cprint("    %s" % msg, 'debug')
+        else:
+            colour.cprint(msg, 'debug')
+
 
 def get_md5sum(fn, block_size=16*8192):
     """Compute and return the MD5 sum for the given file.
