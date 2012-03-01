@@ -27,5 +27,5 @@ class DataReductionFailed(CoastGuardError):
     pass
 
 
-class BadFileName(CoastGuardError):
+class BadFile(CoastGuardError):
     pass

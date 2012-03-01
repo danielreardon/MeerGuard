@@ -210,6 +210,124 @@ def group_by_ctr_freq(infns):
     return groups_dict
 
 
+def group_subints(infns):
+    """Given a list of input subint files group them.
+        This function assumes files with the same name exist in
+        seperate subdirectories. Each subdirectory corresponds to
+        a subband. Only subints from the same time that appear in
+        all subbands are included in the groups, others are discarded.
+
+        Input:
+            infns: A list of input PSRCHIVE subints.
+
+            grouped: A dict where each key is the centre frequency
+                in MHz and where each value is a list of archive
+                names with all the same centre frequency.
+    """
+    get_freq = lambda fn: float(get_header_vals(fn, ['freq'])['freq'])
+    groups_dict = {}
+
+    # Ensure all files have the same bandwidth and number of channels
+    # discard any sub-ints that are outliers
+    infns = enforce_file_consistency(infns, 'bw', discard=True)
+    infns = enforce_file_consistency(infns, 'nchan', discard=True)
+
+    for infn in infns:
+        dir, fn = os.path.split(infn)
+        groups_dict.setdefault(dir, set()).add(fn)
+
+    # Determine intersection of all subbands
+    intersection = set.intersection(*groups_dict.values())
+    union = set.union(*groups_dict.values())
+    
+    print "Number of subints not present in all subbands: %s" % \
+                len(union-intersection)
+
+    subbands_dict = {}
+    for dir in groups_dict.keys():
+        fns = [os.path.join(dir, fn) for fn in intersection]
+        enforce_file_consistency(fns, 'freq')
+        ctrfreq = get_freq(fns[0])
+        subbands_dict[ctrfreq] = fns 
+
+    return subbands_dict
+
+
+def enforce_file_consistency(infns, param, discard=False, warn=False):
+    """Check that all files have the same value for param
+        in their header.
+
+        Inputs:
+            infns: The files that should have consistent header params.
+            param: The header param to use when checking consistency.
+            discard: A boolean value. If True, files with param not matching
+                the mode will be discarded. (Default: False)
+            warn: A boolean value. If True, issue a warning if files are
+                inconsistent. If False, raise an error. (Default: raise errors).
+
+        Output:
+            outfns: (optional - only if 'discard' is True) A list of consistent files.
+    """
+    get_param = lambda fn: get_header_vals(fn, [param])[param]
+    params = [get_param(fn) for fn in infns]
+    mode, count = get_mode(params)
+
+    if discard:
+        if count != len(infns):
+            outfns = [fn for (fn, p) in zip(infns, params) if p==mode]
+            if count != len(outfns):
+                raise ValueError("Wrong number of files discarded! (%d != %d)" % \
+                                    (len(infns)-count, len(infns)-len(outfns)))
+            if config.verbosity > 1:
+                print "Check of header parameter '%s' has caused %d files " \
+                        "with value != '%s' to be discarded" % \
+                                (param, len(infns)-count, mode)
+            return outfns
+        else:
+            return infns
+    else:
+        if count != len(infns):
+            msg = "There are %d files where the value of '%s' doesn't " \
+                    "match other files (modal value: %s)" % \
+                            (len(infns)-count, param, mode)
+            if warn:
+                warnings.warn(msg)
+            else:
+                raise errors.BadFile(msg)
+
+
+def get_mode(vals):
+    counts = {}
+    for val in vals:
+        count = counts.setdefault(val, 0)
+        counts[val] = 1+count
+
+    maxcount = max(counts.values())
+    for key in counts.keys():
+        if counts[key] == maxcount:
+            return key, counts[key]
+
+
+def group_subbands(infns):
+    """Group subband files according to their base filename 
+        (i.e. ignoring their extension).
+
+        Input:
+            infns: A list of input file names.
+
+        Output:
+            groups: A list of tuples, each being a group of subband
+                files to combine.
+    """
+    get_basenm = lambda fn: os.path.splitext(os.path.split(fn)[-1])[0]
+    basenms = set([get_basenm(fn) for fn in infns])
+
+    groups = []
+    for basenm in basenms:
+        groups.append([fn for fn in infns if get_basenm(fn)==basenm])
+    return groups
+
+
 def apply_to_archives(infns, funcs, arglists, kwargdicts):
     """Apply a function to each input file in 'infns' with the
         args and kwargs provided.
@@ -288,7 +406,7 @@ def get_outfn(fmtstr, arfn):
     outfn = fmtstr % hdr
 
     if '%' in outfn:
-        raise errors.BadFileName("Interpolated file name (%s) shouldn't " \
+        raise errors.BadFile("Interpolated file name (%s) shouldn't " \
                                  "contain the character '%%'!" % outfn)
     return outfn
 

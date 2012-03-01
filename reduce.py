@@ -151,8 +151,9 @@ class ReductionJob(object):
                 toas: TOA strings.
         """
         if len(self.infns) > 1:
-            combinefn = self.basenm + ".cmb.tmp"
-            combine.combine_all(infns, combinefn, self.cfg.nchan_to_trim) 
+            combinefn = self.basenm + ".cmb"
+            combine_all(to_combine, outfn, maxspan=cfg.combine_maxspan, \
+                    maxgap=cfg.combine_maxgap, num_to_trim=cfg.nchan_to_trim)
         else:
             combinefn = self.infns[0]
         
