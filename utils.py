@@ -60,8 +60,8 @@ def print_info(msg, level=1):
         if config.excessive_verbosity:
             # Get caller info
             fn, lineno, funcnm = inspect.stack()[1][1:4]
-            colour.cprint("INFO [%s:%d - %s(...)]:" % 
-                            (os.path.split(fn)[-1], lineno, funcnm), 'infohdr')
+            colour.cprint("INFO (level: %d) [%s:%d - %s(...)]:" % 
+                    (level, os.path.split(fn)[-1], lineno, funcnm), 'infohdr')
             msg = msg.replace('\n', '\n    ')
             colour.cprint("    %s" % msg, 'info')
         else:
@@ -128,7 +128,8 @@ def get_githash():
             githash: The githash
     """
     if is_gitrepo_dirty():
-        warnings.warn("Git repository has uncommitted changes!")
+        warnings.warn("Git repository has uncommitted changes!", \
+                        errors.CoastGuardWarning)
     codedir = os.path.split(__file__)[0]
     stdout, stderr = execute("git rev-parse HEAD", dir=codedir)
     githash = stdout.strip()
