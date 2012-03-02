@@ -11,6 +11,8 @@ import sys
 import tempfile
 import warnings
 
+import numpy as np
+
 import utils
 import clean
 import config
@@ -36,15 +38,13 @@ def combine_all(infns, outfn, maxspan=1890, maxgap=300, num_to_trim=0):
         Outputs:
             combinedfns: A list of output (combined) files.
     """
-    basenm = os.path.splitext(outfn)[0]
-
     # Combine files from the same sub-band in the time direction
     tmp_combined_subbands = []
     for ctr_freq, to_combine in utils.group_subints(infns).iteritems():
         utils.print_info("Combining %d subints at ctr freq %d MHz" % \
                             (len(to_combine), ctr_freq), 2)
         # Combine sub-integrations for this sub-band
-        subfns = combine_subints(to_combine, maxspan, maxgap, ext="%dMHz" % ctr_freq)
+        subfns = combine_subints(to_combine, outfn+".%(freq)dMHz",  maxspan, maxgap)
         tmp_combined_subbands.extend(subfns)
     
     if num_to_trim > 0:
@@ -72,29 +72,62 @@ def combine_all(infns, outfn, maxspan=1890, maxgap=300, num_to_trim=0):
     return combinedfns
 
 
-def combine_subints(infns, maxspan, maxgap, ext=None):
+def combine_subints(infns, outfn, maxspan, maxgap):
     """Given a list of PSRCHIVE file names group them together using
         'psradd' assuming they are all sub-integrations from the same
         observing band.
 
         Inputs:
             infns: A list of intput sub-integration PSRCHIVE archive file names.
+            outfn: The output file name to use.
             maxspan: The largest span, in seconds, for a combined data file. 
                 This value is passed to 'psradd' with the '-g' flag.
             maxgap: The largest gap allowed, in seconds, between input archives. 
                 This value is passed to 'psradd' with the '-G' flag.
-            ext: The file name extension to use for combined files.
-
 
         Output:
             outfns: A list of output file names.
     """
-    cmd = "psradd -O %s -g %d -G %d -e %s -v %s" % \
-                (os.getcwd(), maxspan, maxgap, ext, " ".join(infns))
+    get_mjd = lambda fn: float(utils.get_header_vals(fn, ['mjd'])['mjd'])
+    mjds = np.array([get_mjd(fn) for fn in infns])
+    mjdind = np.argsort(mjds)
 
-    stdout, stderr = utils.execute(cmd, stderr=utils.subprocess.STDOUT)
-    outfns = [line.split("'")[1] for line in stdout.split('\n') \
-                    if "New filename" in line]
+    # Sort infiles and MJDs based on MJD
+    infns = [infns[ii] for ii in mjdind]
+    mjds = mjds[mjdind]
+    secsince = (mjds-mjds[0])*24*3600 # Seconds since the first sub-int
+    
+    # First identify gaps
+    gaps = np.ediff1d(secsince, to_begin=maxgap+1, to_end=maxgap+1)
+    edges = np.argwhere(gaps>maxgap).squeeze()
+    
+    grouped_infns = []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        groupnums = secsince[lo:hi].astype(int)/maxspan
+        groupnums -= groupnums[0]
+        tmp = []
+        for gnum, fn in zip(groupnums, infns[lo:hi]):
+            utils.print_debug("Appending %s to group %d" % (fn, gnum), 'combine')
+            if gnum+1 > len(tmp):
+                tmp.append([fn])
+            else:
+                tmp[gnum].append(fn)
+        grouped_infns += tmp
+            
+    utils.print_info("Split %d input archives into %d groups." % \
+                        (len(infns), len(grouped_infns)), 2)
+    utils.print_info("Groups: %s" % grouped_infns, 3)
+
+    outfns = []
+    for ii, grp in enumerate(grouped_infns):
+        fn = utils.get_outfn(outfn, grp[0])
+        utils.print_info("First archive in group #%d: %s -- " \
+                            "Output filename: %s" % (ii, grp[0], fn), 2)
+        if fn in outfns:
+            warnings.warn("'combined_subints(...)' is overwritting files it " \
+                            "previously created!")
+        utils.execute("psradd -o %s %s" % (fn, " ".join(grp)))
+        outfns.append(fn)
     return outfns
 
 
@@ -123,19 +156,18 @@ def main():
     to_combine = utils.exclude_files(file_list, to_exclude)
     print "Number of input files: %d" % len(to_combine)
     
-    # Interpolate filename
-    outfn = utils.get_outfn(options.outfn, to_combine[0])
-    print "Output file name: %s" % outfn
     
     # Read configurations
     cfg = config.CoastGuardConfigs()
     cfg.get_default_configs()
     cfg.get_configs_for_archive(to_combine[0])
   
-    
     # Combine files
-    combine_all(to_combine, outfn, maxspan=cfg.combine_maxspan, \
+    outfns = combine_all(to_combine, options.outfn, maxspan=cfg.combine_maxspan, \
                     maxgap=cfg.combine_maxgap, num_to_trim=cfg.nchan_to_trim)
+    print "Output file names:" 
+    for outfn in outfns:
+        print "    %s" % outfn
 
 
 if __name__=="__main__":
