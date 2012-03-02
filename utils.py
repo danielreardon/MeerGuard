@@ -382,37 +382,6 @@ def group_subbands(infns):
     return groups
 
 
-def apply_to_archives(infns, funcs, arglists, kwargdicts):
-    """Apply a function to each input file in 'infns' with the
-        args and kwargs provided.
-
-        Inputs:
-            infns: A list of input PSRCHIVE archive file names.
-            funcs: A list of functions to apply to each of the input 
-                archives. These functions should return the name of 
-                the processed archive. Functions are applied in order.
-            arglists: A list of tuples containing additional arguments
-                for each function.
-            kwargdicts: A list of dicts containing additional keyword
-                arguments for each function.
-
-        Output:
-            outfns: A list of output filenames.
-        
-        NOTE: 'func' is called in the following way:
-            <outfn> = func(<infn>, *args, **kwargs)
-    """
-    # Extend preargs and prekwargs to make sure they have at least the 
-    # same length as the list of functions.
-    arglists.extend([[]]*len(funcs))
-    kwargdicts.extend([{}]*len(funcs))
-    outfns = []
-    for infn in infns:
-        for func, args, kwargs in zip(funcs, arglists, kwargdicts):
-            outfns.append(func(infn, *args, **kwargs))
-    return outfns
-    
-
 def get_files_from_glob(option, opt_str, value, parser):
     """optparse Callback function to turn a glob expression into
         a list of input files.
