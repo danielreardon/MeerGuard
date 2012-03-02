@@ -1,5 +1,6 @@
 """
-This file contains custom errors for the CoastGuard timing pipeline.
+This file contains custom errors and warnings 
+for the CoastGuard timing pipeline.
 
 Patrick Lazarus, Nov. 10, 2011
 """
@@ -29,3 +30,9 @@ class DataReductionFailed(CoastGuardError):
 
 class BadFile(CoastGuardError):
     pass
+
+
+# Custom Warnings
+class CoastGuardWarning(Warning):
+    def __str(self):
+        return colour.cstring(super(CoastGuardWarning, self).__str__(), 'warning')
