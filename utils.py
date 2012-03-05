@@ -279,7 +279,6 @@ def group_subints(infns):
                 in MHz and where each value is a list of archive
                 names with all the same centre frequency.
     """
-    get_freq = lambda fn: float(get_header_vals(fn, ['freq'])['freq'])
     groups_dict = {}
 
     # Ensure all files have the same bandwidth and number of channels
@@ -288,7 +287,7 @@ def group_subints(infns):
     infns = enforce_file_consistency(infns, 'nchan', discard=True)
 
     for infn in infns:
-        dir, fn = os.path.split(infn)
+        dir, fn = os.path.split(infn.fn)
         groups_dict.setdefault(dir, set()).add(fn)
 
     # Determine intersection of all subbands
@@ -299,12 +298,10 @@ def group_subints(infns):
                 len(union-intersection)
 
     subbands_dict = {}
-    for dir in groups_dict.keys():
-        fns = [os.path.join(dir, fn) for fn in intersection]
-        enforce_file_consistency(fns, 'freq')
-        ctrfreq = get_freq(fns[0])
-        subbands_dict[ctrfreq] = fns 
-
+    for infn in infns:
+        dir, fn = os.path.split(infn.fn)
+        if fn in intersection:
+            subbands_dict.setdefault(float(infn.freq), list()).append(infn)
     return subbands_dict
 
 
@@ -313,7 +310,7 @@ def enforce_file_consistency(infns, param, discard=False, warn=False):
         in their header.
 
         Inputs:
-            infns: The files that should have consistent header params.
+            infns: The ArchiveFile objects that should have consistent header params.
             param: The header param to use when checking consistency.
             discard: A boolean value. If True, files with param not matching
                 the mode will be discarded. (Default: False)
@@ -323,8 +320,7 @@ def enforce_file_consistency(infns, param, discard=False, warn=False):
         Output:
             outfns: (optional - only if 'discard' is True) A list of consistent files.
     """
-    get_param = lambda fn: get_header_vals(fn, [param])[param]
-    params = [get_param(fn) for fn in infns]
+    params = [infn[param] for infn in infns]
     mode, count = get_mode(params)
 
     if discard:
@@ -373,12 +369,12 @@ def group_subbands(infns):
             groups: A list of tuples, each being a group of subband
                 files to combine.
     """
-    get_basenm = lambda fn: os.path.splitext(os.path.split(fn)[-1])[0]
-    basenms = set([get_basenm(fn) for fn in infns])
+    get_basenm = lambda arf: os.path.splitext(os.path.split(arf.fn)[-1])[0]
+    basenms = set([get_basenm(infn) for infn in infns])
 
     groups = []
     for basenm in basenms:
-        groups.append([fn for fn in infns if get_basenm(fn)==basenm])
+        groups.append([arf for arf in infns if get_basenm(arf)==basenm])
     return groups
 
 
@@ -433,6 +429,7 @@ def get_outfn(fmtstr, arfn):
                                  "contain the character '%%'!" % outfn)
     return outfn
 
+
 def mjd_to_date(mjds):
     """Convert Julian Day (JD) to a date.
 
@@ -475,6 +472,23 @@ def mjd_to_date(mjds):
 
     return (year.astype('int').squeeze(), month.astype('int').squeeze(), \
                 day.squeeze())
+
+
+class ArchiveFile(object):
+    def __init__(self, fn):
+        self.fn = fn
+        self.hdr = get_header_vals(self.fn, ['freq', 'length', 'bw', 'mjd', 
+                                            'intmjd', 'fracmjd', 'backend', 
+                                            'rcvr', 'telescop', 'name', 
+                                            'nchan'])
+    
+    def __getitem__(self, key):
+        if key not in self.hdr:
+            self.hdr.update(get_header_vals(self.fn, [key]))
+        return self.hdr[key]
+    
+    def __getattr__(self, key):
+        return self[key]
 
 
 class DefaultOptions(optparse.OptionParser):

@@ -210,9 +210,9 @@ def trim_edge_channels(infn, num_to_trim=2):
         Outputs:
             None
     """
-    numchans = int(utils.get_header_vals(infn, ['nchan'])['nchan'])
+    numchans = int(infn.nchan)
     utils.execute('paz -m -Z "0 %d" -Z "%d %d" %s' % \
-                (num_to_trim-1, numchans-num_to_trim, numchans-1, infn))
+                (num_to_trim-1, numchans-num_to_trim, numchans-1, infn.fn))
     return infn
 
 

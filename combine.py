@@ -18,7 +18,7 @@ import clean
 import config
 
 def combine_all(infns, outfn, maxspan=1890, maxgap=300, num_to_trim=0):
-    """Given a list of PSRCHIVE file names group them into sub-bands
+    """Given a list of ArchiveFile objects group them into sub-bands
         then remove the edges of each sub-band to remove the artifacts
         caused by aliasing. Finally, combine the sub-bands into a single 
         output file.
@@ -26,7 +26,7 @@ def combine_all(infns, outfn, maxspan=1890, maxgap=300, num_to_trim=0):
         The combined sub-band files are not saved.
 
         Inputs:
-            infns: A list of input PSRCHIVE archive file names.
+            infns: A list of input ArchiveFile objects.
             outfn: The output file's name.
             maxspan: The largest span, in seconds, for a combined data file. 
                 (Default: 1890 s)
@@ -56,7 +56,7 @@ def combine_all(infns, outfn, maxspan=1890, maxgap=300, num_to_trim=0):
     # Combine the temporary sub-bands together in the frequency direction
     combinedfns = []
     for subbands in utils.group_subbands(tmp_combined_subbands):
-        combinedfn = utils.get_outfn(outfn, subbands[0])
+        combinedfn = utils.get_outfn(outfn, subbands[0].fn)
         utils.print_info("Combining %d subbands into %s" % \
                             (len(subbands), combinedfn), 2)
         if combinedfn in combinedfns:
@@ -64,11 +64,12 @@ def combine_all(infns, outfn, maxspan=1890, maxgap=300, num_to_trim=0):
                             "previously created!")
         combine_subbands(subbands, combinedfn)
         combinedfns.append(combinedfn)
- 
+    combinedfns = [utils.ArchiveFile(fn) for fn in combinedfns]
+
     if not config.debug.INTERMEDIATE:
         # Remove the temporary combined files
         for subfn in tmp_combined_subbands:
-            os.remove(subfn)
+            os.remove(subfn.fn)
     return combinedfns
 
 
@@ -88,8 +89,7 @@ def combine_subints(infns, outfn, maxspan, maxgap):
         Output:
             outfns: A list of output file names.
     """
-    get_mjd = lambda fn: float(utils.get_header_vals(fn, ['mjd'])['mjd'])
-    mjds = np.array([get_mjd(fn) for fn in infns])
+    mjds = np.array([float(fn.mjd) for fn in infns])
     mjdind = np.argsort(mjds)
 
     # Sort infiles and MJDs based on MJD
@@ -106,12 +106,12 @@ def combine_subints(infns, outfn, maxspan, maxgap):
         groupnums = secsince[lo:hi].astype(int)/maxspan
         groupnums -= groupnums[0]
         tmp = []
-        for gnum, fn in zip(groupnums, infns[lo:hi]):
-            utils.print_debug("Appending %s to group %d" % (fn, gnum), 'combine')
+        for gnum, infn in zip(groupnums, infns[lo:hi]):
+            utils.print_debug("Appending %s to group %d" % (infn.fn, gnum), 'combine')
             if gnum+1 > len(tmp):
-                tmp.append([fn])
+                tmp.append([infn])
             else:
-                tmp[gnum].append(fn)
+                tmp[gnum].append(infn)
         grouped_infns += tmp
             
     utils.print_info("Split %d input archives into %d groups." % \
@@ -120,15 +120,16 @@ def combine_subints(infns, outfn, maxspan, maxgap):
 
     outfns = []
     for ii, grp in enumerate(grouped_infns):
-        fn = utils.get_outfn(outfn, grp[0])
+        fn = utils.get_outfn(outfn, grp[0].fn)
         utils.print_info("First archive in group #%d: %s -- " \
                             "Output filename: %s" % (ii, grp[0], fn), 2)
         if fn in outfns:
             warnings.warn("'combined_subints(...)' is overwritting files it " \
                             "previously created!")
-        utils.execute("psradd -o %s %s" % (fn, " ".join(grp)))
+        utils.execute("psradd -o %s %s" % (fn, " ".join([g.fn for g in grp])))
         outfns.append(fn)
-    return outfns
+
+    return [utils.ArchiveFile(fn) for fn in outfns]
 
 
 def combine_subbands(infns, outfn):
@@ -143,7 +144,7 @@ def combine_subbands(infns, outfn):
         Outputs:
             None
     """
-    utils.execute("psradd -R -o %s %s" % (outfn, " ".join(infns)))
+    utils.execute("psradd -R -o %s %s" % (outfn, " ".join([infn.fn for infn in infns])))
 
 
 def main():
@@ -156,6 +157,7 @@ def main():
     to_combine = utils.exclude_files(file_list, to_exclude)
     print "Number of input files: %d" % len(to_combine)
     
+    to_combine = [utils.ArchiveFile(fn) for fn in to_combine]
     
     # Read configurations
     cfg = config.CoastGuardConfigs()
@@ -167,7 +169,7 @@ def main():
                     maxgap=cfg.combine_maxgap, num_to_trim=cfg.nchan_to_trim)
     print "Output file names:" 
     for outfn in outfns:
-        print "    %s" % outfn
+        print "    %s" % outfn.fn
 
 
 if __name__=="__main__":

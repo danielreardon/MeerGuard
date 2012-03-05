@@ -52,7 +52,7 @@ class CoastGuardConfigs(object):
         default_config_fn = os.path.join(self.base_config_dir, "default.cfg")
         self.read_file(default_config_fn, required=True)
 
-    def get_configs_for_archive(self, fn):
+    def get_configs_for_archive(self, arfn):
         """Given a psrchive archive file return relevant configurations.
             This will include configurations for the telescope, frontend,
             backend, and pulsar.
@@ -63,22 +63,19 @@ class CoastGuardConfigs(object):
             Outputs:
                 None
         """
-        hdrparams = utils.get_header_vals(fn, \
-                            ['telescop', 'backend', 'rcvr', 'name'])
-        
         # Create a list of all the configuration files to check
         config_files = []
-        telescope = utils.site_to_telescope[hdrparams['telescop'].lower()]
+        telescope = utils.site_to_telescope[arfn.telescop.lower()]
         config_files.append(os.path.join(self.base_config_dir, 'telescopes', \
                                 "%s.cfg" % telescope.lower()))
         config_files.append(os.path.join(self.base_config_dir, 'receivers', \
-                                "%s.cfg" % hdrparams['rcvr'].lower()))
+                                "%s.cfg" % arfn.rcvr.lower()))
         config_files.append(os.path.join(self.base_config_dir, 'backends', \
-                                "%s.cfg" % hdrparams['backend'].lower()))
+                                "%s.cfg" % arfn.backend.lower()))
         config_files.append(os.path.join(self.base_config_dir, 'pulsars', \
-                                "%s.cfg" % hdrparams['name'].upper()))
+                                "%s.cfg" % arfn.name.upper()))
         config_files.append(os.path.join(self.base_config_dir, 'observations', \
-                                "%s.cfg" % os.path.split(fn)[-1]))
+                                "%s.cfg" % os.path.split(arfn.fn)[-1]))
  
         msg = "\n    ".join(["Checking for the following configurations:"] + \
                                 config_files)
