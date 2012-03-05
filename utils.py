@@ -285,6 +285,7 @@ def group_subints(infns):
     # discard any sub-ints that are outliers
     infns = enforce_file_consistency(infns, 'bw', discard=True)
     infns = enforce_file_consistency(infns, 'nchan', discard=True)
+    infns = enforce_file_consistency(infns, 'length', discard=True)
 
     for infn in infns:
         dir, fn = os.path.split(infn.fn)
@@ -305,13 +306,14 @@ def group_subints(infns):
     return subbands_dict
 
 
-def enforce_file_consistency(infns, param, discard=False, warn=False):
+def enforce_file_consistency(infns, param, expected=None, discard=False, warn=False):
     """Check that all files have the same value for param
         in their header.
 
         Inputs:
             infns: The ArchiveFile objects that should have consistent header params.
             param: The header param to use when checking consistency.
+            expected: The expected value. If None use the mode.
             discard: A boolean value. If True, files with param not matching
                 the mode will be discarded. (Default: False)
             warn: A boolean value. If True, issue a warning if files are
@@ -321,7 +323,11 @@ def enforce_file_consistency(infns, param, discard=False, warn=False):
             outfns: (optional - only if 'discard' is True) A list of consistent files.
     """
     params = [infn[param] for infn in infns]
-    mode, count = get_mode(params)
+    if expected is None:
+        mode, count = get_mode(params)
+    else:
+        mode = expected
+        count = len([p for p in params if p==expected])
 
     if discard:
         if count != len(infns):
@@ -329,7 +335,7 @@ def enforce_file_consistency(infns, param, discard=False, warn=False):
             if count != len(outfns):
                 raise ValueError("Wrong number of files discarded! (%d != %d)" % \
                                     (len(infns)-count, len(infns)-len(outfns)))
-            utils.print_info("Check of header parameter '%s' has caused %d files " \
+            print_info("Check of header parameter '%s' has caused %d files " \
                         "with value != '%s' to be discarded" % \
                                 (param, len(infns)-count, mode), 2)
             return outfns
