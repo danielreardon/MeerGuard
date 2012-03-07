@@ -56,7 +56,7 @@ def combine_all(infns, outfn, maxspan=1890, maxgap=300, num_to_trim=0):
     # Combine the temporary sub-bands together in the frequency direction
     combinedfns = []
     for subbands in utils.group_subbands(tmp_combined_subbands):
-        combinedfn = utils.get_outfn(outfn, subbands[0].fn)
+        combinedfn = utils.get_outfn(outfn, subbands[0])
         utils.print_info("Combining %d subbands into %s" % \
                             (len(subbands), combinedfn), 2)
         if combinedfn in combinedfns:
@@ -120,7 +120,7 @@ def combine_subints(infns, outfn, maxspan, maxgap):
 
     outfns = []
     for ii, grp in enumerate(grouped_infns):
-        fn = utils.get_outfn(outfn, grp[0].fn)
+        fn = utils.get_outfn(outfn, grp[0])
         utils.print_info("First archive in group #%d: %s -- " \
                             "Output filename: %s" % (ii, grp[0], fn), 2)
         if fn in outfns:

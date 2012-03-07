@@ -34,5 +34,5 @@ class BadFile(CoastGuardError):
 
 # Custom Warnings
 class CoastGuardWarning(Warning):
-    def __str(self):
+    def __str__(self):
         return colour.cstring(super(CoastGuardWarning, self).__str__(), 'warning')

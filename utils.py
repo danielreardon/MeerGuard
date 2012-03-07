@@ -21,6 +21,22 @@ import config
 import errors
 import colour
 
+header_param_types = {'freq': float, \
+                      'length': float, \
+                      'bw': float, \
+                      'mjd': float, \
+                      'intmjd': int, \
+                      'fracmjd': float, \
+                      'backend': str, \
+                      'rcvr': str, \
+                      'telescop': str, \
+                      'name': str, \
+                      'nchan': int, \
+                      'npol': int, \
+                      'nbin': int, \
+                      'nsub': int, \
+                      'tbin': float}
+
 site_to_telescope = {'i': 'WSRT',
                      'wt': 'WSRT',
                      'wsrt': 'WSRT',
@@ -184,7 +200,18 @@ def get_header_vals(fn, hdritems):
                             (cmd, len(hdritems), len(outvals)))
     params = {}
     for key, val in zip(hdritems, outvals):
-        params[key] = val
+        if val == "INVALID":
+            raise errors.SystemCallError("The vap header key '%s' " \
+                                            "is invalid!" % key)
+        elif val == "*" or val == "UNDEF":
+            warnings.warn("The vap header key '%s' is not " \
+                            "defined in this file (%s)" % (key, fn), \
+                            errors.CoastGuardWarning)
+            params[key] = None
+        else:
+            # Get param's type to cast value
+            caster = header_param_types.get(key, str)
+            params[key] = caster(val)
     return params
 
 
@@ -407,7 +434,7 @@ def get_outfn(fmtstr, arfn):
 
         Inputs:
             fmtstr: The string to replace header info into.
-            arfn: An archive file name to get header info from using vap.
+            arfn: An archive file object to get header info from using vap.
 
         Output:
             outfn: The output filename with (hopefully) all
@@ -417,18 +444,8 @@ def get_outfn(fmtstr, arfn):
         # No format string codes
         return fmtstr
 
-    # Get header information
-    hdr = get_header_vals(arfn, ['freq', 'telescop', 'site', \
-                                 'rcvr', 'backend', 'name', \
-                                 'mjd', 'intmjd', 'fracmjd'])
     # Cast some values and compute others
-    hdr['mjd'] = float(hdr['mjd'])
-    hdr['freq'] = float(hdr['freq'])
-    hdr['intmjd'] = float(hdr['intmjd'])
-    hdr['fracmjd'] = float(hdr['fracmjd'])
-    hdr['secs'] = int(hdr['fracmjd']*24*3600)
-    hdr['yyyymmdd'] = "%04d%02d%02d" % mjd_to_date(hdr['mjd'])
-    outfn = fmtstr % hdr
+    outfn = fmtstr % arfn
 
     if '%' in outfn:
         raise errors.BadFile("Interpolated file name (%s) shouldn't " \
@@ -486,7 +503,9 @@ class ArchiveFile(object):
         self.hdr = get_header_vals(self.fn, ['freq', 'length', 'bw', 'mjd', 
                                             'intmjd', 'fracmjd', 'backend', 
                                             'rcvr', 'telescop', 'name', 
-                                            'nchan'])
+                                            'nchan', 'asite'])
+        self.hdr['secs'] = int(self.hdr['fracmjd']*24*3600)
+        self.hdr['yyyymmdd'] = "%04d%02d%02d" % mjd_to_date(self.hdr['mjd'])
     
     def __getitem__(self, key):
         if key not in self.hdr:
