@@ -196,7 +196,7 @@ def clean_iterative(ar, threshold=2.0):
     ar.unload(unloadfn)
 
 
-def trim_edge_channels(infn):
+def trim_edge_channels(infn, nchan_to_trim=None):
     """Trim the edge channels of an input file to remove 
         band-pass roll-off and the effect of aliasing. 
         The file is modified in-place. However, zero-weighting 
@@ -204,11 +204,15 @@ def trim_edge_channels(infn):
 
         Inputs:
             infn: names of file to trim.
+            nchan_to_trim: The number of channels to de-weight at
+                each edge of the band.
 
         Outputs:
             None
     """
-    nchan_to_trim=config.cfg.nchan_to_trim
+    if nchan_to_trim is None:
+        nchan_to_trim=config.cfg.nchan_to_trim
+
     if nchan_to_trim > 0:
         utils.print_info("Trimming %d channels from subband edges " % \
                         nchan_to_trim, 2)
