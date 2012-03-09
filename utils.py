@@ -274,7 +274,7 @@ def group_by_ctr_freq(infns):
         centre frequencies.
 
         Input:
-            infns: A list of input PSRCHIVE archive file names.
+            infns: A list of input ArchiveFile objects.
 
         Outputs:
             grouped: A dict where each key is the centre frequency
@@ -282,8 +282,7 @@ def group_by_ctr_freq(infns):
                 names with all the same centre frequency.
 
     """
-    get_freq = lambda fn: float(get_header_vals(fn, ['freq'])['freq'])
-    ctr_freqs = np.asarray([get_freq(fn) for fn in infns])
+    ctr_freqs = np.asarray([fn.freq for fn in infns])
     groups_dict = {}
     for ctr_freq in np.unique(ctr_freqs):
         # Collect the input files that are part of this sub-band
@@ -307,12 +306,6 @@ def group_subints(infns):
                 names with all the same centre frequency.
     """
     groups_dict = {}
-
-    # Ensure all files have the same bandwidth and number of channels
-    # discard any sub-ints that are outliers
-    infns = enforce_file_consistency(infns, 'bw', discard=True)
-    infns = enforce_file_consistency(infns, 'nchan', discard=True)
-    infns = enforce_file_consistency(infns, 'length', discard=True)
 
     for infn in infns:
         dir, fn = os.path.split(infn.fn)
@@ -404,6 +397,8 @@ def group_subbands(infns):
     """
     get_basenm = lambda arf: os.path.splitext(os.path.split(arf.fn)[-1])[0]
     basenms = set([get_basenm(infn) for infn in infns])
+
+    print_debug("Base names: %s" % ", ".join(basenms), 'grouping')
 
     groups = []
     for basenm in basenms:
@@ -504,7 +499,7 @@ class ArchiveFile(object):
                                             'intmjd', 'fracmjd', 'backend', 
                                             'rcvr', 'telescop', 'name', 
                                             'nchan', 'asite'])
-        self.hdr['secs'] = int(self.hdr['fracmjd']*24*3600)
+        self.hdr['secs'] = int(self.hdr['fracmjd']*24*3600+0.5) # Add 0.5 so we actually round
         self.hdr['yyyymmdd'] = "%04d%02d%02d" % mjd_to_date(self.hdr['mjd'])
     
     def __getitem__(self, key):
@@ -592,6 +587,9 @@ class DefaultOptions(optparse.OptionParser):
     def toggle_config(self, option, opt_str, value, parser, param):
         val = getattr(config, param)
         setattr(config, param, not val)
+
+    def override_config(self, option, opt_str, value, parser):
+        config.cfg.set_override_config(option.dest, value)
 
     def debug_callback(self, option, opt_str, value, parser, mode):
         config.debug.set_mode_on(mode)

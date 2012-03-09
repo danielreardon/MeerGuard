@@ -31,6 +31,9 @@ class DataReductionFailed(CoastGuardError):
 class BadFile(CoastGuardError):
     pass
 
+class ConfigurationError(CoastGuardError):
+    pass
+
 
 # Custom Warnings
 class CoastGuardWarning(Warning):

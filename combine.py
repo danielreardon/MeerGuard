@@ -17,7 +17,7 @@ import utils
 import clean
 import config
 
-def combine_all(infns, outfn, maxspan=1890, maxgap=300, num_to_trim=0):
+def combine_all(infns, outfn):
     """Given a list of ArchiveFile objects group them into sub-bands
         then remove the edges of each sub-band to remove the artifacts
         caused by aliasing. Finally, combine the sub-bands into a single 
@@ -28,52 +28,101 @@ def combine_all(infns, outfn, maxspan=1890, maxgap=300, num_to_trim=0):
         Inputs:
             infns: A list of input ArchiveFile objects.
             outfn: The output file's name.
-            maxspan: The largest span, in seconds, for a combined data file. 
-                (Default: 1890 s)
-            maxgap: The largest gap allowed, in seconds, between input archives. 
-                (Default: 300 s)
-            num_to_trim: The number of channels to zero-weight at the
-                top and bottom of each subband. (Default: 0, no trimming).
 
         Outputs:
             combinedfns: A list of output (combined) files.
     """
+    infns = check_files(infns)
+    groups = group_files(infns)
+    combinedfiles = []
     # Combine files from the same sub-band in the time direction
-    tmp_combined_subbands = []
-    for ctr_freq, to_combine in utils.group_subints(infns).iteritems():
-        utils.print_info("Combining %d subints at ctr freq %d MHz" % \
-                            (len(to_combine), ctr_freq), 2)
-        # Combine sub-integrations for this sub-band
-        subfns = combine_subints(to_combine, outfn+".%(freq)dMHz",  maxspan, maxgap)
-        tmp_combined_subbands.extend(subfns)
-    
-    if num_to_trim > 0:
-        utils.print_info("Trimming %d channels from each subband edge " % \
-                        num_to_trim, 2)
-        for subfn in tmp_combined_subbands:
-            clean.trim_edge_channels(subfn, num_to_trim=num_to_trim)
+    for group in groups:
+        subbands = []
+        for ctr_freq, to_combine in utils.group_by_ctr_freq(group).iteritems():
+            utils.print_info("Combining %d subints at ctr freq %d MHz" % \
+                                (len(to_combine), ctr_freq), 3)
  
-    # Combine the temporary sub-bands together in the frequency direction
-    combinedfns = []
-    for subbands in utils.group_subbands(tmp_combined_subbands):
+            # Combine sub-integrations for this sub-band
+            subfn = utils.get_outfn(outfn+".%(freq)dMHz", to_combine[0])
+            if subfn in [f.fn for f in subbands]:
+                warnings.warn("'combined_all(...)' is overwritting files it " \
+                                "previously created!")
+            subband = combine_subints(to_combine, subfn)
+            clean.trim_edge_channels(subband)
+            subbands.append(subband)
+
         combinedfn = utils.get_outfn(outfn, subbands[0])
         utils.print_info("Combining %d subbands into %s" % \
-                            (len(subbands), combinedfn), 2)
-        if combinedfn in combinedfns:
+                            (len(subbands), combinedfn), 3)
+        if combinedfn in [f.fn for f in combinedfiles]:
             warnings.warn("'combined_all(...)' is overwritting files it " \
                             "previously created!")
-        combine_subbands(subbands, combinedfn)
-        combinedfns.append(combinedfn)
-    combinedfns = [utils.ArchiveFile(fn) for fn in combinedfns]
+        combinedfile = combine_subbands(subbands, combinedfn)
+        combinedfiles.append(combinedfile)
+    
+        if not config.debug.INTERMEDIATE:
+            # Remove the temporary combined files
+            for sub in subbands:
+                os.remove(sub.fn)
+    return combinedfiles
 
-    if not config.debug.INTERMEDIATE:
-        # Remove the temporary combined files
-        for subfn in tmp_combined_subbands:
-            os.remove(subfn.fn)
-    return combinedfns
+
+def group_files(infns):
+    """Given a list of ArchiveFile objects group them.
+
+        Note: The maximum span of a group will be at most
+            config.cfg.combine_maxspan. Also, a gap larger
+            than config.cfg.combine_maxgap will cause a new
+            group to be started.
+
+        Input:
+            infns: A list of input ArchiveFiles.
+
+        Output:
+            groups: A list of lists. Each sub-list is a group
+                of ArchiveFiles that should be combined.
+    """
+    maxspan = config.cfg.combine_maxspan
+    maxgap = config.cfg.combine_maxgap
+    mjds = np.array([fn.mjd for fn in infns])
+    mjdind = np.argsort(mjds)
+
+    # Sort infiles and MJDs based on MJD
+    infns = [infns[ii] for ii in mjdind]
+    mjds = mjds[mjdind]
+    secsince = np.round((mjds-mjds[0])*24*3600).astype(int) # Seconds since the first sub-int
+    
+    # First group files into subints
+    subints = {}
+    for infn, secs in zip(infns, secsince):
+        subint = subints.setdefault(secs, [])
+        subint.append(infn)
+
+    start_secs = sorted(subints.keys())
+    subint0 = subints[start_secs[0]]
+    groups = [subint0]
+    last_subint_end = start_secs[0]+subint0[0].length
+    span = subint0[0].length
+
+    for secs in start_secs[1:]:
+        gap = secs - last_subint_end
+        subint = subints[secs]
+        if gap >= maxgap:
+            groups.append(subint)
+            utils.print_info("Starting new subint (gap=%g >= %g)." % (gap, maxgap), 2)
+            span = subint[0].length
+        elif span >= maxspan:
+            groups.append(subint)
+            utils.print_info("Starting new subint (span=%g >= %g)." % (span, maxspan), 2)
+            span = subint[0].length
+        else:
+            groups[-1].extend(subint)
+            span += subint[0].length
+        last_subint_end = secs + subint[0].length
+    return groups
 
 
-def combine_subints(infns, outfn, maxspan, maxgap):
+def combine_subints(infns, outfn):
     """Given a list of PSRCHIVE file names group them together using
         'psradd' assuming they are all sub-integrations from the same
         observing band.
@@ -81,55 +130,12 @@ def combine_subints(infns, outfn, maxspan, maxgap):
         Inputs:
             infns: A list of intput sub-integration PSRCHIVE archive file names.
             outfn: The output file name to use.
-            maxspan: The largest span, in seconds, for a combined data file. 
-                This value is passed to 'psradd' with the '-g' flag.
-            maxgap: The largest gap allowed, in seconds, between input archives. 
-                This value is passed to 'psradd' with the '-G' flag.
 
         Output:
-            outfns: A list of output file names.
+            outar: An output ArchiveFile object.
     """
-    mjds = np.array([float(fn.mjd) for fn in infns])
-    mjdind = np.argsort(mjds)
-
-    # Sort infiles and MJDs based on MJD
-    infns = [infns[ii] for ii in mjdind]
-    mjds = mjds[mjdind]
-    secsince = (mjds-mjds[0])*24*3600 # Seconds since the first sub-int
-    
-    # First identify gaps
-    gaps = np.ediff1d(secsince, to_begin=maxgap+1, to_end=maxgap+1)
-    edges = np.argwhere(gaps>maxgap).squeeze()
-    
-    grouped_infns = []
-    for lo, hi in zip(edges[:-1], edges[1:]):
-        groupnums = secsince[lo:hi].astype(int)/maxspan
-        groupnums -= groupnums[0]
-        tmp = []
-        for gnum, infn in zip(groupnums, infns[lo:hi]):
-            utils.print_debug("Appending %s to group %d" % (infn.fn, gnum), 'combine')
-            if gnum+1 > len(tmp):
-                tmp.append([infn])
-            else:
-                tmp[gnum].append(infn)
-        grouped_infns += tmp
-            
-    utils.print_info("Split %d input archives into %d groups." % \
-                        (len(infns), len(grouped_infns)), 2)
-    utils.print_info("Groups: %s" % grouped_infns, 3)
-
-    outfns = []
-    for ii, grp in enumerate(grouped_infns):
-        fn = utils.get_outfn(outfn, grp[0])
-        utils.print_info("First archive in group #%d: %s -- " \
-                            "Output filename: %s" % (ii, grp[0], fn), 2)
-        if fn in outfns:
-            warnings.warn("'combined_subints(...)' is overwritting files it " \
-                            "previously created!")
-        utils.execute("psradd -o %s %s" % (fn, " ".join([g.fn for g in grp])))
-        outfns.append(fn)
-
-    return [utils.ArchiveFile(fn) for fn in outfns]
+    utils.execute("psradd -o %s %s" % (outfn, " ".join([f.fn for f in infns])))
+    return utils.ArchiveFile(outfn)
 
 
 def combine_subbands(infns, outfn):
@@ -142,9 +148,43 @@ def combine_subbands(infns, outfn):
             outfn: The output file's name
 
         Outputs:
-            None
+            outar: An output ArchiveFile object.
     """
-    utils.execute("psradd -R -o %s %s" % (outfn, " ".join([infn.fn for infn in infns])))
+    utils.execute("psradd -R -o %s %s" % (outfn, " ".join([f.fn for f in infns])))
+    return utils.ArchiveFile(outfn)
+
+
+def check_files(infns):
+    """Check a list of input files to make sure their headers are
+        consistent and to make sure subints include all subbands.
+
+        Input:
+            infns: A list of input files (ArchiveFile objects).
+
+        Output:
+            outfns: A list of complete, consistent files.
+    """
+    # Ensure all files have the same bandwidth and number of channels
+    # discard any sub-ints that are outliers
+    infns = utils.enforce_file_consistency(infns, 'bw', discard=True)
+    infns = utils.enforce_file_consistency(infns, 'nchan', discard=True)
+    infns = utils.enforce_file_consistency(infns, 'length', discard=True)
+
+    subints = {}
+    for infn in infns:
+        subint = subints.setdefault((infn.yyyymmdd, infn.secs), [])
+        subint.append(infn)
+
+    outfns = []
+    for key in sorted(subints.keys()):
+        if len(subints[key]) == config.cfg.expected_nsubbands:
+            outfns.extend(subints[key])
+        else:
+            date, secs = key
+            utils.print_debug("Not correct number of subbands starting at " \
+                              " %s %d (%d != %d)" % \
+                    (date, secs, len(subints[key]), config.cfg.expected_nsubbands), 'grouping')
+    return outfns
 
 
 def main():
@@ -160,16 +200,14 @@ def main():
     to_combine = [utils.ArchiveFile(fn) for fn in to_combine]
     
     # Read configurations
-    cfg = config.CoastGuardConfigs()
-    cfg.get_default_configs()
-    cfg.get_configs_for_archive(to_combine[0])
+    config.cfg.load_configs_for_archive(to_combine[0])
   
     # Combine files
-    outfns = combine_all(to_combine, options.outfn, maxspan=cfg.combine_maxspan, \
-                    maxgap=cfg.combine_maxgap, num_to_trim=cfg.nchan_to_trim)
-    print "Output file names:" 
-    for outfn in outfns:
-        print "    %s" % outfn.fn
+    outfns = combine_all(to_combine, options.outfn)
+
+    print "Output file names (%d files):" % len(outfns)
+    for fn in sorted([outfn.fn for outfn in outfns]):
+        print "    %s" % fn
 
 
 if __name__=="__main__":
@@ -200,5 +238,18 @@ if __name__=="__main__":
                             "expression should be properly quoted to not be " \
                             "expanded by the shell prematurely. (Default: " \
                             "exclude any files.)")
+    parser.add_option('--nchan-to-trim', dest='nchan_to_trim', action='callback', \
+                        callback=parser.override_config, type=int, \
+                        help="The number of channels to trim from the edge of each " \
+                            "subband. (Default: %d)" % config.cfg.nchan_to_trim)
+    parser.add_option('--max-span', dest='combine_maxspan', action='callback', \
+                        callback=parser.override_config, type=int, \
+                        help="Max number of seconds a combined archive can span. " \
+                             "(Default: %d s)" % config.cfg.combine_maxspan)
+    parser.add_option('--max-gap', dest='combine_maxgap', action='callback', \
+                        callback=parser.override_config, type=int, \
+                        help="Max gap (in seconds) between archives before starting " \
+                             "a new combined archive. (Default %d s)" % \
+                                config.cfg.combine_maxgap)
     options, args = parser.parse_args()
     main()

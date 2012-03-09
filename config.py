@@ -1,61 +1,97 @@
 import sys
-import ast
+import copy
 import os.path
-import ConfigParser
 
 import utils
 import debug
+import errors
 
 # Read in global configurations
 execfile(os.path.join(os.path.split(__file__)[0], "global.cfg"), {}, locals())
 
 
 class ConfigDict(dict):
-    def __getattr__(self, key):
-        return self.__getitem__(key)
+    def __add__(self, other):
+        newcfg = copy.deepcopy(self)
+        newcfg.update(other)
+        return newcfg
+
+    def __str__(self):
+        lines = []
+        for key in sorted(self.keys()):
+            lines.append("%s: %r" % (key, self[key]))
+        return "\n".join(lines)
+
+
+def read_file(fn, required=False):
+    cfgdict = ConfigDict()
+    if os.path.isfile(fn):
+        if not fn.endswith('.cfg'):
+            raise ValueError("Coast Guard configuration files must " \
+                             "end with the extention '.cfg'.")
+        key = os.path.split(fn)[-1][:-4]
+        execfile(fn, {}, cfgdict)
+    elif required:
+            raise ValueError("Configuration file (%s) doesn't exist " \
+                             "and is required!" % fn)
+    return cfgdict
 
 
 class CoastGuardConfigs(object):
     def __init__(self, base_config_dir=default_config_dir):
         self.base_config_dir = base_config_dir
-        self.config_dicts = {}
-        self.configs = ConfigDict()
+        default_config_fn = os.path.join(self.base_config_dir, "default.cfg")
+
+        self.defaults = read_file(default_config_fn, required=True)
+        self.obsconfigs = ConfigDict()
+        self.overrides = ConfigDict()
 
     def __getattr__(self, key):
-        return self.configs[key]
+        return self.__getitem__(key)
 
     def __getitem__(self, key):
-        return self.config_dicts[key]
+        if key in self.overrides:
+            utils.print_debug("Config '%s' found in Overrides" % key, 'config')
+            val = self.overrides[key]
+        elif key in self.obsconfigs:
+            utils.print_debug("Config '%s' found in Observation configs" % key, 'config')
+            val = self.current[key]
+        elif key in self.defaults:
+            utils.print_debug("Config '%s' found in Default" % key, 'config')
+            val = self.defaults[key]
+        else:
+            raise errors.ConfigurationError("The configuration '%s' " \
+                                            "cannot be found!" % key)
+        return val
 
-    def read_file(self, fn, required=False):
-        if required and not os.path.isfile(fn):
-            raise ValueError("Configuration file (%s) doesn't exist " \
-                             "and is required!" % fn)
-        if not fn.endswith('.cfg'):
-            raise ValueError("Coast Guard configuration files must " \
-                             "end with the extention '.cfg'.")
-        key = os.path.split(fn)[-1][:-4]
-        self.config_dicts[key] = ConfigDict()
-        execfile(fn, {}, self.config_dicts[key])
-        # Load just-read configurations into current configs
-        self.configs.update(self.config_dicts[key])
+    def __str__(self):
+        allkeys = set.union(set(self.defaults.keys()),
+                            set(self.obsconfigs.keys()),
+                            set(self.overrides.keys()))
+        lines = ["Current configurations:"]
+        #for key in allkeys:
+        #    lines.append("    %s: %s" % (key, self[key]))
+        lines.append("    "+str(self.defaults+self.obsconfigs+self.overrides).replace("\n", "\n    "))
+        lines.append("Overrides:")
+        lines.append("    "+str(self.overrides).replace("\n", "\n     "))
+        lines.append("Observation configurations:")
+        lines.append("    "+str(self.obsconfigs).replace("\n", "\n    "))
+        lines.append("Defaults:")
+        lines.append("    "+str(self.defaults).replace("\n", "\n    "))
+        return "\n".join(lines)
+    
+    def clear_obsconfigs(self):
+        self.obsconfigs.clear()
+    
+    def clear_overrides(self):
+        self.overrides.clear()
 
-    def get_default_configs(self):
-        """Read the default configurations and return them.
- 
-            Inputs:
-                None
+    def set_override_config(self, key, val):
+        self.overrides[key] = val
 
-            Outputs:
-                None
-        """
-        default_config_fn = os.path.join(self.base_config_dir, "default.cfg")
-        self.read_file(default_config_fn, required=True)
-
-    def get_configs_for_archive(self, arfn):
-        """Given a psrchive archive file return relevant configurations.
-            This will include configurations for the telescope, frontend,
-            backend, and pulsar.
+    def load_configs_for_archive(self, arfn):
+        """Given a psrchive archive file set current configurations to the values
+            pre-set for this observation, pulsar, backend, receiver, telescope.
  
             Inputs:
                 fn: The psrchive archive to get configurations for.
@@ -63,8 +99,10 @@ class CoastGuardConfigs(object):
             Outputs:
                 None
         """
-        # Create a list of all the configuration files to check
-        config_files = []
+        self.clear_obsconfigs()
+        
+        config_files = [] # A list of configuration files to look for
+
         telescope = utils.site_to_telescope[arfn.telescop.lower()]
         config_files.append(os.path.join(self.base_config_dir, 'telescopes', \
                                 "%s.cfg" % telescope.lower()))
@@ -82,16 +120,17 @@ class CoastGuardConfigs(object):
         utils.print_debug(msg, 'config')
         
         for fn in config_files:
-            if os.path.isfile(fn):
-                self.read_file(fn)
+            self.obsconfigs += read_file(fn)
              
 
+cfg = CoastGuardConfigs()
+
 def main():
-    cfg = CoastGuardConfigs()
-    cfg.get_default_configs()
-    cfg.get_configs_for_archive(sys.argv[1])
-    print '-'*25
-    print cfg['default']['conf'], cfg['default'].conf, cfg.conf
+    arf = utils.ArchiveFile(sys.argv[1])
+    cfg.set_override_config("something", 'newvalue!')
+    cfg.load_configs_for_archive(arf)
+    print cfg
+
 
 if __name__ == '__main__':
     main()
