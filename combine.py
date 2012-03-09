@@ -239,15 +239,15 @@ if __name__=="__main__":
                             "expanded by the shell prematurely. (Default: " \
                             "exclude any files.)")
     parser.add_option('--nchan-to-trim', dest='nchan_to_trim', action='callback', \
-                        callback=parser.override_config, type=int, \
+                        callback=parser.override_config, type='int', \
                         help="The number of channels to trim from the edge of each " \
                             "subband. (Default: %d)" % config.cfg.nchan_to_trim)
     parser.add_option('--max-span', dest='combine_maxspan', action='callback', \
-                        callback=parser.override_config, type=int, \
+                        callback=parser.override_config, type='int', \
                         help="Max number of seconds a combined archive can span. " \
                              "(Default: %d s)" % config.cfg.combine_maxspan)
     parser.add_option('--max-gap', dest='combine_maxgap', action='callback', \
-                        callback=parser.override_config, type=int, \
+                        callback=parser.override_config, type='int', \
                         help="Max gap (in seconds) between archives before starting " \
                              "a new combined archive. (Default %d s)" % \
                                 config.cfg.combine_maxgap)
