@@ -67,23 +67,23 @@ def combine_all(infns, outfn):
     return combinedfiles
 
 
-def group_files(infns):
+def group_files(infns, maxspan=None, maxgap=None):
     """Given a list of ArchiveFile objects group them.
-
-        Note: The maximum span of a group will be at most
-            config.cfg.combine_maxspan. Also, a gap larger
-            than config.cfg.combine_maxgap will cause a new
-            group to be started.
 
         Input:
             infns: A list of input ArchiveFiles.
+            maxspan: The maximum span (in seconds) or a group.
+            maxgap: The maximum gap (in seconds) between subints
+                before starting a new group.
 
         Output:
             groups: A list of lists. Each sub-list is a group
                 of ArchiveFiles that should be combined.
     """
-    maxspan = config.cfg.combine_maxspan
-    maxgap = config.cfg.combine_maxgap
+    if maxspan is None:
+        maxspan = config.cfg.combine_maxspan
+    if maxgap is None:
+        maxgap = config.cfg.combine_maxgap
     mjds = np.array([fn.mjd for fn in infns])
     mjdind = np.argsort(mjds)
 
@@ -154,16 +154,20 @@ def combine_subbands(infns, outfn):
     return utils.ArchiveFile(outfn)
 
 
-def check_files(infns):
+def check_files(infns, expected_nsubbands=None):
     """Check a list of input files to make sure their headers are
         consistent and to make sure subints include all subbands.
 
         Input:
             infns: A list of input files (ArchiveFile objects).
+            expected_nsubbands: The expected number of subbands to check for.
 
         Output:
             outfns: A list of complete, consistent files.
     """
+    if expected_nsubbands is None:
+        expected_nsubbands = config.cfg.expected_nsubbands
+
     # Ensure all files have the same bandwidth and number of channels
     # discard any sub-ints that are outliers
     infns = utils.enforce_file_consistency(infns, 'bw', discard=True)
@@ -177,13 +181,13 @@ def check_files(infns):
 
     outfns = []
     for key in sorted(subints.keys()):
-        if len(subints[key]) == config.cfg.expected_nsubbands:
+        if len(subints[key]) == expected_nsubbands:
             outfns.extend(subints[key])
         else:
             date, secs = key
             utils.print_debug("Not correct number of subbands starting at " \
                               " %s %d (%d != %d)" % \
-                    (date, secs, len(subints[key]), config.cfg.expected_nsubbands), 'grouping')
+                    (date, secs, len(subints[key]), expected_nsubbands), 'grouping')
     return outfns
 
 
