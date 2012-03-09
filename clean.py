@@ -211,15 +211,16 @@ def prune_band(infn, response=None):
             None
     """
     if response is None:
-        if config.cfg.receiver_response is None:
-            utils.print_verbose("No freq range specified for band pruning. Skipping...", 2)
-            return
-        response = config.cfg.receiver_response
+        response = config.cfg.rcvr_response_lims
 
-    lofreq = infn.freq - 0.5*infn.bw
-    hifreq = infn.freq + 0.5*infn.bw
-    utils.execute('paz -m -F "%f %f" -F "%f %f" %s' % \
-                    (lofreq, response[0], response[1], hifreq, infn.fn))
+    if response is None:
+        utils.print_info("No freq range specified for band pruning. Skipping...", 2)
+    else:
+        lofreq = infn.freq - 0.5*infn.bw
+        hifreq = infn.freq + 0.5*infn.bw
+        utils.print_info("Pruning frequency band to (%g-%g MHz)" % response, 2)
+        utils.execute('paz -m -F "%f %f" -F "%f %f" %s' % \
+                        (lofreq, response[0], response[1], hifreq, infn.fn))
 
 
 def trim_edge_channels(infn, nchan_to_trim=None):
@@ -260,19 +261,23 @@ def clean_archive(infn, outfn, clean_key, *args, **kwargs):
 
 
 def main():
-    infns = args
     print ""
     print "         clean.py"
     print "     Patrick  Lazarus"
     print ""
-    # Trim edge channels
-    if options.num_chans_to_trim > 0:
-        print "Trimming the edges... (# Chans: %d)" % \
-                                options.num_chans_to_trim
-        trim_edge_channels(options.num_chans_to_trim, *infns)
-    for fn in infns:
-        ar = psrchive.Archive_load(fn)
-        deep_clean(ar)
+    file_list = args + options.from_glob
+    to_exclude = options.excluded_files + options.excluded_by_glob
+    to_clean = utils.exclude_files(file_list, to_exclude)
+    print "Number of input files: %d" % len(to_clean)
+    
+    to_clean = [utils.ArchiveFile(fn) for fn in to_clean]
+    
+    # Read configurations
+    for arf in to_clean:
+        config.cfg.load_configs_for_archive(arf)
+        trim_edge_channels(arf)
+        prune_band(arf)
+        
 
 
 if __name__=="__main__":
@@ -281,10 +286,35 @@ if __name__=="__main__":
                                     "clean RFI from each one. \nNOTE: " \
                                     "The files are cleaned non-desctructively " \
                                     "by applying zero-weighting.")
-    parser.add_option('--trim-edge-channels', dest='num_chans_to_trim', \
-                        help="Trim the edges of each input file to remove " \
-                            "band-pass roll-off and the effect of aliasing. " \
-                            "(Default: 0, don't trim edges.)", \
-                        default=0, type='int')
+    parser.add_option('-g', '--glob', dest='from_glob', action='callback', \
+                        callback=utils.get_files_from_glob, default=[], \
+                        type='string', \
+                        help="Glob expression of input files. Glob expression " \
+                            "should be properly quoted to not be expanded by " \
+                            "the shell prematurely. (Default: no glob " \
+                            "expression is used.)") 
+    parser.add_option('-x', '--exclude-file', dest='excluded_files', \
+                        type='string', action='append', default=[], \
+                        help="Exclude a single file. Multiple -x/--exclude-file " \
+                            "options can be provided. (Default: don't exclude " \
+                            "any files.)")
+    parser.add_option('--exclude-glob', dest='excluded_by_glob', action='callback', \
+                        callback=utils.get_files_from_glob, default=[], \
+                        type='string', \
+                        help="Glob expression of files to exclude as input. Glob " \
+                            "expression should be properly quoted to not be " \
+                            "expanded by the shell prematurely. (Default: " \
+                            "exclude any files.)")
+    parser.add_option('--nchan-to-trim', dest='nchan_to_trim', action='callback', \
+                        callback=parser.override_config, type='int', \
+                        help="The number of channels to trim from the edge of each " \
+                            "subband. (Default: %d)" % config.cfg.nchan_to_trim)
+    parser.add_option('--rcvr-response-lims', dest='rcvr_response_lims', \
+                        action='callback', callback=parser.override_config, \
+                        type='int', nargs=2, \
+                        help="Two values containg the low and high frequency " \
+                            "limits of the receiver's response (in MHz). Channels " \
+                            "outside of this region will be de-weighted. " \
+                            "(Default: %s)" % config.cfg.rcvr_response_lims)
     options, args = parser.parse_args()
     main()
