@@ -196,6 +196,32 @@ def clean_iterative(ar, threshold=2.0):
     ar.unload(unloadfn)
 
 
+def prune_band(infn, response=None):
+    """Prune the edges of the band. This is useful for
+        removing channels where there is no response.
+        The file is modified in-place. However, zero-weighting 
+        is used for pruning, so the process is reversible.
+
+        Inputs:
+            infn: name of file to trim.
+            response: A tuple specifying the range of frequencies 
+                outside of which should be de-weighted.
+
+        Outputs:
+            None
+    """
+    if response is None:
+        if config.cfg.receiver_response is None:
+            utils.print_verbose("No freq range specified for band pruning. Skipping...", 2)
+            return
+        response = config.cfg.receiver_response
+
+    lofreq = infn.freq - 0.5*infn.bw
+    hifreq = infn.freq + 0.5*infn.bw
+    utils.execute('paz -m -F "%f %f" -F "%f %f" %s' % \
+                    (lofreq, response[0], response[1], hifreq, infn.fn))
+
+
 def trim_edge_channels(infn, nchan_to_trim=None):
     """Trim the edge channels of an input file to remove 
         band-pass roll-off and the effect of aliasing. 
@@ -203,7 +229,7 @@ def trim_edge_channels(infn, nchan_to_trim=None):
         is used for trimming, so the process is reversible.
 
         Inputs:
-            infn: names of file to trim.
+            infn: name of file to trim.
             nchan_to_trim: The number of channels to de-weight at
                 each edge of the band.
 
@@ -219,6 +245,18 @@ def trim_edge_channels(infn, nchan_to_trim=None):
         numchans = int(infn.nchan)
         utils.execute('paz -m -Z "0 %d" -Z "%d %d" %s' % \
                     (nchan_to_trim-1, numchans-nchan_to_trim, numchans-1, infn.fn))
+
+
+clean_funcs = {'power': power_wash, \
+               'deep': deep_clean, \
+               'simple': clean_simple, \
+               'iterative': clean_iterative}
+
+
+def clean_archive(infn, outfn, clean_key, *args, **kwargs):
+    ar = psrchive.Archive_load(fn)
+    cleaner = clean_funcs[clean_key]
+    cleaner(ar, outfn, *args, **kwargs)
 
 
 def main():
