@@ -5,7 +5,7 @@ import utils
 import config
 import errors
 
-def get_standard(fn, base_stddir='.'):
+def get_standard(fn, base_standards_dir=None):
     """Given an archive file name return the name of the 
         standard profile to use for TOA fitting.
 
@@ -17,10 +17,13 @@ def get_standard(fn, base_stddir='.'):
         Output:
             std: The name of the standard profile.
     """
+    if base_standards_dir is None:
+        base_standards_dir = config.cfg.base_standards_dir
+
     hdr = utils.get_header_vals(fn, ['name', 'freq', 'telescop', 'backend', 'rcvr'])
     stdfn = "%s_%s_%s_%s.std" % (hdr['name'].upper(), hdr['telescop'].lower(), \
                             hdr['rcvr'].lower(), hdr['backend'].lower())
-    stdpath = os.path.join(base_stddir, hdr['telescop'].lower(), \
+    stdpath = os.path.join(base_standards_dir, hdr['telescop'].lower(), \
                             hdr['rcvr'].lower(), hdr['backend'].lower())
     stdfn = os.path.join(stdpath, stdfn)
 
@@ -30,8 +33,8 @@ def get_standard(fn, base_stddir='.'):
     return stdfn
 
 
-def get_toas(fn, stdfn, nsubint=1, nchan=1, makediag=True, \
-                method='PGS', fmt='princeton'):
+def get_toas(fn, stdfn, nsubint=None, nchan=None, makediag=True, \
+                method=None, fmt=None):
     """Get TOAs for the given archive file by running 'pat'.
         If no standard profile is given the location of the 
         stardard will be guessed based on header parameters 
@@ -41,19 +44,25 @@ def get_toas(fn, stdfn, nsubint=1, nchan=1, makediag=True, \
             fn: The name of the archive file to produce TOAs for.
             stdfn: The name of the standard profile to use.
             nsubint: Scrunch archive to this many subints, and 
-                produce a TOA for each subint. (Default: 1).
+                produce a TOA for each subint.
             nchan: Scrunch archive to this many channels, and
-                produce a TOA for each channel. (Default: 1).
+                produce a TOA for each channel.
             makediag: A boolean value. If True, make diagnostic
                 plots by calling 'pat' with the '-t' flag.
             method: The method to be used by 'pat'.
-                (Default: PGS)
             fmt: The output format of TOAs.
-                (Default: princeton)
 
         Output:
             toas: A list of TOA strings.
     """
+    if nsubint is None:
+        nsubint = config.cfg.ntoa_time
+    if nchan is None:
+        nchan = config.cfg.ntoa_freq
+    if method is None:
+        method = config.cfg.toa_method
+    if fmt is None:
+        fmt = config.cfg.toa_format
     # Prepare most of call to 'pat'
     patcmd = "pat -s %s -A %s -f %s " % (stdfn, method, fmt)
     if makediag:
@@ -102,13 +111,10 @@ def main():
     to_time = [utils.ArchiveFile(fn) for fn in to_time]
     
     # Read configurations
-    cfg = config.CoastGuardConfigs()
-    cfg.get_default_configs()
     for arf in to_time:
-        cfg.get_configs_for_archive(arf)
-        stdfn = get_standard(arf.fn, cfg.base_standards_dir)
-        toastrs = get_toas(arf.fn, stdfn, cfg.ntoa_time, cfg.ntoa_freq, \
-                            method=cfg.toa_method, fmt=cfg.toa_format)
+        config.cfg.load_configs_for_archive(arf)
+        stdfn = get_standard(arf.fn)
+        toastrs = get_toas(arf.fn, stdfn)
         for toastr in toastrs:
             print toastr
 
@@ -137,5 +143,25 @@ if __name__=="__main__":
                             "expression should be properly quoted to not be " \
                             "expanded by the shell prematurely. (Default: " \
                             "exclude any files.)")
+    parser.add_option('--format', dest='toa_format', action='callback', \
+                        callback=parser.override_config, type='string', \
+                        help="The pat-recognized TOA format to use. (Default: %s)" % \
+                             config.cfg.toa_format)
+    parser.add_option('--method', dest='toa_method', action='callback', \
+                        callback=parser.override_config, type='string', \
+                        help="The pat-recognized TOA method to use. (Default: %s)" % \
+                             config.cfg.toa_method)
+    parser.add_option('--num-subband', dest='ntoa_freq', action='callback', \
+                        callback=parser.override_config, type='int', \
+                        help="Number of subbands to generate TOAs for. " \
+                             "(Default: %d)" % config.cfg.ntoa_freq)
+    parser.add_option('--num-subint', dest='ntoa_time', action='callback', \
+                        callback=parser.override_config, type='int', \
+                        help="Number of subints to generate TOAs for. " \
+                             "(Default: %d)" % config.cfg.ntoa_time)
+    parser.add_option('--base-std-dir', dest='base_standards_dir', action='callback', \
+                        callback=parser.override_config, type='string', \
+                        help="The base directory containing standard profiles. " \
+                             "(Default: %s)" % config.cfg.base_standards_dir)
     options, args = parser.parse_args()
     main()
