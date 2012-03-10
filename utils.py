@@ -543,13 +543,13 @@ class DefaultOptions(optparse.OptionParser):
                           callback_args=('colour',), \
                           help="Toggle colourised output. " \
                                 "(Default: colours are %s)" % \
-                                (config.colour and "on") or "off")
+                                ((config.colour and "on") or "off"))
         group.add_option('--toggle-exverb', action='callback', \
                           callback=self.toggle_config, \
                           callback_args=('excessive_verbosity',), \
                           help="Toggle excessive verbosity. " \
                                 "(Default: excessive verbosity is %s)" % \
-                                (config.excessive_verbosity and "on") or "off")
+                                ((config.excessive_verbosity and "on") or "off"))
         self.add_option_group(group)
 
     def add_debug_group(self):
@@ -562,7 +562,7 @@ class DefaultOptions(optparse.OptionParser):
                           callback_args=('helpful_debugging',), \
                           help="Toggle helpful debugging. " \
                                 "(Default: helpful debugging is %s)" % \
-                                (config.helpful_debugging and "on") or "off")
+                                ((config.helpful_debugging and "on") or "off"))
         group.add_option('-d', '--debug', action='callback', \
                           callback=self.debugall_callback, \
                           help="Turn on all debugging modes. (Same as --debug-all).")
