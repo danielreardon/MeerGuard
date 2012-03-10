@@ -514,7 +514,7 @@ class ArchiveFile(object):
 class DefaultOptions(optparse.OptionParser):
     def __init__(self, *args, **kwargs):
         optparse.OptionParser.__init__(self, *args, **kwargs)
-       
+
     def parse_args(self, *args, **kwargs):
         # Add debug group just before parsing so it is the last set of
         # options displayed in help text
@@ -569,11 +569,15 @@ class DefaultOptions(optparse.OptionParser):
         group.add_option('--debug-all', action='callback', \
                           callback=self.debugall_callback, \
                           help="Turn on all debugging modes. (Same as -d/--debug).")
-        for m, desc in config.debug.modes:
-            group.add_option('--debug-%s' % m.lower(), action='callback', \
-                              callback=self.debug_callback, \
-                              callback_args=(m,), \
-                              help=desc)
+        group.add_option('--set-debug-mode', action='callback', \
+                          type='str', callback=self.debug_callback, \
+                          help="Turn on specified debugging mode. Use --list-debug-modes " \
+                            "to see the list of available modes and descriptions. " \
+                            "(Default: all debugging modes are off)")
+        group.add_option('--list-debug-modes', action='callback', \
+                          callback=self.list_debug, \
+                          help="List available debugging modes and descriptions, " \
+                            "and then exit.")
         self.add_option_group(group)
 
     def increment_config(self, option, opt_str, value, parser, param):
@@ -591,8 +595,14 @@ class DefaultOptions(optparse.OptionParser):
     def override_config(self, option, opt_str, value, parser):
         config.cfg.set_override_config(option.dest, value)
 
-    def debug_callback(self, option, opt_str, value, parser, mode):
-        config.debug.set_mode_on(mode)
+    def debug_callback(self, option, opt_str, value, parser):
+        config.debug.set_mode_on(value)
 
     def debugall_callback(self, option, opt_str, value, parser):
         config.debug.set_allmodes_on()
+
+    def list_debug(self, options, opt_str, value, parser):
+        print "Available debugging modes:"
+        for name, desc in config.debug.modes:
+            print "    %s: %s" % (name, desc)
+        sys.exit(1)
