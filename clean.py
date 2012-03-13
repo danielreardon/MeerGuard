@@ -248,6 +248,83 @@ def trim_edge_channels(infn, nchan_to_trim=None):
                     (nchan_to_trim-1, numchans-nchan_to_trim, numchans-1, infn.fn))
 
 
+def remove_bad_subints(infn, badsubints=None, badsubint_intervals=None):
+    """Zero-weights bad subints.
+        The file is modified in-place. However, zero-weighting 
+        is used for trimming, so the process is reversible.
+
+        Note: Subints are indexed starting at 0.
+
+        Inputs:
+            infn: name of time to remove subints from.
+            badchans: A list of subints to remove 
+            badchan_intervals: A list of subint intervals 
+                (inclusive) to remove
+    
+        Outputs:
+            None
+    """
+    if badsubints is None:
+        badsubints = config.cfg.badsubints
+    if badsubint_intervals is None:
+        badsubint_intervals = config.cfg.badsubint_intervals
+
+    zaplets = []
+    if badsubints:
+        zaplets.append("-w '%s'" % " ".join(['%d' % c for c for c in badsubints]))
+    if badsubint_intervals:
+        zaplets.extend(["-W '%d %d'" % lohi for lohi in badsubint_intervals])
+
+    if zaplets:
+        utils.execute("paz -m %s %s" % (" ".join(zaplets), infn.fn))
+
+
+def remove_bad_channels(infn, badchans=None, badchan_intervals=None, 
+                            badfreqs=None, badfreq_intervals=None):
+    """Zero-weight bad channels and channels containing bad
+        frequencies.
+        The file is modified in-place. However, zero-weighting 
+        is used for trimming, so the process is reversible.
+
+        Note: Channels are indexed starting at 0.
+
+        Inputs:
+            infn: name of time to remove channels from.
+            badchans: A list of channels to remove 
+            badchan_intervals: A list of channel intervals 
+                (inclusive) to remove
+            badfreqs: A list of frequencies. The channels
+                containing these frequencies will be removed.
+            badfreq_intervals: A list of frequency ranges 
+                to remove. The channels containing these
+                frequencies will be removed.
+    
+        Outputs:
+            None
+    """
+    if badchans is None:
+        badchans = config.cfg.badchans
+    if badchan_intervals is None:
+        badchan_intervals = config.cfg.badchan_intervals
+    if badfreqs is None:
+        badfreqs = config.cfg.badfreqs
+    if badfreq_intervals is None:
+        badfreq_intervals = config.cfg.badfreq_intervals
+
+    zaplets = []
+    if badchans:
+        zaplets.append("-z '%s'" % " ".join(['%d' % c for c for c in badchans]))
+    if badchan_intervals:
+        zaplets.extend(["-Z '%d %d'" % lohi for lohi in badchan_intervals])
+    if badfreqs:
+        zaplets.append("-f '%s'" % " ".join(['%f' % f for f in badfreqs]))
+    if badfreq_intervals:
+        zaplets.extend(["-F '%f %f'" % lohi for lohi in badfreq_intervals])
+
+    if zaplets:
+        utils.execute("paz -m %s %s" % (" ".join(zaplets), infn.fn))
+
+
 clean_funcs = {'power': power_wash, \
                'deep': deep_clean, \
                'simple': clean_simple, \
@@ -255,7 +332,7 @@ clean_funcs = {'power': power_wash, \
 
 
 def clean_archive(infn, outfn, clean_key, *args, **kwargs):
-    ar = psrchive.Archive_load(fn)
+    ar = psrchive.Archive_load(infn.fn)
     cleaner = clean_funcs[clean_key]
     cleaner(ar, outfn, *args, **kwargs)
 
