@@ -271,7 +271,7 @@ def remove_bad_subints(infn, badsubints=None, badsubint_intervals=None):
 
     zaplets = []
     if badsubints:
-        zaplets.append("-w '%s'" % " ".join(['%d' % c for c for c in badsubints]))
+        zaplets.append("-w '%s'" % " ".join(['%d' % ww for ww in badsubints]))
     if badsubint_intervals:
         zaplets.extend(["-W '%d %d'" % lohi for lohi in badsubint_intervals])
 
@@ -313,11 +313,11 @@ def remove_bad_channels(infn, badchans=None, badchan_intervals=None,
 
     zaplets = []
     if badchans:
-        zaplets.append("-z '%s'" % " ".join(['%d' % c for c for c in badchans]))
+        zaplets.append("-z '%s'" % " ".join(['%d' % zz for zz in badchans]))
     if badchan_intervals:
         zaplets.extend(["-Z '%d %d'" % lohi for lohi in badchan_intervals])
     if badfreqs:
-        zaplets.append("-f '%s'" % " ".join(['%f' % f for f in badfreqs]))
+        zaplets.append("-f '%s'" % " ".join(['%f' % ff for ff in badfreqs]))
     if badfreq_intervals:
         zaplets.extend(["-F '%f %f'" % lohi for lohi in badfreq_intervals])
 
