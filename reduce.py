@@ -267,7 +267,7 @@ if __name__=="__main__":
     parser.add_option('-o', '--outname', dest='outfn', type='string', \
                         help="The output (reduced) file's name. " \
                             "(Default: '%(name)s_%(yyyymmdd)s_%(secs)05d_reduced.ar')", \
-                        default="%(name)s_%(yyyymmdd)s_%(secs)05d_combined.ar")
+                        default="%(name)s_%(yyyymmdd)s_%(secs)05d_reduced.ar")
     parser.add_option('-g', '--glob', dest='from_glob', action='callback', \
                         callback=utils.get_files_from_glob, default=[], \
                         type='string', \
