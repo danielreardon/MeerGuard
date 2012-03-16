@@ -31,6 +31,11 @@ class DataReductionFailed(CoastGuardError):
 class BadFile(CoastGuardError):
     pass
 
+
+class CleanError(CoastGuardError):
+    pass
+
+
 class ConfigurationError(CoastGuardError):
     pass
 
