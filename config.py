@@ -55,7 +55,7 @@ class CoastGuardConfigs(object):
             val = self.overrides[key]
         elif key in self.obsconfigs:
             utils.print_debug("Config '%s' found in Observation configs" % key, 'config')
-            val = self.current[key]
+            val = self.obsconfigs[key]
         elif key in self.defaults:
             utils.print_debug("Config '%s' found in Default" % key, 'config')
             val = self.defaults[key]
