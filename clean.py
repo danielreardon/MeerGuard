@@ -8,15 +8,21 @@ Patrick Lazarus, Nov. 11, 2011
 import optparse
 import sys
 import types
+import re
+import shutil
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-# import psrchive
+import psrchive
 
 import config
 import utils
 import clean_utils
+import errors
+
+cleaners = ['power_wash', 'deep_clean', 'clean_simple', 'clean_iterative']
+
 
 def power_wash(ar):
     """Power wash RFI out of the data.
@@ -276,6 +282,7 @@ def remove_bad_subints(infn, badsubints=None, badsubint_intervals=None):
         zaplets.extend(["-W '%d %d'" % lohi for lohi in badsubint_intervals])
 
     if zaplets:
+        utils.print_info("Removing bad subints.", 2)
         utils.execute("paz -m %s %s" % (" ".join(zaplets), infn.fn))
 
 
@@ -322,19 +329,26 @@ def remove_bad_channels(infn, badchans=None, badchan_intervals=None,
         zaplets.extend(["-F '%f %f'" % lohi for lohi in badfreq_intervals])
 
     if zaplets:
+        utils.print_info("Removing bad channels.", 2)
         utils.execute("paz -m %s %s" % (" ".join(zaplets), infn.fn))
 
 
-clean_funcs = {'power': power_wash, \
-               'deep': deep_clean, \
-               'simple': clean_simple, \
-               'iterative': clean_iterative}
+def clean_archive(infn, outfn, clean_re=None, *args, **kwargs):
+    if clean_re is None:
+        clean_re = config.cfg.clean_strategy
+    if clean_re is None:
+        return
 
-
-def clean_archive(infn, outfn, clean_key, *args, **kwargs):
-    ar = psrchive.Archive_load(infn.fn)
-    cleaner = clean_funcs[clean_key]
-    cleaner(ar, outfn, *args, **kwargs)
+    matching_cleaners = [clnr for clnr in cleaners if re.search(clean_re, clnr)]
+    if len(matching_cleaners) == 1:
+        ar = psrchive.Archive_load(infn.fn)
+        cleaner = eval(matching_cleaners[0])
+        utils.print_info("Cleaning using '%s(...)'." % matching_cleaners[0], 2)
+        cleaner(ar, outfn, *args, **kwargs)
+    else:
+        raise errors.CleanError("Bad cleaner selection. " \
+                                "'%s' has %d matches." % \
+                                (clean_re, len(matching_cleaners)))
 
 
 def main():
@@ -352,9 +366,17 @@ def main():
     # Read configurations
     for arf in to_clean:
         config.cfg.load_configs_for_archive(arf)
+        outfn = utils.get_outfn(options.outfn, arf)
+        shutil.copy(arf.fn, outfn)
+    
+        arf = utils.ArchiveFile(outfn)
+
         trim_edge_channels(arf)
         prune_band(arf)
-        
+        remove_bad_channels(arf)
+        remove_bad_subints(arf)
+        clean_archive(arf, outfn)
+        print "Cleaned archive: %s" % outfn
 
 
 if __name__=="__main__":
@@ -363,6 +385,10 @@ if __name__=="__main__":
                                     "clean RFI from each one. \nNOTE: " \
                                     "The files are cleaned non-desctructively " \
                                     "by applying zero-weighting.")
+    parser.add_option('-o', '--outname', dest='outfn', type='string', \
+                        help="The output (reduced) file's name. " \
+                            "(Default: '%(name)s_%(yyyymmdd)s_%(secs)05d_cleaned.ar')", \
+                        default="%(name)s_%(yyyymmdd)s_%(secs)05d_cleaned.ar")
     parser.add_option('-g', '--glob', dest='from_glob', action='callback', \
                         callback=utils.get_files_from_glob, default=[], \
                         type='string', \
@@ -393,5 +419,10 @@ if __name__=="__main__":
                             "limits of the receiver's response (in MHz). Channels " \
                             "outside of this region will be de-weighted. " \
                             "(Default: %s)" % config.cfg.rcvr_response_lims)
+    parser.add_option('--clean-strategy', dest='clean_strategy', action='callback', \
+                        callback=parser.override_config, type='str', \
+                        help="A string that matches one of the names of the available " \
+                             "cleaning functions. Possibilities are: %s. (Default: %s) " % \
+                             (", ".join(cleaners), config.cfg.clean_strategy))
     options, args = parser.parse_args()
     main()
