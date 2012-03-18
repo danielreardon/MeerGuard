@@ -5,12 +5,12 @@ import utils
 import config
 import errors
 
-def get_standard(fn, base_standards_dir=None):
+def get_standard(arf, base_standards_dir=None):
     """Given an archive file name return the name of the 
         standard profile to use for TOA fitting.
 
         Input:
-            fn: The name of the archive file for which we want a standard.
+            arf: An ArchiveFile object for which we want to get a standard.
             base_stddir: The base directory containing standard profiles.
                 (Default: The current working directory)
 
@@ -20,20 +20,16 @@ def get_standard(fn, base_standards_dir=None):
     if base_standards_dir is None:
         base_standards_dir = config.cfg.base_standards_dir
 
-    hdr = utils.get_header_vals(fn, ['name', 'freq', 'telescop', 'backend', 'rcvr'])
-    stdfn = "%s_%s_%s_%s.std" % (hdr['name'].upper(), hdr['telescop'].lower(), \
-                            hdr['rcvr'].lower(), hdr['backend'].lower())
-    stdpath = os.path.join(base_standards_dir, hdr['telescop'].lower(), \
-                            hdr['rcvr'].lower(), hdr['backend'].lower())
+    stdfn = utils.get_outfn("%(name)s_%(telescop)s_%(rcvr)s_%(backend)s.std", arf)
+    stdfn = stdfn.capitalize() # J/B should be capitalized, all the rest lower case
+    stdpath = os.path.join(base_standards_dir, arf.telescop.lower(), \
+                            arf.rcvr.lower(), arf.backend.lower())
     stdfn = os.path.join(stdpath, stdfn)
 
-    if not os.path.isfile(stdfn):
-        raise errors.NoStandardProfileError("The standard profile (%s) " \
-                                            "cannot be found!" % stdfn)
     return stdfn
 
 
-def get_toas(fn, stdfn, nsubint=None, nchan=None, makediag=True, \
+def get_toas(arf, stdfn, nsubint=None, nchan=None, makediag=True, \
                 method=None, fmt=None):
     """Get TOAs for the given archive file by running 'pat'.
         If no standard profile is given the location of the 
@@ -41,7 +37,7 @@ def get_toas(fn, stdfn, nsubint=None, nchan=None, makediag=True, \
         in the archive.
 
         Inputs:
-            fn: The name of the archive file to produce TOAs for.
+            arf: The ArchiveFile object to produce TOAs for.
             stdfn: The name of the standard profile to use.
             nsubint: Scrunch archive to this many subints, and 
                 produce a TOA for each subint.
@@ -68,19 +64,19 @@ def get_toas(fn, stdfn, nsubint=None, nchan=None, makediag=True, \
     if makediag:
         patcmd += "-t "
 
-    basefn = os.path.splitext(fn)[0]
+    basefn = os.path.splitext(arf.fn)[0]
     if nsubint*nchan > 1:
         # If we want to partially scrunch the data call 'pam'
         scrunchedfn = basefn + '.scrn.tmp'
         utils.execute("pam --setnsub %d --setnchn %d -e scrn.tmp %s" % \
-                        (nsubint, nchan, fn))
+                        (nsubint, nchan, arf.fn))
         stdout, stderr = utils.execute(patcmd+"-K %s.toa.png/PNG %s" % \
                                         (basefn, scrunchedfn))
         if not config.debug.INTERMEDIATE:
             os.remove(scrunchedfn)
     else:
         stdout, stderr = utils.execute(patcmd+"-T -F -K %s.toa.png/PNG %s" % \
-                                        (basefn, fn))
+                                        (basefn, arf.fn))
     
     # Parse output
     outlines = [line.strip() for line in stdout.split('\n') if line.strip()]
@@ -113,7 +109,10 @@ def main():
     # Read configurations
     for arf in to_time:
         config.cfg.load_configs_for_archive(arf)
-        stdfn = get_standard(arf.fn)
+        stdfn = get_standard(arf)
+        if not os.path.isfile(stdfn):
+            raise errors.NoStandardProfileError("The standard profile (%s) " \
+                                            "cannot be found!" % stdfn)
         toastrs = get_toas(arf.fn, stdfn)
         for toastr in toastrs:
             print toastr

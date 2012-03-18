@@ -225,11 +225,15 @@ class ReductionJob(object):
                                                 vmax=self.cfg.diagnostic_vmax)
                 plt.savefig("%s_diag_%s.png" % (outfn, func_key), dpi=600)
 
-            cleanfns.append(utils.ArchiveFile(outfn))
+            outar = utils.ArchiveFile(outfn)
+            cleanfns.append(outar)
             
             # Make TOAs
             utils.print_info("Generating TOAs", 1)
-            stdfn = toas.get_standard(outfn, self.cfg.base_standards_dir)
+            stdfn = toas.get_standard(outar, self.cfg.base_standards_dir)
+            if not os.path.isfile(stdfn):
+                raise errors.NoStandardProfileError("The standard profile (%s) " \
+                                                "cannot be found!" % stdfn)
             utils.print_info("Standard profile: %s" % stdfn, 2)
             toastrs.extend(toas.get_toas(outfn, stdfn, self.cfg.ntoa_time, \
                                         self.cfg.ntoa_freq))
