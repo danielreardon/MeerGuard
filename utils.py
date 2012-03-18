@@ -495,6 +495,10 @@ def mjd_to_date(mjds):
 class ArchiveFile(object):
     def __init__(self, fn):
         self.fn = fn
+        if not os.path.isfile(self.fn):
+            raise errors.BadFile("Archive file could not be found (%s)!" % \
+                                    self.fn) 
+        
         self.hdr = get_header_vals(self.fn, ['freq', 'length', 'bw', 'mjd', 
                                             'intmjd', 'fracmjd', 'backend', 
                                             'rcvr', 'telescop', 'name', 
