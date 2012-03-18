@@ -21,7 +21,7 @@ import utils
 import clean_utils
 import errors
 
-cleaners = ['power_wash', 'deep_clean', 'clean_simple', 'clean_iterative']
+cleaners = ['deep_clean']
 
 
 def power_wash(ar):
@@ -39,8 +39,10 @@ def power_wash(ar):
     # Remove profile
     data = ar.get_data().squeeze()
     template = np.apply_over_axes(np.sum, data, (0,1)).squeeze()
-    data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
-                                        template, 4)
+    clean_utils.remove_profile_inplace(ar, template, None)
+
+    ar.set_dispersion_measure(0)
+    ar.dedisperse()
 
     bad_chans = []
     bad_subints = []
@@ -84,12 +86,33 @@ def power_wash(ar):
     plt.show()
 
 
-def deep_clean(ar, unloadfn, chanthresh=5.0, \
-                    subintthresh=5.0, binthresh=2.0):
+def deep_clean(toclean, chanthresh=None, subintthresh=None, binthresh=None):
     import psrchive # Temporarily, because python bindings 
                     # are not available on all computers
-    #plot(ar, "before_deep_clean")
     
+    if chanthresh is None:
+        chanthresh = config.cfg.clean_chanthresh
+    if subintthresh is None:
+        subintthresh = config.cfg.clean_subintthresh
+    if binthresh is None:
+        binthresh = config.cfg.clean_binthresh
+   
+    ar = toclean.clone()
+
+    ar.pscrunch()
+    ar.remove_baseline()
+    ar.dedisperse()
+
+    # Remove profile
+    data = ar.get_data().squeeze()
+    template = np.apply_over_axes(np.sum, data, (0,1)).squeeze()
+    clean_utils.remove_profile_inplace(ar, template, None)
+
+    origdm = ar.get_dispersion_measure()
+    ar.set_dispersion_measure(0)
+    ar.dedisperse()
+    ar.set_dispersion_measure(origdm)
+
     # First clean channels
     chandata = clean_utils.get_chans(ar, remove_prof=True)
     chanweights = clean_utils.get_chan_weights(ar).astype(bool)
@@ -98,31 +121,14 @@ def deep_clean(ar, unloadfn, chanthresh=5.0, \
     chanstds = clean_utils.scale_chans(chandata.std(axis=1), chanweights=chanweights)
     chanstds /= clean_utils.get_robust_std(chanstds, chanweights)
 
-    #plt.figure()
-    #plt.subplot(2,1,1)
-    #plt.plot(chanstds, 'k')
-    #plt.axhline(chanthresh, c='k', ls='--')
-    #plt.ylabel("Scaled std")
-    #plt.subplot(2,1,2)
-    #plt.plot(chandata.std(axis=1))
-
-    #plt.figure()
-    #plt.subplot(2,1,1)
-    #plt.plot(chanmeans, 'k')
-    #plt.axhline(chanthresh, c='k', ls='--')
-    #plt.ylabel("Scaled mean")
-    #plt.subplot(2,1,2)
-    #plt.plot(chandata.mean(axis=1))
-    #plt.show()
-    badchans = np.concatenate((np.argwhere(chanmeans >= chanthresh), \
-                                    np.argwhere(chanstds >= chanthresh)))
+    badchans = np.concatenate((np.argwhere(np.abs(chanmeans) >= chanthresh), \
+                                    np.argwhere(np.abs(chanstds) >= chanthresh)))
     badchans = np.unique(badchans)
     utils.print_info("Number of channels to be de-weighted: %d" % len(badchans), 2)
     for ichan in badchans:
         utils.print_info("De-weighting chan# %d" % ichan, 3)
         clean_utils.zero_weight_chan(ar, ichan)
-
-    #plot(ar, "mid-chans_deep_clean")
+        clean_utils.zero_weight_chan(toclean, ichan)
 
     # Next clean subints
     subintdata = clean_utils.get_subints(ar, remove_prof=True)
@@ -134,27 +140,58 @@ def deep_clean(ar, unloadfn, chanthresh=5.0, \
                                     subintweights=subintweights)
     subintstds /= clean_utils.get_robust_std(subintstds, subintweights)
 
-    badsubints = np.concatenate((np.argwhere(subintmeans >= subintthresh), \
-                                    np.argwhere(subintstds >= subintthresh)))
+    badsubints = np.concatenate((np.argwhere(np.abs(subintmeans) >= subintthresh), \
+                                    np.argwhere(np.abs(subintstds) >= subintthresh)))
     
+    if config.debug.CLEAN:
+        utils.print_debug("Making debug plot for deep_clean", 'clean')
+        plt.subplots_adjust(hspace=0.4)
+        chanax = plt.subplot(4,1,1)
+        plt.plot(np.arange(len(chanmeans)), chanmeans, 'k-')
+        plt.axhline(chanthresh, c='k', ls='--')
+        plt.axhline(-chanthresh, c='k', ls='--')
+        plt.xlabel('Channel Number', size='x-small')
+        plt.ylabel('Average', size='x-small')
+        
+        plt.subplot(4,1,2, sharex=chanax)
+        plt.plot(np.arange(len(chanstds)), chanstds, 'k-')
+        plt.axhline(chanthresh, c='k', ls='--')
+        plt.axhline(-chanthresh, c='k', ls='--')
+        plt.xlabel('Channel Number', size='x-small')
+        plt.ylabel('Standard Deviation', size='x-small')
+        
+        subintax = plt.subplot(4,1,3)
+        plt.plot(np.arange(len(subintmeans)), subintmeans, 'k-')
+        plt.axhline(subintthresh, c='k', ls='--')
+        plt.axhline(-subintthresh, c='k', ls='--')
+        plt.xlabel('Sub-int Number', size='x-small')
+        plt.ylabel('Average', size='x-small')
+
+        plt.subplot(4,1,4, sharex=subintax)
+        plt.plot(np.arange(len(subintstds)), subintstds, 'k-')
+        plt.axhline(subintthresh, c='k', ls='--')
+        plt.axhline(-subintthresh, c='k', ls='--')
+        plt.xlabel('Sub-int Number', size='x-small')
+        plt.ylabel('Standard Deviation', size='x-small')
+        plt.show()
+
     badsubints = np.unique(badsubints)
     utils.print_info("Number of sub-ints to be de-weighted: %d" % len(badsubints), 2)
     for isub in badsubints:
         utils.print_info("De-weighting subint# %d" % isub, 3)
         clean_utils.zero_weight_subint(ar, isub)
-
-    #plot(ar, "mid-subints_deep_clean")
+        clean_utils.zero_weight_subint(toclean, isub)
     
+    # Re-dedisperse the data
+    ar.set_dispersion_measure(origdm)
+    ar.dedisperse()
+
     # Now replace hot bins
     utils.print_info("Will find and clean 'hot' bins", 2)
-    clean_utils.clean_hot_bins(ar, thresh=binthresh)
-    #plot(ar, "after_deep_clean")
-    utils.print_info("Unloading deep cleaned archive as %s" % unloadfn, 2)
-    ar.unload(unloadfn)
+    clean_utils.clean_hot_bins(toclean, thresh=binthresh)
 
 
 def clean_simple(ar, timethresh=1.0, freqthresh=3.0):
-    plot(ar, "before_simple_clean")
     # Get stats for subints
     subint_stats = get_subint_stats(ar)
     
@@ -167,10 +204,6 @@ def clean_simple(ar, timethresh=1.0, freqthresh=3.0):
     for ichan in np.argwhere(chan_stats >= freqthresh):
         print "De-weighting chan# %d" % ichan
         zero_weight_chan(ar, ichan)
-    plot(ar, "after_simple_clean")
-    unloadfn = "%s.cleaned" % ar.get_filename()
-    print "Unloading cleaned archive as %s" % unloadfn
-    ar.unload(unloadfn)
 
 
 def clean_iterative(ar, threshold=2.0):
@@ -197,9 +230,6 @@ def clean_iterative(ar, threshold=2.0):
                 zero_weight_chan(ar, worst_chan)
         plot(ar, "bogus_%d" % ii)
         ii += 1
-    unloadfn = "%s.cleaned" % ar.get_filename()
-    print "Unloading cleaned archive as %s" % unloadfn
-    ar.unload(unloadfn)
 
 
 def prune_band(infn, response=None):
@@ -344,7 +374,8 @@ def clean_archive(infn, outfn, clean_re=None, *args, **kwargs):
         ar = psrchive.Archive_load(infn.fn)
         cleaner = eval(matching_cleaners[0])
         utils.print_info("Cleaning using '%s(...)'." % matching_cleaners[0], 2)
-        cleaner(ar, outfn, *args, **kwargs)
+        cleaner(ar, *args, **kwargs)
+        ar.unload(outfn)
     else:
         raise errors.CleanError("Bad cleaner selection. " \
                                 "'%s' has %d matches." % \
@@ -424,5 +455,17 @@ if __name__=="__main__":
                         help="A string that matches one of the names of the available " \
                              "cleaning functions. Possibilities are: %s. (Default: %s) " % \
                              (", ".join(cleaners), config.cfg.clean_strategy))
+    parser.add_option('--chan-thresh', dest='clean_chanthresh', action='callback', \
+                        callback=parser.override_config, type='float', \
+                        help="Threshold for removing an entire channel. (Default: %g)" % \
+                            config.cfg.clean_chanthresh)
+    parser.add_option('--subint-thresh', dest='clean_subintthresh', action='callback', \
+                        callback=parser.override_config, type='float', \
+                        help="Threshold for removing an entire sub-int. (Default: %g)" % \
+                            config.cfg.clean_subintthresh)
+    parser.add_option('--bin-thresh', dest='clean_binthresh', action='callback', \
+                        callback=parser.override_config, type='float', \
+                        help="Threshold for removing phase bins. (Default: %g)" % \
+                            config.cfg.clean_binthresh)
     options, args = parser.parse_args()
     main()

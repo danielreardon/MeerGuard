@@ -151,7 +151,24 @@ class DiagnosticFigure(matplotlib.figure.Figure):
         sub_chan = self.func(subset, axis=2)
         sub_phs = self.func(subset, axis=1)
         chan_phs = self.func(subset, axis=0)
-        
+      
+        # The following plotting code is meant to test some new
+        # peak finding function added to scipy.signal in early 2012
+        #
+        # plt.subplot(3,1,1)
+        # plt.plot(sub_chan.sum(axis=0), 'k-')
+        # peaks = scipy.signal.find_peaks_cwt(sub_chan.sum(axis=0), [1,2,3,4])
+        # plt.plot(peaks, sub_chan.sum(axis=0)[peaks], 'r.')
+        # plt.subplot(3,1,2)
+        # plt.plot(sub_phs.sum(axis=0), 'k-')
+        # peaks = scipy.signal.find_peaks_cwt(sub_phs.sum(axis=0), [1,2,3,4])
+        # plt.plot(peaks, sub_phs.sum(axis=0)[peaks], 'r.')
+        # plt.subplot(3,1,3)
+        # plt.plot(chan_phs.sum(axis=0), 'k-')
+        # peaks = scipy.signal.find_peaks_cwt(chan_phs.sum(axis=0), [1,2,3,4])
+        # plt.plot(peaks, chan_phs.sum(axis=0)[peaks], 'r.')
+        # plt.show()
+
         # Create colour normaliser
         if self.log:
             normcls = matplotlib.colors.LogNorm
@@ -386,18 +403,22 @@ def make_diagnostic_figure(arfn, rmbaseline=False, dedisp=False, \
     if rmbaseline:
         utils.print_info("Removing baseline...", 2)
         ar.remove_baseline()
+    if rmprof:
+        ar.dedisperse()
+        data = ar.get_data().squeeze()
+        utils.print_info("Removing profile...", 2)
+        template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
+        clean_utils.remove_profile_inplace(ar, template)
+    
     if dedisp:
         utils.print_info("Dedispersing...", 2)
         ar.dedisperse()
     else:
+        utils.print_info("Dedispersing to DM=0...", 2)
         ar.set_dispersion_measure(0)
         ar.dedisperse()
+    
     data = ar.get_data().squeeze()
-    if rmprof:
-        utils.print_info("Removing profile...", 2)
-        template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
-        data = clean_utils.remove_profile(data, ar.get_nsubint(), ar.get_nchan(), \
-                                            template)
     data = clean_utils.apply_weights(data, ar.get_weights())
     fig = plt.figure(figsize=(11,8), FigureClass=DiagnosticFigure, 
                 ar=ar, data=data, **kwargs)

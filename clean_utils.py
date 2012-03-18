@@ -189,6 +189,40 @@ def remove_profile(data, nsubs, nchans, template, nthreads=1):
     return data 
 
 
+def remove_profile1d_inplace(prof, isub, ichan, template):
+    #err = lambda (amp, phs): amp*fft_rotate(template, phs) - prof
+    #params, status = scipy.optimize.leastsq(err, [1, 0])
+    err = lambda amp: amp*template - prof
+    params, status = scipy.optimize.leastsq(err, [1])
+    if status not in (1,2,3,4):
+        warnings.warn("Bad status for least squares fit when " \
+                            "removing profile")
+        return (isub, ichan), None
+    else:
+        return (isub, ichan), err(params)
+    
+
+def remove_profile_inplace(ar, template, nthreads=1):
+    data = ar.get_data().squeeze()
+    if nthreads is None:
+        nthreads = multiprocessing.cpu_count()
+    pool = multiprocessing.Pool(processes=nthreads)
+    results = []
+    for isub, ichan in np.ndindex(ar.get_nsubint(), ar.get_nchan()):
+        results.append(pool.apply_async(remove_profile1d, \
+                        args=(data[isub, ichan], isub, ichan, template)))
+    pool.close()
+    pool.join()
+    for result in results:
+        result.successful()
+        (isub, ichan), amps = result.get()
+        prof = ar.get_Profile(isub, 0, ichan)
+        if amps is None:
+            prof.set_weight(0)
+        else:
+            prof.get_amps()[:] = amps
+
+
 def zero_weight_subint(ar, isub):
     subint = ar.get_Integration(int(isub))
     subint.uniform_weight(0.0)
