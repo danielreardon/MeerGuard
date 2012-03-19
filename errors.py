@@ -40,6 +40,10 @@ class ConfigurationError(CoastGuardError):
     pass
 
 
+class BadPulsarNameError(CoastGuardError):
+    pass
+
+
 # Custom Warnings
 class CoastGuardWarning(Warning):
     def __str__(self):
