@@ -527,6 +527,7 @@ class ArchiveFile(object):
                                             'intmjd', 'fracmjd', 'backend', 
                                             'rcvr', 'telescop', 'name', 
                                             'nchan', 'asite'])
+        self.hdr['name'] = get_prefname(self.hdr['name']) # Use preferred name
         self.hdr['secs'] = int(self.hdr['fracmjd']*24*3600+0.5) # Add 0.5 so we actually round
         self.hdr['yyyymmdd'] = "%04d%02d%02d" % mjd_to_date(self.hdr['mjd'])
     
