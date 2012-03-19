@@ -423,6 +423,30 @@ def get_files_from_glob(option, opt_str, value, parser):
     glob_file_list.extend(glob.glob(value))
 
 
+def get_prefname(psrname):
+    """Use 'psrcat' program to find the preferred name of the given pulsar.
+        NOTE: B-names are preferred over J-names.
+
+        Input:
+            psrname: Name of the pulsar.
+
+        Output:
+            prefname: Preferred name of the pulsar.
+    """
+    cmd = "psrcat -nohead -nonumber -c 'PSRJ PSRB' -o short -null '' '%s'" % psrname
+    stdout, stderr = execute(cmd)
+
+    names = [line.strip().split() for line in stdout.split('\n') \
+                    if line.strip() and not line.startswith("WARNING:")]
+    
+    if len(names) == 1:
+        prefname = names[0][-1]
+    else:
+        raise errors.BadPulsarNameError("Pulsar name '%s' has a bad number of " \
+                                "matches (%d) in psrcat" % (psrname, len(names)))
+    return prefname
+
+
 def get_outfn(fmtstr, arfn):
     """Replace any format string codes using file header info
         to get the output file name.
