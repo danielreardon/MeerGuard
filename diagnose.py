@@ -23,6 +23,7 @@ import psrchive
 import utils
 import clean_utils
 import config
+import errors
 
 func_info = {'std': ("Standard Deviation", np.std), \
              'mean': ("Average", np.mean), \
@@ -33,8 +34,12 @@ func_info = {'std': ("Standard Deviation", np.std), \
              'periodicity': ("Periodic Signal Strength", \
                     lambda data, axis: np.max(np.abs(np.fft.rfft(\
                                 data-np.expand_dims(data.mean(axis=axis), axis=axis), \
-                                    axis=axis)), axis=axis))}
+                                    axis=axis)), axis=axis)), \
+             'mad': ("Median Absolute Deviation", \
+                    lambda data, axis: np.median(np.abs(data - \
+                                np.expand_dims(np.median(data, axis=axis), axis=axis)), axis=axis))}
 
+diagnostics = ['SlicerDiagnosticFigure', 'ComprehensiveDiagnosticFigure']
 
 # Set plotting defaults
 plt.rc(('xtick.major', 'ytick.major'), size=6)
@@ -70,7 +75,9 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         self.text(0.02, 0.95, ar.get_source(), size='large', ha='left', va='center')
         self.text(0.02, 0.925, os.path.split(ar.get_filename())[-1], \
                         size='x-small', ha='left', va='center')
-        
+        self.slice_info = self.text(0.725, 0.84, "Click on image to view slice", \
+                        size='small', ha='left', va='center')
+
         # Current slices
         self.chan = None
         self.subint = None
@@ -83,26 +90,30 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
 
         # Make axes
         self.dspec_ax = self.add_axes((0.1,0.1,0.6,0.6))
-        self.prof_ax = self.add_axes((0.725,0.7425,0.25,0.075))
+        self.prof_ax = self.add_axes((0.725,0.7425,0.2,0.075))
         self.hsum_ax = self.add_axes((0.1,0.7,0.6,0.075), sharex=self.dspec_ax)
         self.vsum_ax = self.add_axes((0.7,0.1,0.075,0.6), sharey=self.dspec_ax)
         self.hslice_ax = self.add_axes((0.1,0.785,0.6,0.075), sharex=self.dspec_ax)
         self.vslice_ax = self.add_axes((0.785,0.1,0.075,0.6), sharey=self.dspec_ax)
         self.cb_ax = self.add_axes((0.88,0.1,0.025,0.6), frameon=False)
 
-        # Label axes
-        self.prof_ax.set_xlabel("Phase bin")
-
         # Turn off unused labels
         plt.setp(self.hsum_ax.xaxis.get_ticklabels(), visible=False)
         plt.setp(self.vsum_ax.yaxis.get_ticklabels(), visible=False)
-        plt.setp(self.prof_ax.yaxis.get_ticklabels(), visible=False)
         plt.setp(self.hslice_ax.xaxis.get_ticklabels(), visible=False)
         plt.setp(self.vslice_ax.yaxis.get_ticklabels(), visible=False)
 
         # Rotate tick labels
         plt.setp(self.vsum_ax.xaxis.get_ticklabels(), rotation=45)
         plt.setp(self.vslice_ax.xaxis.get_ticklabels(), rotation=45)
+
+        # Shift tick location
+        self.prof_ax.yaxis.set_ticks_position('right')
+        self.prof_ax.yaxis.set_label_position('right')
+
+        # Label axes
+        self.prof_ax.set_xlabel("Phase bin")
+        self.prof_ax.set_ylabel("Intensity")
 
         # Prep image data
         self.imdata = self.func(self.data, axis=2)
@@ -123,10 +134,10 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         ptp = np.ptp(self.imdata)
         norm = normcls(loval+ptp*self.vmin, loval+ptp*self.vmax, clip=True)
         mask = (self.weights==0)
-        toplot = np.ma.masked_array(self.imdata, mask=mask)
+        masked_image = np.ma.masked_array(self.imdata, mask=mask)
         # In the following subtract 0.5 from extent values so indices refer to 
         # bin centres
-        im = self.dspec_ax.imshow(toplot, origin='bottom', zorder=1, \
+        im = self.dspec_ax.imshow(masked_image, origin='bottom', zorder=1, \
                 aspect='auto', norm=norm, extent=(-0.5,self.nchans-0.5,-0.5,self.nsubs-0.5), \
                 cmap=matplotlib.cm.GnBu, interpolation='nearest')
 
@@ -149,7 +160,7 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
        
         # Sum of rows
         mask = (self.weights.sum(axis=0)==0)
-        toplot = np.ma.masked_array(self.imdata.mean(axis=0), mask=mask)
+        toplot = np.ma.masked_array(masked_image.mean(axis=0), mask=mask)
         indices = np.repeat(np.arange(-0.5, self.nchans+0.5, 1),2)[1:-1]
         invertedmask = np.ma.masked_array(np.ones(self.nchans), mask=np.bitwise_not(mask))
         self.hsum_ax.plot(indices, np.repeat(toplot,2), 'k-')
@@ -160,7 +171,7 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
 
         # Sum of cols
         mask = (self.weights.sum(axis=1)==0)
-        toplot = np.ma.masked_array(self.imdata.mean(axis=1), mask=mask)
+        toplot = np.ma.masked_array(masked_image.mean(axis=1), mask=mask)
         indices = np.repeat(np.arange(-0.5, self.nsubs+0.5, 1),2)[1:-1]
         invertedmask = np.ma.masked_array(np.ones(self.nsubs), mask=np.bitwise_not(mask))
         self.vsum_ax.plot(np.repeat(toplot,2), indices, 'k-')
@@ -179,7 +190,8 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
                 (event.button==2 or (event.key=='shift' and event.button==1)):
             self.chan = int(np.round(event.xdata))
             self.subint = int(np.round(event.ydata))
-            print "Slicing along Chan: %d, Subint: %d" % (self.chan, self.subint)
+            self.slice_info.set_text("Slicing along Chan: %d, Subint: %d" % \
+                        (self.chan, self.subint))
 
             imaxlims = self.dspec_ax.axis()
             profxlims = self.prof_ax.get_xlim()
@@ -236,15 +248,19 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
 
             # Label axes
             self.prof_ax.set_xlabel("Phase bin")
+            self.prof_ax.set_ylabel("Intensity")
 
             # Turn off unused labels
             plt.setp(self.hslice_ax.xaxis.get_ticklabels(), visible=False)
             plt.setp(self.vslice_ax.yaxis.get_ticklabels(), visible=False)
-            plt.setp(self.prof_ax.yaxis.get_ticklabels(), visible=False)
       
             # Rotate tick labels
             plt.setp(self.vsum_ax.xaxis.get_ticklabels(), rotation=45)
             plt.setp(self.vslice_ax.xaxis.get_ticklabels(), rotation=45)
+
+            # Shift tick location
+            self.prof_ax.yaxis.set_ticks_position('right')
+            self.prof_ax.yaxis.set_label_position('right')
 
             self.canvas.draw()
 
@@ -305,9 +321,6 @@ class ComprehensiveDiagnosticFigure(matplotlib.figure.Figure):
         self.sub_phs_ax = self.add_axes((0.5, 0.05, 0.45, 0.45))
         self.chan_phs_ax = self.add_axes((0.5, 0.5, 0.45, 0.45))
         
-        # Connect events to update plots on zoom
-        self.connect_event_triggers()
-
     def connect_event_triggers(self):
         self.prof_xlim_evid = self.prof_ax.callbacks.connect('xlim_changed', \
                                     lambda ax: self.change_bin_lims(*ax.get_xlim()))
@@ -608,7 +621,8 @@ def foo():
         plt.savefig(basename+"_freq-vs-phase.png")
 
 
-def make_diagnostic_figure(arf, func_re, rmbaseline=None, dedisp=None, \
+def make_diagnostic_figure(arf, func_re, diag_re='comprehensive', \
+                            rmbaseline=None, dedisp=None, \
                             rmprof=None, centre_prof=None, **kwargs):
     if rmbaseline is None:
         rmbaseline = config.cfg.rmbaseline
@@ -627,6 +641,17 @@ def make_diagnostic_figure(arf, func_re, rmbaseline=None, dedisp=None, \
         raise errors.DiagnosticError("Bad diagnostic function selection. " \
                                      "'%s' has %d matches." % \
                                      (func_re, len(matching_func_keys)))
+
+    matching_diagnostics = [diag for diag in diagnostics \
+                                if re.search(diag_re, diag, re.IGNORECASE)]
+    if len(matching_diagnostics) == 1:
+        diagnostic_class = eval(matching_diagnostics[0])
+        utils.print_info("Generating diagnostic figure of type %s." % \
+                                    matching_diagnostics[0], 2)
+    else:
+        raise errors.DiagnosticError("Bad diagnostic figure type selection. " \
+                                     "'%s' has %d matches." % \
+                                     (diag_re, len(matching_diagnostics)))
 
     ar = psrchive.Archive_load(arf.fn)
     ar.pscrunch()
@@ -654,9 +679,7 @@ def make_diagnostic_figure(arf, func_re, rmbaseline=None, dedisp=None, \
     
     data = ar.get_data().squeeze()
     data = clean_utils.apply_weights(data, ar.get_weights())
-    #fig = plt.figure(figsize=(11,8), FigureClass=DiagnosticFigure, 
-    #            ar=ar, data=data, func_key=func_key, **kwargs)
-    fig = plt.figure(figsize=(11,8), FigureClass=SlicerDiagnosticFigure, 
+    fig = plt.figure(figsize=(11,8), FigureClass=diagnostic_class, 
                 ar=ar, data=data, func_key=func_key, **kwargs)
     fig.connect_event_triggers()
     # Plot data
@@ -667,7 +690,7 @@ def make_diagnostic_figure(arf, func_re, rmbaseline=None, dedisp=None, \
 def main():
     inarf = utils.ArchiveFile(args[0])
     fig = make_diagnostic_figure(inarf, \
-                func_re=options.func_to_plot)
+                func_re=options.func_to_plot, diag_re=options.diagnostic)
     if options.savefn:
         savefn = utils.get_outfn(options.savefn, inarf) 
         plt.savefig(savefn, dpi=600)
@@ -718,9 +741,15 @@ if __name__ == '__main__':
                 "(Default: %d)" % config.cfg.nthreads)
     parser.add_option('-f', '--func-to-plot', dest='func_to_plot', \
         default='std', action='store', \
-        help="Function to plot. Possible choices are: " + \
-             "; ".join(["%s: %s" % (key, info[0]) for key, info \
+        help="Function to plot. Possible choices are: %s. " \
+             "(Default: std)" % \
+             "; ".join(["%s: '%s'" % (key, info[0]) for key, info \
                                             in func_info.iteritems()]))
+    parser.add_option('-t', '--diagnostic-type', dest='diagnostic', \
+        default='comprehensive', action='store', \
+        help="Diagnostic type to display. Possible choices are: %s. "  \
+             "(Default: ComprehensiveDiagnosticFigure)" % \
+             "; ".join(diagnostics))
     parser.add_option('-s', '--savefn', dest='savefn', \
         default=False,
         help="Save plot. Argument is file name to save as.")
