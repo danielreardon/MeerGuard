@@ -6,6 +6,7 @@ Given a PSRCHIVE archive create diagnostic plots.
 Patrick Lazarus, Dec. 12, 2011
 """
 
+import re
 import sys
 import os.path
 import optparse
@@ -41,16 +42,231 @@ plt.rc(('xtick.minor', 'ytick.minor'), size=3)
 plt.rc('axes', labelsize='small')
 plt.rc(('xtick', 'ytick'), labelsize='x-small')
 
-
-class DiagnosticFigure(matplotlib.figure.Figure):
-    def __init__(self, ar, data, func_key, log=False, vmin=0, vmax=0, \
+class SlicerDiagnosticFigure(matplotlib.figure.Figure):
+    def __init__(self, ar, data, func_key, log=None, vmin=None, vmax=None, \
                     *args, **kwargs):
-        super(DiagnosticFigure, self).__init__(*args, **kwargs)
+        super(SlicerDiagnosticFigure, self).__init__(*args, **kwargs)
         self.ar = ar
         self.data = data
-        self.log = log
-        self.vmin = vmin
-        self.vmax = vmax
+        if log is None:
+            self.log = config.cfg.logcolours
+        else:
+            self.log = log
+        if vmin is None:
+            self.vmin = config.cfg.vmin
+        else:
+            self.vmin = vmin
+        if vmax is None:
+            self.vmax = config.cfg.vmax
+        else:
+            self.vmax = vmax
+
+        self.nsubs, self.nchans, self.nbins = self.data.shape
+        self.title, self.func = func_info[func_key]
+        
+        utils.print_info("Plotting %s..." % self.title.lower(), 2)
+        
+        # Add text
+        self.text(0.02, 0.95, ar.get_source(), size='large', ha='left', va='center')
+        self.text(0.02, 0.925, os.path.split(ar.get_filename())[-1], \
+                        size='x-small', ha='left', va='center')
+        
+        # Current slices
+        self.chan = None
+        self.subint = None
+
+        self.hcrosshairs = []
+        self.vcrosshairs = []
+        
+        # Get weights
+        self.weights = self.ar.get_weights()
+
+        # Make axes
+        self.dspec_ax = self.add_axes((0.1,0.1,0.6,0.6))
+        self.prof_ax = self.add_axes((0.725,0.7425,0.25,0.075))
+        self.hsum_ax = self.add_axes((0.1,0.7,0.6,0.075), sharex=self.dspec_ax)
+        self.vsum_ax = self.add_axes((0.7,0.1,0.075,0.6), sharey=self.dspec_ax)
+        self.hslice_ax = self.add_axes((0.1,0.785,0.6,0.075), sharex=self.dspec_ax)
+        self.vslice_ax = self.add_axes((0.785,0.1,0.075,0.6), sharey=self.dspec_ax)
+        self.cb_ax = self.add_axes((0.88,0.1,0.025,0.6), frameon=False)
+
+        # Label axes
+        self.prof_ax.set_xlabel("Phase bin")
+
+        # Turn off unused labels
+        plt.setp(self.hsum_ax.xaxis.get_ticklabels(), visible=False)
+        plt.setp(self.vsum_ax.yaxis.get_ticklabels(), visible=False)
+        plt.setp(self.prof_ax.yaxis.get_ticklabels(), visible=False)
+        plt.setp(self.hslice_ax.xaxis.get_ticklabels(), visible=False)
+        plt.setp(self.vslice_ax.yaxis.get_ticklabels(), visible=False)
+
+        # Rotate tick labels
+        plt.setp(self.vsum_ax.xaxis.get_ticklabels(), rotation=45)
+        plt.setp(self.vslice_ax.xaxis.get_ticklabels(), rotation=45)
+
+        # Prep image data
+        self.imdata = self.func(self.data, axis=2)
+
+    def connect_event_triggers(self):
+        # Connect trigger
+        self.canvas.mpl_connect('button_press_event', self.update_slice)
+
+    def plot(self):
+        # Create colour normaliser
+        if self.log:
+            normcls = matplotlib.colors.LogNorm
+        else:
+            normcls = matplotlib.colors.Normalize
+        
+        # Sub-ints vs. Channels
+        loval = np.min(self.imdata)
+        ptp = np.ptp(self.imdata)
+        norm = normcls(loval+ptp*self.vmin, loval+ptp*self.vmax, clip=True)
+        mask = (self.weights==0)
+        toplot = np.ma.masked_array(self.imdata, mask=mask)
+        # In the following subtract 0.5 from extent values so indices refer to 
+        # bin centres
+        im = self.dspec_ax.imshow(toplot, origin='bottom', zorder=1, \
+                aspect='auto', norm=norm, extent=(-0.5,self.nchans-0.5,-0.5,self.nsubs-0.5), \
+                cmap=matplotlib.cm.GnBu, interpolation='nearest')
+
+        cb = self.colorbar(im, cax=self.cb_ax, orientation='vertical')
+        cb.set_label(self.title, size='x-small', rotation=90)
+        plt.setp(self.cb_ax.yaxis.get_ticklabels(), size='x-small', rotation=90)
+
+        # Show what regions are masked
+        maskim = np.zeros((self.nsubs, self.nchans, 4))
+        for ichan,isub in np.argwhere(mask):
+            maskim[ichan,isub,:] = (1,0,0,0.4)
+        self.dspec_ax.imshow(maskim, origin='bottom', \
+                aspect='auto', norm=norm, extent=(-0.5,self.nchans-0.5,-0.5,self.nsubs-0.5), \
+                interpolation='nearest')
+        self.dspec_ax.format_coord = lambda x,y: "Chan: %d, Sub-int: %d, Value: %s" % \
+                (x+0.5, y+0.5, (self.weights[int(y+0.5),int(x+0.5)] and \
+                                    '%g' % self.imdata[int(y+0.5),int(x+0.5)]) or 'masked')
+        self.dspec_ax.set_xlabel("Channel")
+        self.dspec_ax.set_ylabel("Sub-integration")
+       
+        # Sum of rows
+        mask = (self.weights.sum(axis=0)==0)
+        toplot = np.ma.masked_array(self.imdata.mean(axis=0), mask=mask)
+        indices = np.repeat(np.arange(-0.5, self.nchans+0.5, 1),2)[1:-1]
+        invertedmask = np.ma.masked_array(np.ones(self.nchans), mask=np.bitwise_not(mask))
+        self.hsum_ax.plot(indices, np.repeat(toplot,2), 'k-')
+        segments = np.ma.flatnotmasked_contiguous(invertedmask)
+        if segments:
+            for segment in segments:
+                self.hsum_ax.axvspan(segment.start-0.5, segment.stop+0.5, fc='r', lw=0, alpha=0.2)
+
+        # Sum of cols
+        mask = (self.weights.sum(axis=1)==0)
+        toplot = np.ma.masked_array(self.imdata.mean(axis=1), mask=mask)
+        indices = np.repeat(np.arange(-0.5, self.nsubs+0.5, 1),2)[1:-1]
+        invertedmask = np.ma.masked_array(np.ones(self.nsubs), mask=np.bitwise_not(mask))
+        self.vsum_ax.plot(np.repeat(toplot,2), indices, 'k-')
+        segments = np.ma.flatnotmasked_contiguous(invertedmask)
+        if segments:
+            for segment in segments:
+                self.vsum_ax.axhspan(segment.start-0.5, segment.stop+0.5, fc='r', lw=0, alpha=0.2)
+        
+        # In the following subtract 0.5 from extent values so indices refer to 
+        # bin centres
+        self.dspec_ax.axis([-0.5, self.nchans-0.5, -0.5, self.nsubs-0.5])
+        self.prof_ax.set_xlim(0, self.nbins)
+
+    def update_slice(self, event):
+        if event.inaxes==self.dspec_ax and \
+                (event.button==2 or (event.key=='shift' and event.button==1)):
+            self.chan = int(np.round(event.xdata))
+            self.subint = int(np.round(event.ydata))
+            print "Slicing along Chan: %d, Subint: %d" % (self.chan, self.subint)
+
+            imaxlims = self.dspec_ax.axis()
+            profxlims = self.prof_ax.get_xlim()
+
+            self.hslice_ax.cla()
+            mask = (self.weights[self.subint, :]==0)
+            toplot = np.ma.masked_array(self.imdata[self.subint, :], mask=mask)
+            indices = np.repeat(np.arange(-0.5, self.nchans+0.5, 1),2)[1:-1]
+            invertedmask = np.ma.masked_array(np.ones(self.nchans), mask=np.bitwise_not(mask))
+            self.hslice_ax.plot(indices, np.repeat(toplot,2), 'k-')
+            segments = np.ma.flatnotmasked_contiguous(invertedmask)
+            if segments:
+                for segment in segments:
+                    self.hslice_ax.axvspan(segment.start-0.5, segment.stop+0.5, fc='r', lw=0, alpha=0.2)
+
+            self.vslice_ax.cla()
+            mask = (self.weights[:, self.chan]==0)
+            toplot = np.ma.masked_array(self.imdata[:,self.chan], mask=mask)
+            indices = np.repeat(np.arange(-0.5, self.nsubs+0.5, 1),2)[1:-1]
+            invertedmask = np.ma.masked_array(np.ones(self.nsubs), mask=np.bitwise_not(mask))
+            self.vslice_ax.plot(np.repeat(toplot,2), indices, 'k-')
+            segments = np.ma.flatnotmasked_contiguous(invertedmask)
+            if segments:
+                for segment in np.ma.flatnotmasked_contiguous(invertedmask):
+                    self.vslice_ax.axhspan(segment.start-0.5, segment.stop+0.5, fc='r', lw=0, alpha=0.2)
+        
+            self.prof_ax.cla()
+            self.prof_ax.plot(np.arange(self.nbins), self.data[self.subint, self.chan], 'k-')
+
+            self.dspec_ax.axis(imaxlims)
+            self.prof_ax.set_xlim(profxlims)
+            
+            # Draw/move crosshairs
+            if self.hcrosshairs:
+                for ch in self.hcrosshairs:
+                    ch.set_ydata((self.subint, self.subint))
+            else:
+                self.hcrosshairs.append(self.dspec_ax.axhline(self.subint, \
+                                                    c='k', ls='-', alpha=0.5))
+                self.hcrosshairs.append(self.vsum_ax.axhline(self.subint, \
+                                                    c='k', ls='-', alpha=0.5))
+            
+            if self.vcrosshairs:
+                for ch in self.vcrosshairs:
+                    ch.set_xdata((self.chan, self.chan))
+            else:
+                self.vcrosshairs.append(self.dspec_ax.axvline(self.chan, \
+                                                    c='k', ls='-', alpha=0.5))
+                self.vcrosshairs.append(self.hsum_ax.axvline(self.chan, \
+                                                    c='k', ls='-', alpha=0.5))
+            
+            self.hslice_ax.axvline(self.chan, c='k', ls='-', alpha=0.5)
+            self.vslice_ax.axhline(self.subint, c='k', ls='-', alpha=0.5)
+
+            # Label axes
+            self.prof_ax.set_xlabel("Phase bin")
+
+            # Turn off unused labels
+            plt.setp(self.hslice_ax.xaxis.get_ticklabels(), visible=False)
+            plt.setp(self.vslice_ax.yaxis.get_ticklabels(), visible=False)
+            plt.setp(self.prof_ax.yaxis.get_ticklabels(), visible=False)
+      
+            # Rotate tick labels
+            plt.setp(self.vsum_ax.xaxis.get_ticklabels(), rotation=45)
+            plt.setp(self.vslice_ax.xaxis.get_ticklabels(), rotation=45)
+
+            self.canvas.draw()
+
+
+class ComprehensiveDiagnosticFigure(matplotlib.figure.Figure):
+    def __init__(self, ar, data, func_key, log=None, vmin=None, vmax=None, \
+                    *args, **kwargs):
+        super(ComprehensiveDiagnosticFigure, self).__init__(*args, **kwargs)
+        self.ar = ar
+        self.data = data
+        if log is None:
+            self.log = config.cfg.logcolours
+        else:
+            self.log = log
+        if vmin is None:
+            self.vmin = config.cfg.vmin
+        else:
+            self.vmin = vmin
+        if vmax is None:
+            self.vmax = config.cfg.vmax
+        else:
+            self.vmax = vmax
 
         self.nsubs, self.nchans, self.nbins = self.data.shape
         self.sub_lims = (0, self.nsubs)
@@ -392,9 +608,27 @@ def foo():
         plt.savefig(basename+"_freq-vs-phase.png")
 
 
-def make_diagnostic_figure(arfn, rmbaseline=False, dedisp=False, \
-                            rmprof=False, centre_prof=False, **kwargs):
-    ar = psrchive.Archive_load(arfn)
+def make_diagnostic_figure(arf, func_re, rmbaseline=None, dedisp=None, \
+                            rmprof=None, centre_prof=None, **kwargs):
+    if rmbaseline is None:
+        rmbaseline = config.cfg.rmbaseline
+    if dedisp is None:
+        dedisp = config.cfg.dedisp
+    if rmprof is None:
+        rmprof = config.cfg.rmprof
+    if centre_prof is None:
+        centre_prof = config.cfg.centre_prof
+
+    matching_func_keys = [fk for fk in func_info.keys() if re.search(func_re, fk)]
+    if len(matching_func_keys) == 1:
+        func_key = matching_func_keys[0]
+        utils.print_info("Using %s as diagnostic function." % func_info[func_key][0], 2)
+    else:
+        raise errors.DiagnosticError("Bad diagnostic function selection. " \
+                                     "'%s' has %d matches." % \
+                                     (func_re, len(matching_func_keys)))
+
+    ar = psrchive.Archive_load(arf.fn)
     ar.pscrunch()
    
     if centre_prof:
@@ -420,25 +654,22 @@ def make_diagnostic_figure(arfn, rmbaseline=False, dedisp=False, \
     
     data = ar.get_data().squeeze()
     data = clean_utils.apply_weights(data, ar.get_weights())
-    fig = plt.figure(figsize=(11,8), FigureClass=DiagnosticFigure, 
-                ar=ar, data=data, **kwargs)
+    #fig = plt.figure(figsize=(11,8), FigureClass=DiagnosticFigure, 
+    #            ar=ar, data=data, func_key=func_key, **kwargs)
+    fig = plt.figure(figsize=(11,8), FigureClass=SlicerDiagnosticFigure, 
+                ar=ar, data=data, func_key=func_key, **kwargs)
+    fig.connect_event_triggers()
     # Plot data
     fig.plot()
     return fig
 
 
 def main():
-    fig = make_diagnostic_figure(args[0], \
-                rmbaseline=options.remove_baseline, \
-                dedisp=options.dedisperse, \
-                rmprof=options.remove_profile, \
-                centre_prof=options.centre_profile, \
-                func_key=options.func_to_plot, \
-                log=options.log_colours, \
-                vmin=options.black_level, \
-                vmax=options.white_level)
+    inarf = utils.ArchiveFile(args[0])
+    fig = make_diagnostic_figure(inarf, \
+                func_re=options.func_to_plot)
     if options.savefn:
-        savefn = utils.get_outfn(options.savefn, args[0]) 
+        savefn = utils.get_outfn(options.savefn, inarf) 
         plt.savefig(savefn, dpi=600)
     if options.interactive:
         fig.canvas.mpl_connect('key_press_event', \
@@ -448,29 +679,43 @@ def main():
 
 if __name__ == '__main__':
     parser = utils.DefaultOptions()
-    parser.add_option('-D', '--dedisperse', dest='dedisperse', \
-        action='store_true', default=False, \
+    parser.add_option('-D', '--dedisperse', dest='dedisp', \
+        action='callback', callback=parser.set_override_config, \
         help="Dedisperse archive before producing diagnostics. " \
-             "(Default: Keep archive in dispersed (DM=0) state)")
-    parser.add_option('-b', '--remove-baseline', dest='remove_baseline', \
-        action='store_true', default=False, \
+             "(Default: %s)" % ((config.cfg.dedisp and "this is the default") or "use DM=0"))
+    parser.add_option('--no-dedisperse', dest='dedisp', \
+        action='callback', callback=parser.unset_override_config, \
+        help="Dedisperse archive to DM=0 before producing diagnostics. " \
+             "(Default: %s)" % ((not config.cfg.dedisp and "this is the default") or "use DM in emphemeris"))
+    parser.add_option('-b', '--remove-baseline', dest='rmbaseline', \
+        action='callback', callback=parser.set_override_config, \
         help="Remove baselines from all profiles using archive's " \
-                "'remove_baseline()' method. (Default: Do not " \
-                "remove baseline)")
-    parser.add_option('-r', '--remove-profile', dest='remove_profile', \
-        action='store_true', default=False, \
-        help="Remove profile. (Default: Do not remove profile)")
-    parser.add_option('--centre-profile', dest='centre_profile', \
-        action='store_true', default=False, \
-        help="Centre profile. (Default: Do not centre profile)")
-    #parser.add_option('--num-subbands', dest='num_subbands', \
-    #    type='int', default=None, \
-    #    help="The number of subbands. This is used for scaling channels. " \
-    #         "(Default: Do not scale channels)")
-    parser.add_option('--num-threads', dest='nthreads', \
-        type='int', default=None, \
+                "'remove_baseline()' method. (Default: %s)" % \
+                ((config.cfg.rmbaseline and "this is the default") or "do not remove baselines"))
+    parser.add_option('--no-remove-baseline', dest='rmbaseline', \
+        action='callback', callback=parser.unset_override_config, \
+        help="Do not perform any baseline removal. (Default: %s)" % \
+                ((not config.cfg.rmbaseline and "this is the default") or "remove baselines"))
+    parser.add_option('-r', '--remove-profile', dest='rmprof', \
+        action='callback', callback=parser.set_override_config, \
+        help="Remove profile. (Default: %s)" % \
+                ((config.cfg.rmprof and "this is the default") or "leave profile"))
+    parser.add_option('--no-remove-profile', dest='rmprof', \
+        action='callback', callback=parser.unset_override_config, \
+        help="Do not subtract profile. (Default: %s)" % \
+                ((not config.cfg.rmprof and "this is the default") or "remove profile"))
+    parser.add_option('--centre-profile', dest='centre_prof', \
+        action='callback', callback=parser.set_override_config, \
+        help="Centre profile. (Default: %s)" % \
+                ((config.cfg.centre_prof and "this is the default") or "do not rotate profile"))
+    parser.add_option('--no-centre-profile', dest='centre_prof', \
+        action='callback', callback=parser.unset_override_config, \
+        help="Do not rotate profile. (Default: %s)" % \
+                ((not config.cfg.centre_prof and "this is the default") or "rotate profile"))
+    parser.add_option('--num-threads', dest='nthreads', action='callback', \
+        callback=parser.override_config, type='int', \
         help="The number of threads to use when removing profiles. " \
-                "(Default: Use as many threads as there are CPUs)")
+                "(Default: %d)" % config.cfg.nthreads)
     parser.add_option('-f', '--func-to-plot', dest='func_to_plot', \
         default='std', action='store', \
         help="Function to plot. Possible choices are: " + \
@@ -482,16 +727,23 @@ if __name__ == '__main__':
     parser.add_option('-n', '--non-interactive', dest='interactive', \
         default=True, action='store_false', \
         help="Do not interactively show the plot. (Default: Show the plot.)")
-    parser.add_option('--log-colours', dest='log_colours', \
-        action='store_true', default=False, \
-        help="Plot colours on a logarithmic scale. (Default: use linear scale)")
-    parser.add_option('--white-level', dest='white_level', \
-        type='float', default=1.0, \
+    parser.add_option('--log-colours', dest='logcolours', \
+        action='callback', callback=parser.set_override_config, \
+        help="Plot colours on a logarithmic scale. (Default: %s)" % \
+                ((config.cfg.logcolours and "this is the default") or "colour scale is linear"))
+    parser.add_option('--linear-colours', dest='logcolours', \
+        action='callback', callback=parser.unset_override_config, \
+        help="Plot colours on a linear scale. (Default: %s)" % \
+                ((not config.cfg.logcolours and "this is the default") or "colour scale is logarithmic"))
+    parser.add_option('--white-level', dest='vmax', action='callback', \
+        callback=parser.override_config, type='float', \
         help="Values whose normalised colour is larger than this value " \
-                "(on a 0-1 scale) will be shown as white. (Default: 1.0)")
-    parser.add_option('--black-level', dest='black_level', \
-        type='float', default=0.0, \
+                "(on a 0-1 scale) will be shown as white. (Default: %g)" % \
+                config.cfg.vmax)
+    parser.add_option('--black-level', dest='vmin', action='callback', \
+        callback=parser.override_config, type='float', \
         help="Values whose normalised clour is smaller than this value " \
-                "(on a 0-1 scale) will be shown as black. (Default: 0.0)")
+                "(on a 0-1 scale) will be shown as black. (Default: %g)" % \
+                config.cfg.vmin)
     options, args = parser.parse_args()
     main()

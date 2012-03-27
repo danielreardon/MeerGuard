@@ -172,9 +172,9 @@ def remove_profile1d(prof, isub, ichan, template):
         return (isub, ichan), err(params)
 
 
-def remove_profile(data, nsubs, nchans, template, nthreads=1):
+def remove_profile(data, nsubs, nchans, template, nthreads=None):
     if nthreads is None:
-        nthreads = multiprocessing.cpu_count()
+        nthreads = config.cfg.nthreads
     pool = multiprocessing.Pool(processes=nthreads)
     results = []
     for isub, ichan in np.ndindex(nsubs, nchans):
@@ -205,7 +205,7 @@ def remove_profile1d_inplace(prof, isub, ichan, template):
 def remove_profile_inplace(ar, template, nthreads=1):
     data = ar.get_data().squeeze()
     if nthreads is None:
-        nthreads = multiprocessing.cpu_count()
+        nthreads = config.cfg.nthreads
     pool = multiprocessing.Pool(processes=nthreads)
     results = []
     for isub, ichan in np.ndindex(ar.get_nsubint(), ar.get_nchan()):

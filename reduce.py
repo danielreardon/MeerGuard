@@ -98,13 +98,16 @@ class ReductionLog(object):
 class ReductionJob(object):
     """An object to represent the reduction of an observation.
     """
-    def __init__(self, infns, outfn):
+    def __init__(self, infns, outfn, is_asterix=False):
         """Given a list of PSRCHIVE file names create a
             ReductionJob object.
 
             Input:
                 infns: A list of input PSRCHIVE archive file names.
                 outfn: The name of the reduced archive output.
+                is_asterix: If the data is from Effelsberg's Asterix backend.
+                    If True, the header information will be corrected.
+                    (Default: False)
 
             Output:
                 job: The Reduction job object.
@@ -113,13 +116,11 @@ class ReductionJob(object):
         self.outfn = outfn
         self.basenm = os.path.splitext(self.outfn)[0]
 
+        self.is_asterix = is_asterix # Hopefully only temporary
+
         logfn = utils.get_outfn(self.basenm+'.log', infns[0])
         self.log = ReductionLog(infns, logfn)
         
-        self.cfg = config.CoastGuardConfigs()
-        self.cfg.get_default_configs()
-        self.cfg.get_configs_for_archive(self.infns[0])
- 
     def run(self):
         """Call method to reduce archives, and take care of logging.
 
@@ -160,84 +161,53 @@ class ReductionJob(object):
                 toas: TOA strings.
         """
         if len(self.infns) > 1:
-            combinedfns = combine_all(to_combine, self.basenm+".cmb", \
-                            maxspan=cfg.combine_maxspan, \
-                            maxgap=cfg.combine_maxgap, \
-                            num_to_trim=cfg.nchan_to_trim)
+            combinearfs = combine.combine_all(self.infns, self.basenm+".cmb")
         else:
-            combinefns = self.infns
+            combinearfs = self.infns
         
-        cleanfns = []
+        cleanarfs = []
         toastrs = []
-        for combinefn in combinefns:
+        for combinearf in combinearfs:
+            if self.is_asterix:
+                # Correct the file header
+                combinearf = utils.correct_asterix_header(combinearf)
+            # Reload configurations
+            config.cfg.load_configs_for_archive(combinearf)
             # Create diagnostic plots for pre-cleaned data
-            utils.print_info("Creating diagnostics for %s" % combinefn.fn, 1)
-            for func_key in self.cfg.funcs_to_plot:
-                diagnose.make_diagnostic_figure(combinefn.fn, \
-                                            rmbaseline=self.cfg.diagnostic_rmbaseline, \
-                                            dedisp=self.cfg.diagnostic_dedisp, \
-                                            centre_prof=self.cfg.diagnostic_centre_prof, \
-                                            rmprof=True, \
-                                            func_key=func_key, \
-                                            log=self.cfg.diagnostic_logcolours, \
-                                            vmin=self.cfg.diagnostic_vmin, \
-                                            vmax=self.cfg.diagnostic_vmax)
-                plt.savefig("%s_diag_noprof_%s.png" % (combinefn.fn, func_key), dpi=600)
-                diagnose.make_diagnostic_figure(combinefn.fn, \
-                                            rmbaseline=self.cfg.diagnostic_rmbaseline, \
-                                            dedisp=self.cfg.diagnostic_dedisp, \
-                                            centre_prof=self.cfg.diagnostic_centre_prof, \
-                                            rmprof=False, \
-                                            func_key=func_key, \
-                                            log=self.cfg.diagnostic_logcolours, \
-                                            vmin=self.cfg.diagnostic_vmin, \
-                                            vmax=self.cfg.diagnostic_vmax)
-                plt.savefig("%s_diag_%s.png" % (combinefn.fn, func_key), dpi=600)
+            utils.print_info("Creating diagnostics for %s" % combinearf.fn, 1)
+            for func_key in config.cfg.funcs_to_plot:
+                diagnose.make_diagnostic_figure(combinearf, \
+                                            rmprof=True, func_key=func_key)
+                plt.savefig("%s_diag_noprof_%s.png" % (combinearf.fn, func_key), dpi=600)
+                diagnose.make_diagnostic_figure(combinearf, \
+                                            rmprof=False, func_key=func_key)
+                plt.savefig("%s_diag_%s.png" % (combinearf.fn, func_key), dpi=600)
  
             # Clean the data
-            utils.print_info("Cleaning %s" % combinefn.fn, 1)
-            ar = psrchive.Archive_load(combinefn.fn)
-            outfn = utils.get_outfn(self.outfn, combinefn)
-            clean.deep_clean(ar, outfn, self.cfg.clean_chanthresh, \
-                                self.cfg.clean_subintthresh, self.cfg.clean_binthresh)
+            utils.print_info("Cleaning %s" % combinearf.fn, 1)
+            cleanarf = clean.clean_archive(combinearf, self.outfn)
             
             # Re-create diagnostic plots for clean data
-            utils.print_info("Creating diagnostics for %s" % outfn, 1)
-            for func_key in self.cfg.funcs_to_plot:
-                diagnose.make_diagnostic_figure(outfn, \
-                                                rmbaseline=self.cfg.diagnostic_rmbaseline, \
-                                                dedisp=self.cfg.diagnostic_dedisp, \
-                                                centre_prof=self.cfg.diagnostic_centre_prof, \
-                                                rmprof=True, \
-                                                func_key=func_key, \
-                                                log=self.cfg.diagnostic_logcolours, \
-                                                vmin=self.cfg.diagnostic_vmin, \
-                                                vmax=self.cfg.diagnostic_vmax)
-                plt.savefig("%s_diag_noprof_%s.png" % (outfn, func_key), dpi=600)
-                diagnose.make_diagnostic_figure(outfn, \
-                                                rmbaseline=self.cfg.diagnostic_rmbaseline, \
-                                                dedisp=self.cfg.diagnostic_dedisp, \
-                                                centre_prof=self.cfg.diagnostic_centre_prof, \
-                                                rmprof=False, \
-                                                func_key=func_key, \
-                                                log=self.cfg.diagnostic_logcolours, \
-                                                vmin=self.cfg.diagnostic_vmin, \
-                                                vmax=self.cfg.diagnostic_vmax)
-                plt.savefig("%s_diag_%s.png" % (outfn, func_key), dpi=600)
+            utils.print_info("Creating diagnostics for %s" % cleanarf.fn, 1)
+            for func_key in config.cfg.funcs_to_plot:
+                diagnose.make_diagnostic_figure(cleanarf, \
+                                                rmprof=True, func_key=func_key)
+                plt.savefig("%s_diag_noprof_%s.png" % (cleanarf.fn, func_key), dpi=600)
+                diagnose.make_diagnostic_figure(cleanarf, \
+                                                rmprof=False, func_key=func_key)
+                plt.savefig("%s_diag_%s.png" % (cleanarf.fn, func_key), dpi=600)
 
-            outar = utils.ArchiveFile(outfn)
-            cleanfns.append(outar)
+            cleanarfs.append(cleanarf)
             
             # Make TOAs
             utils.print_info("Generating TOAs", 1)
-            stdfn = toas.get_standard(outar, self.cfg.base_standards_dir)
+            stdfn = toas.get_standard(cleanarf)
             if not os.path.isfile(stdfn):
                 raise errors.NoStandardProfileError("The standard profile (%s) " \
                                                 "cannot be found!" % stdfn)
             utils.print_info("Standard profile: %s" % stdfn, 2)
-            toastrs.extend(toas.get_toas(outfn, stdfn, self.cfg.ntoa_time, \
-                                        self.cfg.ntoa_freq))
-        return cleanfns, toastrs
+            toastrs.extend(toas.get_toas(cleanarf, stdfn))
+        return cleanarfs, toastrs
 
 
 def main():
@@ -252,8 +222,12 @@ def main():
     
     to_reduce = [utils.ArchiveFile(fn) for fn in to_reduce]
     
+    # Read configurations
+    config.cfg.load_configs_for_archive(to_reduce[0])
+  
     job = ReductionJob(to_reduce, options.outfn)
     outfns, toastrs = job.run()
+
     print "Output file names:"
     for outfn in outfns:
         print "    %s" % outfn.fn
@@ -291,5 +265,10 @@ if __name__=="__main__":
                             "expression should be properly quoted to not be " \
                             "expanded by the shell prematurely. (Default: " \
                             "exclude any files.)")
+    parser.add_option('--getafix', dest='is_asterix', action='store_true', \
+                        default=False, \
+                        help="If the data are from Effelsberg's Asterix backend " \
+                            "guess the receiver used and correct the output " \
+                            "archive's header. (Default: False)")
     options, args = parser.parse_args()
     main()

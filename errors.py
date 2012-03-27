@@ -44,6 +44,13 @@ class BadPulsarNameError(CoastGuardError):
     pass
 
 
+class HeaderCorrectionError(CoastGuardError):
+    pass
+
+
+class DiagnosticError(CoastGuardError):
+    pass
+
 # Custom Warnings
 class CoastGuardWarning(Warning):
     def __str__(self):

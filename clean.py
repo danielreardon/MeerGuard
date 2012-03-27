@@ -363,23 +363,34 @@ def remove_bad_channels(infn, badchans=None, badchan_intervals=None,
         utils.execute("paz -m %s %s" % (" ".join(zaplets), infn.fn))
 
 
-def clean_archive(infn, outfn, clean_re=None, *args, **kwargs):
+def clean_archive(inarf, outfn, clean_re=None, *args, **kwargs):
     if clean_re is None:
         clean_re = config.cfg.clean_strategy
-    if clean_re is None:
-        return
+    
+    outfn = utils.get_outfn(outfn, inarf)
+    shutil.copy(inarf.fn, outfn)
+    
+    outarf = utils.ArchiveFile(outfn)
 
-    matching_cleaners = [clnr for clnr in cleaners if re.search(clean_re, clnr)]
+    trim_edge_channels(outarf)
+    prune_band(outarf)
+    remove_bad_channels(outarf)
+    remove_bad_subints(outarf)
+    
+    matching_cleaners = [clnr for clnr in cleaners if clean_re and re.search(clean_re, clnr)]
     if len(matching_cleaners) == 1:
-        ar = psrchive.Archive_load(infn.fn)
+        ar = psrchive.Archive_load(outarf.fn)
         cleaner = eval(matching_cleaners[0])
         utils.print_info("Cleaning using '%s(...)'." % matching_cleaners[0], 2)
         cleaner(ar, *args, **kwargs)
         ar.unload(outfn)
+    elif len(matching_cleaners) == 0:
+        utils.print_info("No cleaning strategy selected. Skipping...", 2)
     else:
         raise errors.CleanError("Bad cleaner selection. " \
                                 "'%s' has %d matches." % \
                                 (clean_re, len(matching_cleaners)))
+    return outarf
 
 
 def main():
@@ -397,17 +408,8 @@ def main():
     # Read configurations
     for arf in to_clean:
         config.cfg.load_configs_for_archive(arf)
-        outfn = utils.get_outfn(options.outfn, arf)
-        shutil.copy(arf.fn, outfn)
-    
-        arf = utils.ArchiveFile(outfn)
-
-        trim_edge_channels(arf)
-        prune_band(arf)
-        remove_bad_channels(arf)
-        remove_bad_subints(arf)
-        clean_archive(arf, outfn)
-        print "Cleaned archive: %s" % outfn
+        outarf = clean_archive(arf, options.outfn)
+        print "Cleaned archive: %s" % outarf.fn
 
 
 if __name__=="__main__":

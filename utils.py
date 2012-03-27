@@ -441,6 +441,11 @@ def get_prefname(psrname):
     
     if len(names) == 1:
         prefname = names[0][-1]
+    elif len(names) == 0:
+        prefname = psrname
+        warnings.warn("Pulsar name '%s' cannot be found in psrcat. " \
+                        "No preferred name available." % psrname, \
+                        errors.CoastGuardWarning)
     else:
         raise errors.BadPulsarNameError("Pulsar name '%s' has a bad number of " \
                                 "matches (%d) in psrcat" % (psrname, len(names)))
@@ -470,6 +475,33 @@ def get_outfn(fmtstr, arfn):
         raise errors.BadFile("Interpolated file name (%s) shouldn't " \
                                  "contain the character '%%'!" % outfn)
     return outfn
+
+
+def correct_asterix_header(arfn):
+    """Effelsberg Asterix data doesn't have backend and receiver
+        information correctly written into archive headers. It is
+        necessary to add the information. This function guesses
+        the receiver used.
+
+        NOTES:
+            - An error is raised if the receiver is uncertain.
+            - The corrected archive is written with the extension 'rcvr'.
+
+        Input:
+            arfn: An ArchiveFile object.
+
+        Output:
+            outarfn: The corrected ArchiveFile object.
+    """
+    codedir = os.path.join(os.getcwd(), os.path.split(__file__)[0])
+    cmd = "%s/correct_archives.sh %s | bash" % (codedir, arfn.fn)
+    stdout, stderr = execute(cmd)
+    if stdout.strip().endswith("written to disk"):
+        outarf = ArchiveFile(stdout.split()[0])
+    else:
+        raise errors.HeaderCorrectionError("Correction of Asterix archive (%s) " \
+                                    "header failed: \n%s" % (arfn.fn, stderr))
+    return outarf
 
 
 def mjd_to_date(mjds):
@@ -527,7 +559,12 @@ class ArchiveFile(object):
                                             'intmjd', 'fracmjd', 'backend', 
                                             'rcvr', 'telescop', 'name', 
                                             'nchan', 'asite'])
-        self.hdr['name'] = get_prefname(self.hdr['name']) # Use preferred name
+        try:
+            self.hdr['name'] = get_prefname(self.hdr['name']) # Use preferred name
+        except errors.BadPulsarNameError:
+            warnings.warn("No preferred name found in 'psrcat'. " \
+                            "Will continue using '%s'" % self.hdr['name'], \
+                            errors.CoastGuardWarning)
         self.hdr['secs'] = int(self.hdr['fracmjd']*24*3600+0.5) # Add 0.5 so we actually round
         self.hdr['yyyymmdd'] = "%04d%02d%02d" % mjd_to_date(self.hdr['mjd'])
     
@@ -624,6 +661,12 @@ class DefaultOptions(optparse.OptionParser):
     def override_config(self, option, opt_str, value, parser):
         config.cfg.set_override_config(option.dest, value)
 
+    def set_override_config(self, option, opt_str, value, parser):
+        config.cfg.set_override_config(option.dest, True)
+
+    def unset_override_config(self, option, opt_str, value, parser):
+        config.cfg.set_override_config(option.dest, False)
+    
     def debug_callback(self, option, opt_str, value, parser):
         config.debug.set_mode_on(value)
 
