@@ -21,7 +21,18 @@ import utils
 import clean_utils
 import errors
 
-cleaners = ['deep_clean']
+cleaners = ['deep_clean', 'dummy']
+
+
+def dummy(ar):
+    """A do-nothing dummy cleaning function.
+        
+        Input:
+            ar: The archive to be cleaned.
+        Outputs:
+            None - The archive is cleaned in place.
+    """
+    return ar
 
 
 def power_wash(ar):
@@ -455,8 +466,8 @@ if __name__=="__main__":
     parser.add_option('--clean-strategy', dest='clean_strategy', action='callback', \
                         callback=parser.override_config, type='str', \
                         help="A string that matches one of the names of the available " \
-                             "cleaning functions. Possibilities are: %s. (Default: %s) " % \
-                             (", ".join(cleaners), config.cfg.clean_strategy))
+                             "cleaning functions. Possibilities are: '%s'. (Default: %s) " % \
+                             ("', '".join(cleaners), config.cfg.clean_strategy))
     parser.add_option('--chan-thresh', dest='clean_chanthresh', action='callback', \
                         callback=parser.override_config, type='float', \
                         help="Threshold for removing an entire channel. (Default: %g)" % \
