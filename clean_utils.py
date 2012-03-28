@@ -52,7 +52,7 @@ def detrend(ydata, xdata=None, order=1, bp=[], numpieces=None):
     ymasked = np.ma.masked_array(ydata, mask=np.ma.getmaskarray(ydata))
     if xdata is None:
         xdata = np.ma.masked_array(np.arange(ydata.size), mask=np.ma.getmaskarray(ydata))
-    detrended = np.ma.masked_array(np.zeros(len(ydata)), mask=ymasked.mask)
+    detrended = ymasked.copy()
     
     if numpieces is None:
         edges = [0]+bp+[len(ydata)]
@@ -75,13 +75,36 @@ def detrend(ydata, xdata=None, order=1, bp=[], numpieces=None):
         x, resids, rank, s = scipy.linalg.lstsq(A, ycomp)
         
         # Generate decompressed detrended array
-        detrended[start:stop][np.bitwise_not(detrended[start:stop].mask)] = \
-                ycomp - np.dot(A, x)
+        A = np.repeat(xdata.data[start:stop], order+1)
+        A.shape = ((stop-start), order+1)
+        A = A**powers
+        detrended.data[start:stop] -= np.dot(A, x)
     if np.ma.isMaskedArray(ydata):
         return detrended
     else:
         return detrended.data
+   
     
+def iterative_detrend(ydata, thresh=2, *args, **kwargs):
+    origmask = np.ma.getmaskarray(ydata)
+    ymasked = np.ma.masked_array(ydata, mask=origmask)
+
+    while ymasked.count():
+        # detrend
+        detrended = detrend(ymasked, *args, **kwargs)
+        # mask outliers based on median and median absolute deviation
+        median = np.median(detrended)
+        mad = np.median(np.abs(detrended-median))
+        detrended = np.ma.masked_where((detrended<(median-thresh*mad)) | \
+                                            (detrended>(median+thresh*mad)), \
+                                            detrended)
+        if np.all(detrended.mask==ymasked.mask):
+            ymasked = detrended
+            break
+        else:
+            ymasked = detrended
+    ymasked.mask = origmask
+    return ymasked
 
 def get_profile(data):
     return np.sum(data, axis=0)
