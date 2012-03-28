@@ -29,7 +29,7 @@ func_info = {'std': ("Standard Deviation", np.std), \
              'mean': ("Average", np.mean), \
              'median': ("Median", np.median), \
              'ptp': ("Max - Min", np.ptp), \
-             'normality': ("Test of Normality", \
+             'normality': ("Omnibus test of Normality", \
                     lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[0]), \
              'periodicity': ("Periodic Signal Strength", \
                     lambda data, axis: np.max(np.abs(np.fft.rfft(\
@@ -69,24 +69,34 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         self.nsubs, self.nchans, self.nbins = self.data.shape
         self.title, self.func = func_info[func_key]
         
-        utils.print_info("Plotting %s..." % self.title.lower(), 2)
-        
-        # Add text
-        self.text(0.02, 0.95, ar.get_source(), size='large', ha='left', va='center')
-        self.text(0.02, 0.925, os.path.split(ar.get_filename())[-1], \
-                        size='x-small', ha='left', va='center')
-        self.slice_info = self.text(0.725, 0.84, "Click on image to view slice", \
-                        size='small', ha='left', va='center')
-
         # Current slices
         self.chan = None
         self.subint = None
 
         self.hcrosshairs = []
         self.vcrosshairs = []
+
+        # Prep image data
+        self.imdata = self.func(self.data, axis=2)
         
         # Get weights
         self.weights = self.ar.get_weights()
+
+    def connect_event_triggers(self):
+        # Connect trigger
+        self.canvas.mpl_connect('button_press_event', self.update_slice)
+
+    def plot(self):
+        utils.print_info("Plotting %s..." % self.title.lower(), 2)
+        
+        self.clear() # Clear the figure
+
+        # Add text
+        self.text(0.02, 0.95, self.ar.get_source(), size='large', ha='left', va='center')
+        self.text(0.02, 0.925, os.path.split(self.ar.get_filename())[-1], \
+                        size='x-small', ha='left', va='center')
+        self.slice_info = self.text(0.725, 0.84, "Click on image to view slice", \
+                        size='small', ha='left', va='center')
 
         # Make axes
         self.dspec_ax = self.add_axes((0.1,0.1,0.6,0.6))
@@ -115,14 +125,6 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         self.prof_ax.set_xlabel("Phase bin")
         self.prof_ax.set_ylabel("Intensity")
 
-        # Prep image data
-        self.imdata = self.func(self.data, axis=2)
-
-    def connect_event_triggers(self):
-        # Connect trigger
-        self.canvas.mpl_connect('button_press_event', self.update_slice)
-
-    def plot(self):
         # Create colour normaliser
         if self.log:
             normcls = matplotlib.colors.LogNorm
@@ -207,6 +209,13 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
                 for segment in segments:
                     self.hslice_ax.axvspan(segment.start-0.5, segment.stop+0.5, fc='r', lw=0, alpha=0.2)
 
+            # Plot median and MAD
+            median = np.median(toplot)
+            mad = np.median(np.abs(toplot-median))
+            self.hslice_ax.axhline(median, c='k', ls='-')
+            self.hslice_ax.axhline(median+mad, c='k', ls='--')
+            self.hslice_ax.axhline(median-mad, c='k', ls='--')
+
             self.vslice_ax.cla()
             mask = (self.weights[:, self.chan]==0)
             toplot = np.ma.masked_array(self.imdata[:,self.chan], mask=mask)
@@ -217,7 +226,14 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
             if segments:
                 for segment in np.ma.flatnotmasked_contiguous(invertedmask):
                     self.vslice_ax.axhspan(segment.start-0.5, segment.stop+0.5, fc='r', lw=0, alpha=0.2)
-        
+       
+            # Plot median and MAD
+            median = np.median(toplot)
+            mad = np.median(np.abs(toplot-median))
+            self.vslice_ax.axvline(median, c='k', ls='-')
+            self.vslice_ax.axvline(median+mad, c='k', ls='--')
+            self.vslice_ax.axvline(median-mad, c='k', ls='--')
+
             self.prof_ax.cla()
             self.prof_ax.plot(np.arange(self.nbins), self.data[self.subint, self.chan], 'k-')
 
