@@ -78,32 +78,40 @@ def detrend(ydata, xdata=None, order=1, bp=[], numpieces=None):
         A = np.repeat(xdata.data[start:stop], order+1)
         A.shape = ((stop-start), order+1)
         A = A**powers
-        detrended.data[start:stop] -= np.dot(A, x)
+        detrended.data[start:stop] -= np.dot(A, x).squeeze()
     if np.ma.isMaskedArray(ydata):
         return detrended
     else:
         return detrended.data
    
     
-def iterative_detrend(ydata, thresh=2, *args, **kwargs):
+def iterative_detrend(ydata, thresh=5, reset_mask=True, *args, **kwargs):
     origmask = np.ma.getmaskarray(ydata)
     ymasked = np.ma.masked_array(ydata, mask=origmask)
 
+    detrended = ymasked.copy()
+    # mask outliers based on median and median absolute deviation
+    median = np.ma.median(detrended)
+    mad = np.ma.median(np.abs(detrended-median))
+    detrended = np.ma.masked_where((detrended<(median-thresh*mad)) | \
+                                        (detrended>(median+thresh*mad)), \
+                                        detrended)
     while ymasked.count():
         # detrend
         detrended = detrend(ymasked, *args, **kwargs)
         # mask outliers based on median and median absolute deviation
-        median = np.median(detrended)
-        mad = np.median(np.abs(detrended-median))
+        median = np.ma.median(detrended)
+        mad = np.ma.median(np.abs(detrended-median))
         detrended = np.ma.masked_where((detrended<(median-thresh*mad)) | \
                                             (detrended>(median+thresh*mad)), \
                                             detrended)
         if np.all(detrended.mask==ymasked.mask):
-            ymasked = detrended
+            ymasked = detrended.copy()
             break
         else:
-            ymasked = detrended
-    ymasked.mask = origmask
+            ymasked = detrended.copy()
+    if reset_mask:
+        ymasked.mask = origmask
     return ymasked
 
 def get_profile(data):

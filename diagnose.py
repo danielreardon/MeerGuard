@@ -25,10 +25,10 @@ import clean_utils
 import config
 import errors
 
-func_info = {'std': ("Standard Deviation", np.std), \
-             'mean': ("Average", np.mean), \
-             'median': ("Median", np.median), \
-             'ptp': ("Max - Min", np.ptp), \
+func_info = {'std': ("Standard Deviation", np.ma.std), \
+             'mean': ("Average", np.ma.mean), \
+             'median': ("Median", np.ma.median), \
+             'ptp': ("Max - Min", np.ma.ptp), \
              'normality': ("Omnibus test of Normality", \
                     lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[0]), \
              'periodicity': ("Periodic Signal Strength", \
@@ -36,8 +36,8 @@ func_info = {'std': ("Standard Deviation", np.std), \
                                 data-np.expand_dims(data.mean(axis=axis), axis=axis), \
                                     axis=axis)), axis=axis)), \
              'mad': ("Median Absolute Deviation", \
-                    lambda data, axis: np.median(np.abs(data - \
-                                np.expand_dims(np.median(data, axis=axis), axis=axis)), axis=axis))}
+                    lambda data, axis: np.ma.median(np.abs(data - \
+                                np.expand_dims(np.ma.median(data, axis=axis), axis=axis)), axis=axis))}
 
 diagnostics = ['SlicerDiagnosticFigure', 'ComprehensiveDiagnosticFigure']
 
@@ -224,7 +224,8 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
             mask = (self.weights[self.subint, :]==0)
             toplot = np.ma.masked_array(self.imdata[self.subint, :], mask=mask)
             if self.scale:
-                toplot = clean_utils.iterative_detrend(toplot, order=2, numpieces=4)
+                toplot = clean_utils.iterative_detrend(toplot, order=2, numpieces=2)
+                toplot = clean_utils.iterative_detrend(toplot, order=1, numpieces=4)
             indices = np.repeat(np.arange(-0.5, self.nchans+0.5, 1),2)[1:-1]
             invertedmask = np.ma.masked_array(np.ones(self.nchans), mask=np.bitwise_not(mask))
             self.hslice_ax.plot(indices, np.repeat(toplot,2), 'k-')
@@ -235,8 +236,8 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
             
             if self.show_stats:
                 # Plot median and MAD
-                median = np.median(toplot)
-                mad = np.median(np.abs(toplot-median))
+                median = np.ma.median(toplot)
+                mad = np.ma.median(np.abs(toplot-median))
                 self.hslice_ax.axhline(median, c='k', ls='-')
                 self.hslice_ax.axhline(median+mad, c='k', ls='--')
                 self.hslice_ax.axhline(median-mad, c='k', ls='--')
@@ -256,8 +257,8 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
        
             if self.show_stats:
                 # Plot median and MAD
-                median = np.median(toplot)
-                mad = np.median(np.abs(toplot-median))
+                median = np.ma.median(toplot)
+                mad = np.ma.median(np.abs(toplot-median))
                 self.vslice_ax.axvline(median, c='k', ls='-')
                 self.vslice_ax.axvline(median+mad, c='k', ls='--')
                 self.vslice_ax.axvline(median-mad, c='k', ls='--')
