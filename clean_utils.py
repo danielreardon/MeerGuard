@@ -29,6 +29,60 @@ def get_robust_std(data, weights, trimfrac=0.1):
     #return scipy.stats.mstats.std(scipy.stats.mstats.trimboth(mdata, trimfrac))
 
 
+def detrend(ydata, xdata=None, order=1, bp=[], numpieces=None):
+    """Detrend 'data' using a polynomial of given order.
+    
+        Inputs:
+            ydata: A 1D array to be detrended.
+            xdata: A 1D array of x-values to use
+                (Default: Use indices at xdata).
+            order: Order of polynomial to use (Default: 1)
+            bp: Breakpoints. Break the input data into segments
+                that are detrended independently. The values
+                listed here determine the indices where new
+                segments start. The data will be split into
+                len(bp)+1 segments. (Default: do not break input data)
+            numpieces: Automatically determine breakpoints by splitting
+                input data into roughly equal parts. This option, if provided,
+                will override 'bp'. (Default: treat data as 1 piece).
+
+        Output:
+            detrended: a 1D array.
+    """
+    ymasked = np.ma.masked_array(ydata, mask=np.ma.getmaskarray(ydata))
+    if xdata is None:
+        xdata = np.ma.masked_array(np.arange(ydata.size), mask=np.ma.getmaskarray(ydata))
+    detrended = np.ma.masked_array(np.zeros(len(ydata)), mask=ymasked.mask)
+    
+    if numpieces is None:
+        edges = [0]+bp+[len(ydata)]
+    else:
+        edges = np.round(np.linspace(0, len(ydata), numpieces+1, endpoint=1)).astype(int)
+    for start, stop in zip(edges[:-1], edges[1:]):
+        if not np.ma.count(ymasked[start:stop]):
+            # No unmasked values, skip this segment.
+            # It will be masked in the output anyway.
+            continue
+        ycomp = ymasked[start:stop].compressed()
+        xcomp = xdata[start:stop].compressed()
+ 
+        powers = np.arange(order+1)
+ 
+        A = np.repeat(xcomp, order+1)
+        A.shape = (xcomp.size, order+1)
+        A = A**powers
+
+        x, resids, rank, s = scipy.linalg.lstsq(A, ycomp)
+        
+        # Generate decompressed detrended array
+        detrended[start:stop][np.bitwise_not(detrended[start:stop].mask)] = \
+                ycomp - np.dot(A, x)
+    if np.ma.isMaskedArray(ydata):
+        return detrended
+    else:
+        return detrended.data
+    
+
 def get_profile(data):
     return np.sum(data, axis=0)
 
