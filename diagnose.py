@@ -82,9 +82,20 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         # Get weights
         self.weights = self.ar.get_weights()
 
+        # Set default behaviour
+        self.scale = False
+        self.show_stats = False
+
     def connect_event_triggers(self):
+        # Before setting up our own event handlers delete matplotlib's
+        # default 'key_press_event' handler.
+        defcids = self.canvas.callbacks.callbacks['key_press_event'].keys()
+        for cid in defcids:
+            self.canvas.callbacks.disconnect(cid)
+
         # Connect trigger
-        self.canvas.mpl_connect('button_press_event', self.update_slice)
+        self.canvas.mpl_connect('button_press_event', self.buttonpress)
+        self.canvas.mpl_connect('key_press_event', self.keypress)
 
     def plot(self):
         utils.print_info("Plotting %s..." % self.title.lower(), 2)
@@ -187,11 +198,22 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         self.dspec_ax.axis([-0.5, self.nchans-0.5, -0.5, self.nsubs-0.5])
         self.prof_ax.set_xlim(0, self.nbins)
 
-    def update_slice(self, event):
+    def buttonpress(self, event):
         if event.inaxes==self.dspec_ax and \
                 (event.button==2 or (event.key=='shift' and event.button==1)):
             self.chan = int(np.round(event.xdata))
             self.subint = int(np.round(event.ydata))
+            self.update_slice()
+
+    def keypress(self, event):
+        if event.key in ('s', 'S'):
+            self.scale = not self.scale
+            self.update_slice()
+        elif event.key in ('m', 'm'):
+            self.show_stats = not self.show_stats
+            self.update_slice()
+
+    def update_slice(self):
             self.slice_info.set_text("Slicing along Chan: %d, Subint: %d" % \
                         (self.chan, self.subint))
 
@@ -201,6 +223,8 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
             self.hslice_ax.cla()
             mask = (self.weights[self.subint, :]==0)
             toplot = np.ma.masked_array(self.imdata[self.subint, :], mask=mask)
+            if self.scale:
+                toplot = clean_utils.iterative_detrend(toplot, order=2, numpieces=4)
             indices = np.repeat(np.arange(-0.5, self.nchans+0.5, 1),2)[1:-1]
             invertedmask = np.ma.masked_array(np.ones(self.nchans), mask=np.bitwise_not(mask))
             self.hslice_ax.plot(indices, np.repeat(toplot,2), 'k-')
@@ -208,17 +232,20 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
             if segments:
                 for segment in segments:
                     self.hslice_ax.axvspan(segment.start-0.5, segment.stop+0.5, fc='r', lw=0, alpha=0.2)
-
-            # Plot median and MAD
-            median = np.median(toplot)
-            mad = np.median(np.abs(toplot-median))
-            self.hslice_ax.axhline(median, c='k', ls='-')
-            self.hslice_ax.axhline(median+mad, c='k', ls='--')
-            self.hslice_ax.axhline(median-mad, c='k', ls='--')
+            
+            if self.show_stats:
+                # Plot median and MAD
+                median = np.median(toplot)
+                mad = np.median(np.abs(toplot-median))
+                self.hslice_ax.axhline(median, c='k', ls='-')
+                self.hslice_ax.axhline(median+mad, c='k', ls='--')
+                self.hslice_ax.axhline(median-mad, c='k', ls='--')
 
             self.vslice_ax.cla()
             mask = (self.weights[:, self.chan]==0)
             toplot = np.ma.masked_array(self.imdata[:,self.chan], mask=mask)
+            if self.scale:
+                toplot = clean_utils.iterative_detrend(toplot, order=1, numpieces=4)
             indices = np.repeat(np.arange(-0.5, self.nsubs+0.5, 1),2)[1:-1]
             invertedmask = np.ma.masked_array(np.ones(self.nsubs), mask=np.bitwise_not(mask))
             self.vslice_ax.plot(np.repeat(toplot,2), indices, 'k-')
@@ -227,12 +254,13 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
                 for segment in np.ma.flatnotmasked_contiguous(invertedmask):
                     self.vslice_ax.axhspan(segment.start-0.5, segment.stop+0.5, fc='r', lw=0, alpha=0.2)
        
-            # Plot median and MAD
-            median = np.median(toplot)
-            mad = np.median(np.abs(toplot-median))
-            self.vslice_ax.axvline(median, c='k', ls='-')
-            self.vslice_ax.axvline(median+mad, c='k', ls='--')
-            self.vslice_ax.axvline(median-mad, c='k', ls='--')
+            if self.show_stats:
+                # Plot median and MAD
+                median = np.median(toplot)
+                mad = np.median(np.abs(toplot-median))
+                self.vslice_ax.axvline(median, c='k', ls='-')
+                self.vslice_ax.axvline(median+mad, c='k', ls='--')
+                self.vslice_ax.axvline(median-mad, c='k', ls='--')
 
             self.prof_ax.cla()
             self.prof_ax.plot(np.arange(self.nbins), self.data[self.subint, self.chan], 'k-')
