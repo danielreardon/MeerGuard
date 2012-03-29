@@ -719,8 +719,7 @@ def make_diagnostic_figure(arf, func_re, diag_re='comprehensive', \
         ar.dedisperse()
     else:
         utils.print_info("Dedispersing to DM=0...", 2)
-        ar.set_dispersion_measure(0)
-        ar.dedisperse()
+        ar.dededisperse()
     
     data = ar.get_data().squeeze()
     data = clean_utils.apply_weights(data, ar.get_weights())
