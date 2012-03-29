@@ -21,7 +21,7 @@ import utils
 import clean_utils
 import errors
 
-cleaners = ['deep_clean', 'dummy']
+cleaners = ['deep_clean', 'dummy', 'surgical_scrub']
 
 
 def dummy(ar):
@@ -33,6 +33,82 @@ def dummy(ar):
             None - The archive is cleaned in place.
     """
     return ar
+
+
+def surgical_scrub(ar, chanthresh=None, subintthresh=None, binthresh=None):
+    """Surgically scrub RFI from the data.
+        
+        Input:
+            ar: The archive to be cleaned.
+        Outputs:
+            None - The archive is cleaned in place.
+    """
+    if chanthresh is None:
+        chanthresh = config.cfg.clean_chanthresh
+    if subintthresh is None:
+        subintthresh = config.cfg.clean_subintthresh
+    if binthresh is None:
+        binthresh = config.cfg.clean_binthresh
+   
+    patient = ar.clone()
+    patient.pscrunch()
+    patient.remove_baseline()
+    
+    # Remove profile from dedispersed data
+    patient.dedisperse()
+    data = patient.get_data().squeeze()
+    template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
+    clean_utils.remove_profile_inplace(patient, template)
+    # re-set DM to 0
+    patient.dededisperse()
+    
+    # Get data
+    data = patient.get_data().squeeze()
+    data = clean_utils.apply_weights(data, patient.get_weights())
+
+    nsubs, nchans, nbins = data.shape
+
+    diagnostic_functions = [
+            np.ma.std, \
+            np.ma.mean, \
+            np.ma.ptp, \
+            lambda data, axis: np.max(np.abs(np.fft.rfft(\
+                                data-np.expand_dims(data.mean(axis=axis), axis=axis), \
+                                    axis=axis)), axis=axis)]
+    # Compute diagnostics
+    diagnostics = []
+    for func in diagnostic_functions:
+        diagnostics.append(func(data, axis=2))
+
+    def channel_scaler(array2d):
+        scaled = np.empty_like(array2d)
+        for ichan in np.arange(nchans):
+            detrended = clean_utils.iterative_detrend(array2d[:,ichan], order=1, numpieces=4)
+            median = np.ma.median(detrended)
+            mad = np.ma.median(np.abs(detrended-median))
+            scaled[:, ichan] = (detrended-median)/mad
+        return scaled
+
+    def subint_scaler(array2d):
+        scaled = np.empty_like(array2d)
+        for isub in np.arange(nsubs):
+            detrended = clean_utils.iterative_detrend(array2d[isub,:], order=2, numpieces=2)
+            detrended = clean_utils.iterative_detrend(detrended, order=1, numpieces=4)
+            median = np.ma.median(detrended)
+            mad = np.ma.median(np.abs(detrended-median))
+            scaled[isub,:] = (detrended-median)/mad
+        return scaled
+        
+    # Now step through data and identify bad profiles
+    scaled_diagnostics = []
+    for diag in diagnostics:
+        scaled_diagnostics.append((channel_scaler(diag)>chanthresh)|(subint_scaler(diag)>subintthresh))
+
+    for (isub, ichan) in np.argwhere(np.sum(scaled_diagnostics, axis=0)>2):
+        # Be sure to set weights on the original archive, and
+        # not the clone we've been working with.
+        integ = ar.get_Integration(int(isub))
+        integ.set_weight(int(ichan), 0.0)
 
 
 def power_wash(ar):
@@ -52,8 +128,7 @@ def power_wash(ar):
     template = np.apply_over_axes(np.sum, data, (0,1)).squeeze()
     clean_utils.remove_profile_inplace(ar, template, None)
 
-    ar.set_dispersion_measure(0)
-    ar.dedisperse()
+    ar.dededisperse()
 
     bad_chans = []
     bad_subints = []
@@ -119,10 +194,7 @@ def deep_clean(toclean, chanthresh=None, subintthresh=None, binthresh=None):
     template = np.apply_over_axes(np.sum, data, (0,1)).squeeze()
     clean_utils.remove_profile_inplace(ar, template, None)
 
-    origdm = ar.get_dispersion_measure()
-    ar.set_dispersion_measure(0)
-    ar.dedisperse()
-    ar.set_dispersion_measure(origdm)
+    ar.dededisperse()
 
     # First clean channels
     chandata = clean_utils.get_chans(ar, remove_prof=True)
@@ -194,7 +266,6 @@ def deep_clean(toclean, chanthresh=None, subintthresh=None, binthresh=None):
         clean_utils.zero_weight_subint(toclean, isub)
     
     # Re-dedisperse the data
-    ar.set_dispersion_measure(origdm)
     ar.dedisperse()
 
     # Now replace hot bins
