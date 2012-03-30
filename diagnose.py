@@ -65,26 +65,28 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
             self.vmax = config.cfg.vmax
         else:
             self.vmax = vmax
-
+        
         self.nsubs, self.nchans, self.nbins = self.data.shape
-        self.title, self.func = func_info[func_key]
         
         # Current slices
         self.chan = None
         self.subint = None
 
-        self.hcrosshairs = []
-        self.vcrosshairs = []
-
-        # Prep image data
-        self.imdata = self.func(self.data, axis=2)
-        
         # Get weights
         self.weights = self.ar.get_weights()
 
         # Set default behaviour
         self.scale = False
         self.show_stats = False
+
+        self.apply_diagnostic_function(func_key)
+
+    def apply_diagnostic_function(self, func_key):
+        self.func_key = func_key
+        self.title, self.func = func_info[func_key]
+        
+        # Prep image data
+        self.imdata = self.func(self.data, axis=2)
 
     def connect_event_triggers(self):
         # Before setting up our own event handlers delete matplotlib's
@@ -101,12 +103,28 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         utils.print_info("Plotting %s..." % self.title.lower(), 2)
         
         self.clear() # Clear the figure
+        
+        # Initialise list of static crosshairs
+        self.hcrosshairs = []
+        self.vcrosshairs = []
 
         # Add text
         self.text(0.02, 0.95, self.ar.get_source(), size='large', ha='left', va='center')
         self.text(0.02, 0.925, os.path.split(self.ar.get_filename())[-1], \
                         size='x-small', ha='left', va='center')
-        self.slice_info = self.text(0.725, 0.84, "Click on image to view slice", \
+        if self.chan is None and self.subint is None:
+                # Slices haven't been selected
+            self.slice_info = self.text(0.725, 0.86, "Click on image to view slice", \
+                        size='small', ha='left', va='center')
+        else:
+            self.slice_info = self.text(0.725, 0.86, "Slicing along Chan: %s, Subint: %s" % \
+                        (self.chan, self.subint), \
+                        size='small', ha='left', va='center')
+        self.scale_info = self.text(0.725, 0.84, "Scaling: %s" % \
+                        (self.scale and "on" or "off"), \
+                        size='small', ha='left', va='center')
+        self.stats_info = self.text(0.825, 0.84, "Stats: %s" % \
+                        (self.show_stats and "shown" or "hidden"), \
                         size='small', ha='left', va='center')
 
         # Make axes
@@ -197,6 +215,8 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         # bin centres
         self.dspec_ax.axis([-0.5, self.nchans-0.5, -0.5, self.nsubs-0.5])
         self.prof_ax.set_xlim(0, self.nbins)
+            
+        self.canvas.draw()
 
     def buttonpress(self, event):
         if event.inaxes==self.dspec_ax and \
@@ -212,102 +232,132 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         elif event.key in ('m', 'm'):
             self.show_stats = not self.show_stats
             self.update_slice()
+        elif event.key=='>':
+            keys = sorted(func_info.keys())
+            currind = keys.index(self.func_key)
+            newind = (currind + 1)%len(keys)
+            newkey = keys[newind]
+            self.apply_diagnostic_function(newkey)
+            self.plot()
+            self.update_slice()
+        elif event.key=='<':
+            keys = sorted(func_info.keys())
+            currind = keys.index(self.func_key)
+            newind = (currind - 1)%len(keys)
+            newkey = keys[newind]
+            self.apply_diagnostic_function(newkey)
+            self.plot()
+            self.update_slice()
 
     def update_slice(self):
-            self.slice_info.set_text("Slicing along Chan: %d, Subint: %d" % \
-                        (self.chan, self.subint))
+        self.scale_info.set_text("Scaling: %s" % \
+                    (self.scale and "on" or "off"))
+        self.stats_info.set_text("Stats: %s" % \
+                    (self.show_stats and "shown" or "hidden"))
 
-            imaxlims = self.dspec_ax.axis()
-            profxlims = self.prof_ax.get_xlim()
-
-            self.hslice_ax.cla()
-            mask = (self.weights[self.subint, :]==0)
-            toplot = np.ma.masked_array(self.imdata[self.subint, :], mask=mask)
-            if self.scale:
-                toplot = clean_utils.iterative_detrend(toplot, order=2, numpieces=2)
-                toplot = clean_utils.iterative_detrend(toplot, order=1, numpieces=4)
-            indices = np.repeat(np.arange(-0.5, self.nchans+0.5, 1),2)[1:-1]
-            invertedmask = np.ma.masked_array(np.ones(self.nchans), mask=np.bitwise_not(mask))
-            self.hslice_ax.plot(indices, np.repeat(toplot,2), 'k-')
-            segments = np.ma.flatnotmasked_contiguous(invertedmask)
-            if segments:
-                for segment in segments:
-                    self.hslice_ax.axvspan(segment.start-0.5, segment.stop+0.5, fc='r', lw=0, alpha=0.2)
-            
-            if self.show_stats:
-                # Plot median and MAD
-                median = np.ma.median(toplot)
-                mad = np.ma.median(np.abs(toplot-median))
-                self.hslice_ax.axhline(median, c='k', ls='-')
-                self.hslice_ax.axhline(median+mad, c='k', ls='--')
-                self.hslice_ax.axhline(median-mad, c='k', ls='--')
-
-            self.vslice_ax.cla()
-            mask = (self.weights[:, self.chan]==0)
-            toplot = np.ma.masked_array(self.imdata[:,self.chan], mask=mask)
-            if self.scale:
-                toplot = clean_utils.iterative_detrend(toplot, order=1, numpieces=4)
-            indices = np.repeat(np.arange(-0.5, self.nsubs+0.5, 1),2)[1:-1]
-            invertedmask = np.ma.masked_array(np.ones(self.nsubs), mask=np.bitwise_not(mask))
-            self.vslice_ax.plot(np.repeat(toplot,2), indices, 'k-')
-            segments = np.ma.flatnotmasked_contiguous(invertedmask)
-            if segments:
-                for segment in np.ma.flatnotmasked_contiguous(invertedmask):
-                    self.vslice_ax.axhspan(segment.start-0.5, segment.stop+0.5, fc='r', lw=0, alpha=0.2)
-       
-            if self.show_stats:
-                # Plot median and MAD
-                median = np.ma.median(toplot)
-                mad = np.ma.median(np.abs(toplot-median))
-                self.vslice_ax.axvline(median, c='k', ls='-')
-                self.vslice_ax.axvline(median+mad, c='k', ls='--')
-                self.vslice_ax.axvline(median-mad, c='k', ls='--')
-
-            self.prof_ax.cla()
-            self.prof_ax.plot(np.arange(self.nbins), self.data[self.subint, self.chan], 'k-')
-
-            self.dspec_ax.axis(imaxlims)
-            self.prof_ax.set_xlim(profxlims)
-            
-            # Draw/move crosshairs
-            if self.hcrosshairs:
-                for ch in self.hcrosshairs:
-                    ch.set_ydata((self.subint, self.subint))
-            else:
-                self.hcrosshairs.append(self.dspec_ax.axhline(self.subint, \
-                                                    c='k', ls='-', alpha=0.5))
-                self.hcrosshairs.append(self.vsum_ax.axhline(self.subint, \
-                                                    c='k', ls='-', alpha=0.5))
-            
-            if self.vcrosshairs:
-                for ch in self.vcrosshairs:
-                    ch.set_xdata((self.chan, self.chan))
-            else:
-                self.vcrosshairs.append(self.dspec_ax.axvline(self.chan, \
-                                                    c='k', ls='-', alpha=0.5))
-                self.vcrosshairs.append(self.hsum_ax.axvline(self.chan, \
-                                                    c='k', ls='-', alpha=0.5))
-            
-            self.hslice_ax.axvline(self.chan, c='k', ls='-', alpha=0.5)
-            self.vslice_ax.axhline(self.subint, c='k', ls='-', alpha=0.5)
-
-            # Label axes
-            self.prof_ax.set_xlabel("Phase bin")
-            self.prof_ax.set_ylabel("Intensity")
-
-            # Turn off unused labels
-            plt.setp(self.hslice_ax.xaxis.get_ticklabels(), visible=False)
-            plt.setp(self.vslice_ax.yaxis.get_ticklabels(), visible=False)
-      
-            # Rotate tick labels
-            plt.setp(self.vsum_ax.xaxis.get_ticklabels(), rotation=45)
-            plt.setp(self.vslice_ax.xaxis.get_ticklabels(), rotation=45)
-
-            # Shift tick location
-            self.prof_ax.yaxis.set_ticks_position('right')
-            self.prof_ax.yaxis.set_label_position('right')
-
+        if self.chan is None and self.subint is None:
+            # Slices haven't been selected
             self.canvas.draw()
+            return
+        self.slice_info.set_text("Slicing along Chan: %s, Subint: %s" % \
+                    (self.chan, self.subint))
+        imaxlims = self.dspec_ax.axis()
+        profxlims = self.prof_ax.get_xlim()
+
+        self.hslice_ax.cla()
+        mask = (self.weights[self.subint, :]==0)
+        toplot = np.ma.masked_array(self.imdata[self.subint, :], mask=mask)
+        if self.scale:
+            toplot = clean_utils.iterative_detrend(toplot, order=2, numpieces=2)
+            toplot = clean_utils.iterative_detrend(toplot, order=1, numpieces=4)
+            median = np.ma.median(toplot)
+            mad = np.ma.median(np.abs(toplot-median))
+            toplot = (toplot-median)/mad
+        indices = np.repeat(np.arange(-0.5, self.nchans+0.5, 1),2)[1:-1]
+        invertedmask = np.ma.masked_array(np.ones(self.nchans), mask=np.bitwise_not(mask))
+        self.hslice_ax.plot(indices, np.repeat(toplot,2), 'k-')
+        segments = np.ma.flatnotmasked_contiguous(invertedmask)
+        if segments:
+            for segment in segments:
+                self.hslice_ax.axvspan(segment.start-0.5, segment.stop+0.5, fc='r', lw=0, alpha=0.2)
+        
+        if self.show_stats:
+            # Plot median and MAD
+            median = np.ma.median(toplot)
+            mad = np.ma.median(np.abs(toplot-median))
+            self.hslice_ax.axhline(median, c='k', ls='-')
+            self.hslice_ax.axhline(median+mad, c='k', ls='--')
+            self.hslice_ax.axhline(median-mad, c='k', ls='--')
+
+        self.vslice_ax.cla()
+        mask = (self.weights[:, self.chan]==0)
+        toplot = np.ma.masked_array(self.imdata[:,self.chan], mask=mask)
+        if self.scale:
+            toplot = clean_utils.iterative_detrend(toplot, order=1, numpieces=4)
+            median = np.ma.median(toplot)
+            mad = np.ma.median(np.abs(toplot-median))
+            toplot = (toplot-median)/mad
+        indices = np.repeat(np.arange(-0.5, self.nsubs+0.5, 1),2)[1:-1]
+        invertedmask = np.ma.masked_array(np.ones(self.nsubs), mask=np.bitwise_not(mask))
+        self.vslice_ax.plot(np.repeat(toplot,2), indices, 'k-')
+        segments = np.ma.flatnotmasked_contiguous(invertedmask)
+        if segments:
+            for segment in np.ma.flatnotmasked_contiguous(invertedmask):
+                self.vslice_ax.axhspan(segment.start-0.5, segment.stop+0.5, fc='r', lw=0, alpha=0.2)
+       
+        if self.show_stats:
+            # Plot median and MAD
+            median = np.ma.median(toplot)
+            mad = np.ma.median(np.abs(toplot-median))
+            self.vslice_ax.axvline(median, c='k', ls='-')
+            self.vslice_ax.axvline(median+mad, c='k', ls='--')
+            self.vslice_ax.axvline(median-mad, c='k', ls='--')
+
+        self.prof_ax.cla()
+        self.prof_ax.plot(np.arange(self.nbins), self.data[self.subint, self.chan], 'k-')
+
+        self.dspec_ax.axis(imaxlims)
+        self.prof_ax.set_xlim(profxlims)
+        
+        # Draw/move crosshairs
+        if self.hcrosshairs:
+            for ch in self.hcrosshairs:
+                ch.set_ydata((self.subint, self.subint))
+        else:
+            self.hcrosshairs.append(self.dspec_ax.axhline(self.subint, \
+                                                c='k', ls='-', alpha=0.5))
+            self.hcrosshairs.append(self.vsum_ax.axhline(self.subint, \
+                                                c='k', ls='-', alpha=0.5))
+        
+        if self.vcrosshairs:
+            for ch in self.vcrosshairs:
+                ch.set_xdata((self.chan, self.chan))
+        else:
+            self.vcrosshairs.append(self.dspec_ax.axvline(self.chan, \
+                                                c='k', ls='-', alpha=0.5))
+            self.vcrosshairs.append(self.hsum_ax.axvline(self.chan, \
+                                                c='k', ls='-', alpha=0.5))
+        
+        self.hslice_ax.axvline(self.chan, c='k', ls='-', alpha=0.5)
+        self.vslice_ax.axhline(self.subint, c='k', ls='-', alpha=0.5)
+
+        # Label axes
+        self.prof_ax.set_xlabel("Phase bin")
+        self.prof_ax.set_ylabel("Intensity")
+
+        # Turn off unused labels
+        plt.setp(self.hslice_ax.xaxis.get_ticklabels(), visible=False)
+        plt.setp(self.vslice_ax.yaxis.get_ticklabels(), visible=False)
+      
+        # Rotate tick labels
+        plt.setp(self.vsum_ax.xaxis.get_ticklabels(), rotation=45)
+        plt.setp(self.vslice_ax.xaxis.get_ticklabels(), rotation=45)
+
+        # Shift tick location
+        self.prof_ax.yaxis.set_ticks_position('right')
+        self.prof_ax.yaxis.set_label_position('right')
+
+        self.canvas.draw()
 
 
 class ComprehensiveDiagnosticFigure(matplotlib.figure.Figure):
