@@ -12,6 +12,7 @@ import re
 import shutil
 
 import numpy as np
+import scipy.stats
 import matplotlib.pyplot as plt
 
 import psrchive
@@ -74,7 +75,9 @@ def surgical_scrub(ar, chanthresh=None, subintthresh=None, binthresh=None):
             np.ma.ptp, \
             lambda data, axis: np.max(np.abs(np.fft.rfft(\
                                 data-np.expand_dims(data.mean(axis=axis), axis=axis), \
-                                    axis=axis)), axis=axis)]
+                                    axis=axis)), axis=axis), \
+            #lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[0], \
+            ]
     # Compute diagnostics
     diagnostics = []
     for func in diagnostic_functions:
@@ -102,9 +105,13 @@ def surgical_scrub(ar, chanthresh=None, subintthresh=None, binthresh=None):
     # Now step through data and identify bad profiles
     scaled_diagnostics = []
     for diag in diagnostics:
-        scaled_diagnostics.append((channel_scaler(diag)>chanthresh)|(subint_scaler(diag)>subintthresh))
+        chan_scaled = np.abs(channel_scaler(diag))/chanthresh
+        subint_scaled = np.abs(subint_scaler(diag))/subintthresh
+        scaled_diagnostics.append(np.max((chan_scaled, subint_scaled), axis=0))
 
-    for (isub, ichan) in np.argwhere(np.sum(scaled_diagnostics, axis=0)>2):
+    # RFI-ectomy must be recommended by average of tests
+    avg_test_results = scipy.stats.mstats.gmean(scaled_diagnostics, axis=0)
+    for (isub, ichan) in np.argwhere(avg_test_results>=1):
         # Be sure to set weights on the original archive, and
         # not the clone we've been working with.
         integ = ar.get_Integration(int(isub))
