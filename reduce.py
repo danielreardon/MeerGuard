@@ -176,11 +176,11 @@ class ReductionJob(object):
             # Create diagnostic plots for pre-cleaned data
             utils.print_info("Creating diagnostics for %s" % combinearf.fn, 1)
             for func_key in config.cfg.funcs_to_plot:
-                diagnose.make_diagnostic_figure(combinearf, \
-                                            rmprof=True, func_key=func_key)
+                diagnose.make_diagnostic_figure(combinearf, func_key, \
+                                            rmprof=True)
                 plt.savefig("%s_diag_noprof_%s.png" % (combinearf.fn, func_key), dpi=600)
-                diagnose.make_diagnostic_figure(combinearf, \
-                                            rmprof=False, func_key=func_key)
+                diagnose.make_diagnostic_figure(combinearf, func_key, \
+                                            rmprof=False)
                 plt.savefig("%s_diag_%s.png" % (combinearf.fn, func_key), dpi=600)
  
             # Clean the data
@@ -190,11 +190,11 @@ class ReductionJob(object):
             # Re-create diagnostic plots for clean data
             utils.print_info("Creating diagnostics for %s" % cleanarf.fn, 1)
             for func_key in config.cfg.funcs_to_plot:
-                diagnose.make_diagnostic_figure(cleanarf, \
-                                                rmprof=True, func_key=func_key)
+                diagnose.make_diagnostic_figure(cleanarf, func_key, \
+                                                rmprof=True)
                 plt.savefig("%s_diag_noprof_%s.png" % (cleanarf.fn, func_key), dpi=600)
-                diagnose.make_diagnostic_figure(cleanarf, \
-                                                rmprof=False, func_key=func_key)
+                diagnose.make_diagnostic_figure(cleanarf, func_key, \
+                                                rmprof=False)
                 plt.savefig("%s_diag_%s.png" % (cleanarf.fn, func_key), dpi=600)
 
             cleanarfs.append(cleanarf)
