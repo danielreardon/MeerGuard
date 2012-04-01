@@ -15,6 +15,11 @@ import sys
 import traceback
 
 import numpy as np
+import matplotlib
+# 'reduce.py' is not meant to used interactively, so choose 
+# a non-interactive matplotlib backend. This is a bit of a hack, 
+# in part because use(...) must be called before importing pyplot.
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import psrchive
 
@@ -225,7 +230,7 @@ def main():
     # Read configurations
     config.cfg.load_configs_for_archive(to_reduce[0])
   
-    job = ReductionJob(to_reduce, options.outfn)
+    job = ReductionJob(to_reduce, options.outfn, is_asterix=options.is_asterix)
     outfns, toastrs = job.run()
 
     print "Output file names:"
