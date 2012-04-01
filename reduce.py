@@ -225,6 +225,9 @@ def main():
     to_reduce = utils.exclude_files(file_list, to_exclude)
     print "Number of input files: %d" % len(to_reduce)
     
+    if not to_reduce:
+        raise errors.BadFile("No files to reduce!")
+
     to_reduce = [utils.ArchiveFile(fn) for fn in to_reduce]
     
     # Read configurations
