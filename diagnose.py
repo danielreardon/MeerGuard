@@ -79,15 +79,21 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         self.scale = False
         self.show_stats = False
 
+        # Compute diagnostics
+        utils.print_info("Computing diagnostic information...", 2)
+        self.avail_diagnostics = {}
+        for key, (title, func) in func_info.iteritems():
+            utils.print_info("Working on %s..." % title, 3)
+            self.avail_diagnostics[key] = func(self.data, axis=2)
+
         self.apply_diagnostic_function(func_key)
 
     def apply_diagnostic_function(self, func_key):
         self.func_key = func_key
-        self.title, self.func = func_info[func_key]
+        self.title = func_info[func_key][0]
+        utils.print_info("Loading %s..." % self.title, 2)
+        self.imdata = self.avail_diagnostics[func_key]
         
-        # Prep image data
-        self.imdata = self.func(self.data, axis=2)
-
     def connect_event_triggers(self):
         # Before setting up our own event handlers delete matplotlib's
         # default 'key_press_event' handler.
@@ -109,32 +115,34 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         self.vcrosshairs = []
 
         # Add text
-        self.text(0.02, 0.95, self.ar.get_source(), size='large', ha='left', va='center')
+        psrname = utils.get_prefname(self.ar.get_source()) 
+        self.text(0.02, 0.95, psrname, size='large', ha='left', va='center')
         self.text(0.02, 0.925, os.path.split(self.ar.get_filename())[-1], \
                         size='x-small', ha='left', va='center')
         if self.chan is None and self.subint is None:
                 # Slices haven't been selected
-            self.slice_info = self.text(0.725, 0.86, "Click on image to view slice", \
+            self.slice_info = self.text(0.02, 0.875, "Click on image to view slice", \
                         size='small', ha='left', va='center')
         else:
-            self.slice_info = self.text(0.725, 0.86, "Slicing along Chan: %s, Subint: %s" % \
+            self.slice_info = self.text(0.02, 0.875, "Slicing along Chan: %s, Subint: %s" % \
                         (self.chan, self.subint), \
                         size='small', ha='left', va='center')
-        self.scale_info = self.text(0.725, 0.84, "Scaling: %s" % \
+        self.scale_info = self.text(0.9, 0.65, "Scaling: %s" % \
                         (self.scale and "on" or "off"), \
                         size='small', ha='left', va='center')
-        self.stats_info = self.text(0.825, 0.84, "Stats: %s" % \
+        self.stats_info = self.text(0.9, 0.62, "Stats: %s" % \
                         (self.show_stats and "shown" or "hidden"), \
                         size='small', ha='left', va='center')
 
         # Make axes
-        self.dspec_ax = self.add_axes((0.1,0.1,0.6,0.6))
-        self.prof_ax = self.add_axes((0.725,0.7425,0.2,0.075))
-        self.hsum_ax = self.add_axes((0.1,0.7,0.6,0.075), sharex=self.dspec_ax)
-        self.vsum_ax = self.add_axes((0.7,0.1,0.075,0.6), sharey=self.dspec_ax)
-        self.hslice_ax = self.add_axes((0.1,0.785,0.6,0.075), sharex=self.dspec_ax)
-        self.vslice_ax = self.add_axes((0.785,0.1,0.075,0.6), sharey=self.dspec_ax)
-        self.cb_ax = self.add_axes((0.88,0.1,0.025,0.6), frameon=False)
+        self.dspec_ax = self.add_axes((0.05,0.05,0.6,0.6))
+        self.prof_ax = self.add_axes((0.675,0.8225,0.275,0.065))
+        self.fft_ax = self.add_axes((0.675,0.7125,0.275,0.065))
+        self.hsum_ax = self.add_axes((0.05,0.65,0.6,0.075), sharex=self.dspec_ax)
+        self.vsum_ax = self.add_axes((0.65,0.05,0.075,0.6), sharey=self.dspec_ax)
+        self.hslice_ax = self.add_axes((0.05,0.735,0.6,0.075), sharex=self.dspec_ax)
+        self.vslice_ax = self.add_axes((0.735,0.05,0.075,0.6), sharey=self.dspec_ax)
+        self.cb_ax = self.add_axes((0.83,0.05,0.025,0.6), frameon=False)
 
         # Turn off unused labels
         plt.setp(self.hsum_ax.xaxis.get_ticklabels(), visible=False)
@@ -149,10 +157,14 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         # Shift tick location
         self.prof_ax.yaxis.set_ticks_position('right')
         self.prof_ax.yaxis.set_label_position('right')
+        self.fft_ax.yaxis.set_ticks_position('right')
+        self.fft_ax.yaxis.set_label_position('right')
 
         # Label axes
         self.prof_ax.set_xlabel("Phase bin")
         self.prof_ax.set_ylabel("Intensity")
+        self.fft_ax.set_xlabel("Frequency (Hz)")
+        self.fft_ax.set_ylabel("Power")
 
         # Create colour normaliser
         if self.log:
@@ -248,6 +260,10 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
             self.apply_diagnostic_function(newkey)
             self.plot()
             self.update_slice()
+        elif event.key in ('z', 'Z'):
+            event.canvas.toolbar.zoom()
+        elif event.key == (' '):
+            event.canvas.toolbar.home()
 
     def update_slice(self):
         self.scale_info.set_text("Scaling: %s" % \
@@ -314,7 +330,16 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
             self.vslice_ax.axvline(median-mad, c='k', ls='--')
 
         self.prof_ax.cla()
-        self.prof_ax.plot(np.arange(self.nbins), self.data[self.subint, self.chan], 'k-')
+        profile = self.data[self.subint, self.chan]
+        self.prof_ax.plot(np.arange(self.nbins), profile, 'k-')
+        
+        self.fft_ax.cla()
+        profile -= profile.mean()
+        powers = np.abs(np.fft.rfft(profile))[:self.nbins/2]
+        period = self.ar.get_Integration(int(self.subint)).get_folding_period()
+        freqs = np.fft.fftfreq(self.nbins, period/self.nbins)[:self.nbins/2]
+        self.fft_ax.plot(freqs, powers, 'k-')
+        self.fft_ax.set_xlim(0, np.max(freqs))
 
         self.dspec_ax.axis(imaxlims)
         self.prof_ax.set_xlim(profxlims)
@@ -344,6 +369,8 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         # Label axes
         self.prof_ax.set_xlabel("Phase bin")
         self.prof_ax.set_ylabel("Intensity")
+        self.fft_ax.set_xlabel("Frequency (Hz)")
+        self.fft_ax.set_ylabel("Power")
 
         # Turn off unused labels
         plt.setp(self.hslice_ax.xaxis.get_ticklabels(), visible=False)
@@ -356,6 +383,8 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         # Shift tick location
         self.prof_ax.yaxis.set_ticks_position('right')
         self.prof_ax.yaxis.set_label_position('right')
+        self.fft_ax.yaxis.set_ticks_position('right')
+        self.fft_ax.yaxis.set_label_position('right')
 
         self.canvas.draw()
 
