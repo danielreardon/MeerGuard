@@ -15,8 +15,6 @@ import numpy as np
 import scipy.stats
 import matplotlib.pyplot as plt
 
-import psrchive
-
 import config
 import utils
 import clean_utils
@@ -44,6 +42,9 @@ def surgical_scrub(ar, chanthresh=None, subintthresh=None, binthresh=None):
         Outputs:
             None - The archive is cleaned in place.
     """
+    import psrchive # Temporarily, because python bindings 
+                    # are not available on all computers
+    
     if chanthresh is None:
         chanthresh = config.cfg.clean_chanthresh
     if subintthresh is None:
