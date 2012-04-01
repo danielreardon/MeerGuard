@@ -110,7 +110,8 @@ def surgical_scrub(ar, chanthresh=None, subintthresh=None, binthresh=None):
         scaled_diagnostics.append(np.max((chan_scaled, subint_scaled), axis=0))
 
     # RFI-ectomy must be recommended by average of tests
-    avg_test_results = scipy.stats.mstats.gmean(scaled_diagnostics, axis=0)
+    sorted_tests = np.sort(scaled_diagnostics, axis=0)
+    avg_test_results = scipy.stats.mstats.gmean(scaled_diagnostics[-2:], axis=0)
     for (isub, ichan) in np.argwhere(avg_test_results>=1):
         # Be sure to set weights on the original archive, and
         # not the clone we've been working with.
