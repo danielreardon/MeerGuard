@@ -16,6 +16,7 @@ import numpy as np
 import utils
 import clean
 import config
+import errors
 
 def combine_all(infns, outfn):
     """Given a list of ArchiveFile objects group them into sub-bands
@@ -201,8 +202,11 @@ def main():
     to_combine = utils.exclude_files(file_list, to_exclude)
     print "Number of input files: %d" % len(to_combine)
     
+    if not to_combine:
+        raise errors.BadFile("No files to combine!")
+
     to_combine = [utils.ArchiveFile(fn) for fn in to_combine]
-    
+     
     # Read configurations
     config.cfg.load_configs_for_archive(to_combine[0])
   
