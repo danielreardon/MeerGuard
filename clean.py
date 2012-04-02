@@ -455,6 +455,9 @@ def remove_bad_channels(infn, badchans=None, badchan_intervals=None,
 
 
 def clean_archive(inarf, outfn, clean_re=None, *args, **kwargs):
+    import psrchive # Temporarily, because python bindings 
+                    # are not available on all computers
+    
     if clean_re is None:
         clean_re = config.cfg.clean_strategy
     

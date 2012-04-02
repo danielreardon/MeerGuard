@@ -1,6 +1,6 @@
 #!/bin/bash
 
-RCVR_DIR="/homes/plazarus/research/pulsar-code/coast_guard/rcvr_files"
+RCVR_DIR="$HOME/research/pulsar-code/coast_guard/rcvr_files"
 
 echo "# $(date)"
 while (( "$#" )); do
