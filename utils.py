@@ -574,12 +574,6 @@ class ArchiveFile(object):
             self.hdr.update(get_header_vals(self.fn, [key]))
         return self.hdr[key]
     
-    def __getattr__(self, key):
-        if key=='__deepcopy__':
-            return None
-        else:
-            return self[key]
-
     def get_archive(self):
         if self.ar is None:
             import psrchive

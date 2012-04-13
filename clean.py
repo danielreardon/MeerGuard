@@ -303,8 +303,8 @@ def prune_band(infn, response=None):
     if response is None:
         utils.print_info("No freq range specified for band pruning. Skipping...", 2)
     else:
-        lofreq = infn.freq - 0.5*infn.bw
-        hifreq = infn.freq + 0.5*infn.bw
+        lofreq = infn['freq'] - 0.5*infn['bw']
+        hifreq = infn['freq'] + 0.5*infn['bw']
         utils.print_info("Pruning frequency band to (%g-%g MHz)" % response, 2)
         utils.execute('paz -m -F "%f %f" -F "%f %f" %s' % \
                         (lofreq, response[0], response[1], hifreq, infn.fn))
@@ -330,7 +330,7 @@ def trim_edge_channels(infn, nchan_to_trim=None):
     if nchan_to_trim > 0:
         utils.print_info("Trimming %d channels from subband edges " % \
                         nchan_to_trim, 2)
-        numchans = int(infn.nchan)
+        numchans = int(infn['nchan'])
         utils.execute('paz -m -Z "0 %d" -Z "%d %d" %s' % \
                     (nchan_to_trim-1, numchans-nchan_to_trim, numchans-1, infn.fn))
 

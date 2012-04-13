@@ -103,15 +103,15 @@ class CoastGuardConfigs(object):
         
         config_files = [] # A list of configuration files to look for
 
-        telescope = utils.site_to_telescope[arfn.telescop.lower()]
+        telescope = utils.site_to_telescope[arfn['telescop'].lower()]
         config_files.append(os.path.join(self.base_config_dir, 'telescopes', \
                                 "%s.cfg" % telescope.lower()))
         config_files.append(os.path.join(self.base_config_dir, 'receivers', \
-                                "%s.cfg" % arfn.rcvr.lower()))
+                                "%s.cfg" % arfn['rcvr'].lower()))
         config_files.append(os.path.join(self.base_config_dir, 'backends', \
-                                "%s.cfg" % arfn.backend.lower()))
+                                "%s.cfg" % arfn['backend'].lower()))
         config_files.append(os.path.join(self.base_config_dir, 'pulsars', \
-                                "%s.cfg" % arfn.name.upper()))
+                                "%s.cfg" % arfn['name'].upper()))
         config_files.append(os.path.join(self.base_config_dir, 'observations', \
                                 "%s.cfg" % os.path.split(arfn.fn)[-1]))
  

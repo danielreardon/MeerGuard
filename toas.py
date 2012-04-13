@@ -22,8 +22,8 @@ def get_standard(arf, base_standards_dir=None):
 
     stdfn = utils.get_outfn("%(name)s_%(telescop)s_%(rcvr)s_%(backend)s.std", arf)
     stdfn = stdfn.capitalize() # J/B should be capitalized, all the rest lower case
-    stdpath = os.path.join(base_standards_dir, arf.telescop.lower(), \
-                            arf.rcvr.lower(), arf.backend.lower())
+    stdpath = os.path.join(base_standards_dir, arf['telescop'].lower(), \
+                            arf['rcvr'].lower(), arf['backend'].lower())
     stdfn = os.path.join(stdpath, stdfn)
 
     return stdfn
