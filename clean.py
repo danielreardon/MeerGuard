@@ -45,13 +45,6 @@ def surgical_scrub(ar, chanthresh=None, subintthresh=None, binthresh=None):
     import psrchive # Temporarily, because python bindings 
                     # are not available on all computers
     
-    if chanthresh is None:
-        chanthresh = config.cfg.clean_chanthresh
-    if subintthresh is None:
-        subintthresh = config.cfg.clean_subintthresh
-    if binthresh is None:
-        binthresh = config.cfg.clean_binthresh
-   
     patient = ar.clone()
     patient.pscrunch()
     patient.remove_baseline()
@@ -64,55 +57,22 @@ def surgical_scrub(ar, chanthresh=None, subintthresh=None, binthresh=None):
     # re-set DM to 0
     patient.dededisperse()
     
+    # Get weights
+    weights = patient.get_weights()
     # Get data
     data = patient.get_data().squeeze()
-    data = clean_utils.apply_weights(data, patient.get_weights())
-
-    nsubs, nchans, nbins = data.shape
-
-    diagnostic_functions = [
-            np.ma.std, \
-            np.ma.mean, \
-            np.ma.ptp, \
-            lambda data, axis: np.max(np.abs(np.fft.rfft(\
-                                data-np.expand_dims(data.mean(axis=axis), axis=axis), \
-                                    axis=axis)), axis=axis), \
-            #lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[0], \
-            ]
-    # Compute diagnostics
-    diagnostics = []
-    for func in diagnostic_functions:
-        diagnostics.append(func(data, axis=2))
-
-    def channel_scaler(array2d):
-        scaled = np.empty_like(array2d)
-        for ichan in np.arange(nchans):
-            detrended = clean_utils.iterative_detrend(array2d[:,ichan], order=1, numpieces=4)
-            median = np.ma.median(detrended)
-            mad = np.ma.median(np.abs(detrended-median))
-            scaled[:, ichan] = (detrended-median)/mad
-        return scaled
-
-    def subint_scaler(array2d):
-        scaled = np.empty_like(array2d)
-        for isub in np.arange(nsubs):
-            detrended = clean_utils.iterative_detrend(array2d[isub,:], order=2, numpieces=2)
-            detrended = clean_utils.iterative_detrend(detrended, order=1, numpieces=4)
-            median = np.ma.median(detrended)
-            mad = np.ma.median(np.abs(detrended-median))
-            scaled[isub,:] = (detrended-median)/mad
-        return scaled
-        
-    # Now step through data and identify bad profiles
-    scaled_diagnostics = []
-    for diag in diagnostics:
-        chan_scaled = np.abs(channel_scaler(diag))/chanthresh
-        subint_scaled = np.abs(subint_scaler(diag))/subintthresh
-        scaled_diagnostics.append(np.max((chan_scaled, subint_scaled), axis=0))
-
+    data = clean_utils.apply_weights(data, weights)
+   
+    # Mask profiles where weight is 0
+    mask_2d = np.bitwise_not(np.expand_dims(weights, 2).astype(bool))
+    mask_3d = mask_2d.repeat(ar.get_nbin(), axis=2)
+    data = np.ma.masked_array(data, mask=mask_3d)
+    
     # RFI-ectomy must be recommended by average of tests
-    sorted_tests = np.sort(scaled_diagnostics, axis=0)
-    avg_test_results = scipy.stats.mstats.gmean(scaled_diagnostics[-2:], axis=0)
+    avg_test_results = clean_utils.comprehensive_stats(data, axis=2, \
+                                chanthresh=chanthresh, \
+                                subintthresh=subintthresh, \
+                                binthresh=binthresh)
     for (isub, ichan) in np.argwhere(avg_test_results>=1):
         # Be sure to set weights on the original archive, and
         # not the clone we've been working with.
