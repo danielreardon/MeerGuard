@@ -50,12 +50,15 @@ plt.rc('axes', labelsize='small')
 plt.rc(('xtick', 'ytick'), labelsize='x-small')
 
 class SlicerDiagnosticFigure(matplotlib.figure.Figure):
-    def __init__(self, arf, func_key, log=None, vmin=None, vmax=None, \
+    def __init__(self, arf, func_key, rmbaseline=None, dedisp=None, \
+                            rmprof=None, centre_prof=None, \
+                            log=None, vmin=None, vmax=None, \
                     *args, **kwargs):
         super(SlicerDiagnosticFigure, self).__init__(*args, **kwargs)
         self.arf = arf
         self.ar = self.arf.get_archive()
-        self.data = preprocess_archive_file(self.arf)
+        self.data = preprocess_archive_file(self.arf, rmbaseline, dedisp, \
+                                    rmprof, centre_prof)
 
         if log is None:
             self.log = config.cfg.logcolours
@@ -415,11 +418,16 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
 
 
 class ComprehensiveDiagnosticFigure(matplotlib.figure.Figure):
-    def __init__(self, ar, data, func_key, log=None, vmin=None, vmax=None, \
+    def __init__(self, arf, func_key, rmbaseline=None, dedisp=None, \
+                            rmprof=None, centre_prof=None, \
+                            log=None, vmin=None, vmax=None, \
                     *args, **kwargs):
         super(ComprehensiveDiagnosticFigure, self).__init__(*args, **kwargs)
-        self.ar = ar
-        self.data = data
+        self.arf = arf
+        self.ar = self.arf.get_archive()
+        self.data = preprocess_archive_file(self.arf, rmbaseline, dedisp, \
+                                    rmprof, centre_prof)
+
         if log is None:
             self.log = config.cfg.logcolours
         else:
@@ -443,8 +451,8 @@ class ComprehensiveDiagnosticFigure(matplotlib.figure.Figure):
         utils.print_info("Plotting %s..." % self.title.lower(), 2)
         
         # Add text
-        self.text(0.02, 0.95, ar.get_source(), size='large', ha='left', va='center')
-        self.text(0.02, 0.925, os.path.split(ar.get_filename())[-1], \
+        self.text(0.02, 0.95, self.arf['name'], size='large', ha='left', va='center')
+        self.text(0.02, 0.925, os.path.split(self.ar.get_filename())[-1], \
                         size='x-small', ha='left', va='center')
         self.text(0.02, 0.87, "Plotting: %s" % self.title.lower(), \
                         size='small', ha='left', va='center')
@@ -801,7 +809,7 @@ def make_diagnostic_figure(arf, func_re, diag_re='comprehensive', **kwargs):
     
 
 def preprocess_archive_file(arf, rmbaseline=None, dedisp=None, \
-                            rmprof=None, centre_prof=None, ):
+                            rmprof=None, centre_prof=None):
     if rmbaseline is None:
         rmbaseline = config.cfg.rmbaseline
     if dedisp is None:
