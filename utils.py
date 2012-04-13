@@ -551,6 +551,7 @@ def mjd_to_date(mjds):
 class ArchiveFile(object):
     def __init__(self, fn):
         self.fn = fn
+        self.ar = None
         if not os.path.isfile(self.fn):
             raise errors.BadFile("Archive file could not be found (%s)!" % \
                                     self.fn) 
@@ -574,7 +575,16 @@ class ArchiveFile(object):
         return self.hdr[key]
     
     def __getattr__(self, key):
-        return self[key]
+        if key=='__deepcopy__':
+            return None
+        else:
+            return self[key]
+
+    def get_archive(self):
+        if self.ar is None:
+            import psrchive
+            self.ar = psrchive.Archive_load(self.fn)
+        return self.ar
 
 
 class DefaultOptions(optparse.OptionParser):
