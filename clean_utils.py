@@ -21,6 +21,74 @@ def get_chan_weights(ar):
     return ar.get_weights().sum(axis=0)
 
 
+def comprehensive_stats(data, axis, chanthresh=None, subintthresh=None, binthresh=None):
+    """The comprehensive scaled stats that are used for
+        the "Surgical Scrub" cleaning strategy.
+
+        Inputs:
+            data: A 3-D numpy array.
+            axis: The axis that should be used for computing stats.
+
+        Output:
+            stats: A 2-D numpy array of stats.
+    """
+    if chanthresh is None:
+        chanthresh = config.cfg.clean_chanthresh
+    if subintthresh is None:
+        subintthresh = config.cfg.clean_subintthresh
+    if binthresh is None:
+        binthresh = config.cfg.clean_binthresh
+   
+    nsubs, nchans, nbins = data.shape
+    diagnostic_functions = [
+            np.ma.std, \
+            np.ma.mean, \
+            np.ma.ptp, \
+            lambda data, axis: np.max(np.abs(np.fft.rfft(\
+                                data-np.expand_dims(data.mean(axis=axis), axis=axis), \
+                                    axis=axis)), axis=axis), \
+            #lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[0], \
+            ]
+    # Compute diagnostics
+    diagnostics = []
+    for func in diagnostic_functions:
+        diagnostics.append(func(data, axis=2))
+
+    def channel_scaler(array2d):
+        scaled = np.empty_like(array2d)
+        for ichan in np.arange(nchans):
+            detrended = iterative_detrend(array2d[:,ichan], order=1, numpieces=4)
+            median = np.ma.median(detrended)
+            mad = np.ma.median(np.abs(detrended-median))
+            scaled[:, ichan] = (detrended-median)/mad
+        return scaled
+
+    def subint_scaler(array2d):
+        scaled = np.empty_like(array2d)
+        for isub in np.arange(nsubs):
+            detrended = iterative_detrend(array2d[isub,:], order=2, numpieces=2)
+            detrended = iterative_detrend(detrended, order=1, numpieces=4)
+            median = np.ma.median(detrended)
+            mad = np.ma.median(np.abs(detrended-median))
+            scaled[isub,:] = (detrended-median)/mad
+        return scaled
+        
+    # Now step through data and identify bad profiles
+    scaled_diagnostics = []
+    for diag in diagnostics:
+        chan_scaled = np.abs(channel_scaler(diag))/chanthresh
+        subint_scaled = np.abs(subint_scaler(diag))/subintthresh
+        #print diag[95,76], chan_scaled[95,76]*chanthresh, subint_scaled[95,76]*subintthresh, chan_scaled.dtype, subint_scaled.dtype
+        scaled_diagnostics.append(np.max((chan_scaled, subint_scaled), axis=0))
+
+    #for sd in scaled_diagnostics:
+    #    print sd[95, 76]
+    #sorted_tests = np.sort(scaled_diagnostics, axis=0)
+    #test_results = scipy.stats.mstats.gmean(scaled_diagnostics[-2:], axis=0)
+    test_results = np.median(scaled_diagnostics, axis=0)
+    return test_results
+
+
 def get_robust_std(data, weights, trimfrac=0.1):
     mdata = np.ma.masked_where(np.bitwise_not(weights), data)
     unmasked = mdata.compressed()
