@@ -10,6 +10,7 @@ import re
 import sys
 import os.path
 import optparse
+import copy
 
 import numpy as np
 import scipy.signal
@@ -27,17 +28,18 @@ import errors
 
 func_info = {'std': ("Standard Deviation", np.ma.std), \
              'mean': ("Average", np.ma.mean), \
-             'median': ("Median", np.ma.median), \
+             #'median': ("Median", np.ma.median), \
              'ptp': ("Max - Min", np.ma.ptp), \
-             'normality': ("Omnibus test of Normality", \
-                    lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[0]), \
+             #'normality': ("Omnibus test of Normality", \
+             #       lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[0]), \
              'periodicity': ("Periodic Signal Strength", \
                     lambda data, axis: np.max(np.abs(np.fft.rfft(\
                                 data-np.expand_dims(data.mean(axis=axis), axis=axis), \
                                     axis=axis)), axis=axis)), \
-             'mad': ("Median Absolute Deviation", \
-                    lambda data, axis: np.ma.median(np.abs(data - \
-                                np.expand_dims(np.ma.median(data, axis=axis), axis=axis)), axis=axis))}
+             #'mad': ("Median Absolute Deviation", \
+             #       lambda data, axis: np.ma.median(np.abs(data - \
+             #                   np.expand_dims(np.ma.median(data, axis=axis), axis=axis)), axis=axis)),
+             'surgical': ('Comprehensive Surgical Stats', clean_utils.comprehensive_stats)}
 
 diagnostics = ['SlicerDiagnosticFigure', 'ComprehensiveDiagnosticFigure']
 
@@ -48,11 +50,13 @@ plt.rc('axes', labelsize='small')
 plt.rc(('xtick', 'ytick'), labelsize='x-small')
 
 class SlicerDiagnosticFigure(matplotlib.figure.Figure):
-    def __init__(self, ar, data, func_key, log=None, vmin=None, vmax=None, \
+    def __init__(self, arf, func_key, log=None, vmin=None, vmax=None, \
                     *args, **kwargs):
         super(SlicerDiagnosticFigure, self).__init__(*args, **kwargs)
-        self.ar = ar
-        self.data = data
+        self.arf = arf
+        self.ar = self.arf.get_archive()
+        self.data = preprocess_archive_file(self.arf)
+
         if log is None:
             self.log = config.cfg.logcolours
         else:
@@ -82,9 +86,12 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         # Compute diagnostics
         utils.print_info("Computing diagnostic information...", 2)
         self.avail_diagnostics = {}
+        mask_2d = np.bitwise_not(np.expand_dims(self.weights, 2).astype(bool))
+        mask_3d = mask_2d.repeat(self.nbins, axis=2)
+        masked_data = np.ma.masked_array(self.data, mask=mask_3d)
         for key, (title, func) in func_info.iteritems():
             utils.print_info("Working on %s..." % title, 3)
-            self.avail_diagnostics[key] = func(self.data, axis=2)
+            self.avail_diagnostics[key] = func(masked_data, axis=2)
 
         self.apply_diagnostic_function(func_key)
 
@@ -119,13 +126,25 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         self.text(0.02, 0.95, psrname, size='large', ha='left', va='center')
         self.text(0.02, 0.925, os.path.split(self.ar.get_filename())[-1], \
                         size='x-small', ha='left', va='center')
+        self.text(0.25, 0.875, "Telescope: %s" % self.arf['telescop'], \
+                        size='small', ha='left', va='center')
+        self.text(0.25, 0.855, "Receiver: %s" % self.arf['rcvr'], \
+                        size='small', ha='left', va='center')
+        self.text(0.25, 0.835, "Backend: %s" % self.arf['backend'], \
+                        size='small', ha='left', va='center')
+                        
         if self.chan is None and self.subint is None:
                 # Slices haven't been selected
             self.slice_info = self.text(0.02, 0.875, "Click on image to view slice", \
                         size='small', ha='left', va='center')
+            self.selected_val = self.text(0.02, 0.855, "", \
+                        size='small', ha='left', va='center')
         else:
             self.slice_info = self.text(0.02, 0.875, "Slicing along Chan: %s, Subint: %s" % \
                         (self.chan, self.subint), \
+                        size='small', ha='left', va='center')
+            self.selected_val = self.text(0.02, 0.855, "Value: %s" % \
+                        (("%g" % self.imdata[self.subint, self.chan]) or 'masked'), \
                         size='small', ha='left', va='center')
         self.scale_info = self.text(0.9, 0.65, "Scaling: %s" % \
                         (self.scale and "on" or "off"), \
@@ -277,6 +296,8 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
             return
         self.slice_info.set_text("Slicing along Chan: %s, Subint: %s" % \
                     (self.chan, self.subint))
+        select_str = "Value: %s" % \
+                (("%g" % self.imdata[self.subint, self.chan]) or 'masked')
         imaxlims = self.dspec_ax.axis()
         profxlims = self.prof_ax.get_xlim()
 
@@ -289,6 +310,7 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
             median = np.ma.median(toplot)
             mad = np.ma.median(np.abs(toplot-median))
             toplot = (toplot-median)/mad
+        select_str += " %g" % toplot[self.chan]
         indices = np.repeat(np.arange(-0.5, self.nchans+0.5, 1),2)[1:-1]
         invertedmask = np.ma.masked_array(np.ones(self.nchans), mask=np.bitwise_not(mask))
         self.hslice_ax.plot(indices, np.repeat(toplot,2), 'k-')
@@ -313,6 +335,7 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
             median = np.ma.median(toplot)
             mad = np.ma.median(np.abs(toplot-median))
             toplot = (toplot-median)/mad
+        select_str += " %g" % toplot[self.subint]
         indices = np.repeat(np.arange(-0.5, self.nsubs+0.5, 1),2)[1:-1]
         invertedmask = np.ma.masked_array(np.ones(self.nsubs), mask=np.bitwise_not(mask))
         self.vslice_ax.plot(np.repeat(toplot,2), indices, 'k-')
@@ -343,6 +366,8 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
 
         self.dspec_ax.axis(imaxlims)
         self.prof_ax.set_xlim(profxlims)
+        
+        self.selected_val.set_text(select_str)
         
         # Draw/move crosshairs
         if self.hcrosshairs:
@@ -745,18 +770,8 @@ def foo():
         plt.savefig(basename+"_freq-vs-phase.png")
 
 
-def make_diagnostic_figure(arf, func_re, diag_re='comprehensive', \
-                            rmbaseline=None, dedisp=None, \
-                            rmprof=None, centre_prof=None, **kwargs):
-    if rmbaseline is None:
-        rmbaseline = config.cfg.rmbaseline
-    if dedisp is None:
-        dedisp = config.cfg.dedisp
-    if rmprof is None:
-        rmprof = config.cfg.rmprof
-    if centre_prof is None:
-        centre_prof = config.cfg.centre_prof
-
+def make_diagnostic_figure(arf, func_re, diag_re='comprehensive', **kwargs):
+    arf_copy = copy.deepcopy(arf)
     matching_func_keys = [fk for fk in func_info.keys() if re.search(func_re, fk)]
     if len(matching_func_keys) == 1:
         func_key = matching_func_keys[0]
@@ -777,7 +792,26 @@ def make_diagnostic_figure(arf, func_re, diag_re='comprehensive', \
                                      "'%s' has %d matches." % \
                                      (diag_re, len(matching_diagnostics)))
 
-    ar = psrchive.Archive_load(arf.fn)
+    fig = plt.figure(figsize=(11,8), FigureClass=diagnostic_class, 
+                arf=arf_copy, func_key=func_key, **kwargs)
+    fig.connect_event_triggers()
+    # Plot data
+    fig.plot()
+    return fig
+    
+
+def preprocess_archive_file(arf, rmbaseline=None, dedisp=None, \
+                            rmprof=None, centre_prof=None, ):
+    if rmbaseline is None:
+        rmbaseline = config.cfg.rmbaseline
+    if dedisp is None:
+        dedisp = config.cfg.dedisp
+    if rmprof is None:
+        rmprof = config.cfg.rmprof
+    if centre_prof is None:
+        centre_prof = config.cfg.centre_prof
+
+    ar = arf.get_archive()
     ar.pscrunch()
    
     if centre_prof:
@@ -801,13 +835,7 @@ def make_diagnostic_figure(arf, func_re, diag_re='comprehensive', \
         ar.dededisperse()
     
     data = ar.get_data().squeeze()
-    data = clean_utils.apply_weights(data, ar.get_weights())
-    fig = plt.figure(figsize=(11,8), FigureClass=diagnostic_class, 
-                ar=ar, data=data, func_key=func_key, **kwargs)
-    fig.connect_event_triggers()
-    # Plot data
-    fig.plot()
-    return fig
+    return clean_utils.apply_weights(data, ar.get_weights())
 
 
 def main():
