@@ -310,7 +310,7 @@ def prune_band(infn, response=None):
                         (lofreq, response[0], response[1], hifreq, infn.fn))
 
 
-def trim_edge_channels(infn, nchan_to_trim=None):
+def trim_edge_channels(infn, nchan_to_trim=None, frac_to_trim=None):
     """Trim the edge channels of an input file to remove 
         band-pass roll-off and the effect of aliasing. 
         The file is modified in-place. However, zero-weighting 
@@ -320,12 +320,16 @@ def trim_edge_channels(infn, nchan_to_trim=None):
             infn: name of file to trim.
             nchan_to_trim: The number of channels to de-weight at
                 each edge of the band.
+            frac_to_trim: The fraction of the edge of each bad to
+                de-weight (a floating-point number between 0 and 0.5).
 
         Outputs:
             None
     """
     if nchan_to_trim is None:
         nchan_to_trim=config.cfg.nchan_to_trim
+    if frac_to_trim is None:
+        frac_to_trim=config.cfg.frac_to_trim
 
     if nchan_to_trim > 0:
         utils.print_info("Trimming %d channels from subband edges " % \
@@ -333,6 +337,10 @@ def trim_edge_channels(infn, nchan_to_trim=None):
         numchans = int(infn['nchan'])
         utils.execute('paz -m -Z "0 %d" -Z "%d %d" %s' % \
                     (nchan_to_trim-1, numchans-nchan_to_trim, numchans-1, infn.fn))
+    if frac_to_trim > 0:
+        utils.print_info("Trimming %g %% from subband edges " % \
+                        frac_to_trim*100, 2)
+        utils.execute('paz -m -E %f %s' % (frac_to_trim*100, infn.fn))
 
 
 def remove_bad_subints(infn, badsubints=None, badsubint_intervals=None):
