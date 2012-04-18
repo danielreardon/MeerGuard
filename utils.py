@@ -282,7 +282,7 @@ def group_by_ctr_freq(infns):
                 names with all the same centre frequency.
 
     """
-    ctr_freqs = np.asarray([fn.freq for fn in infns])
+    ctr_freqs = np.asarray([fn['freq'] for fn in infns])
     groups_dict = {}
     for ctr_freq in np.unique(ctr_freqs):
         # Collect the input files that are part of this sub-band
@@ -322,7 +322,7 @@ def group_subints(infns):
     for infn in infns:
         dir, fn = os.path.split(infn.fn)
         if fn in intersection:
-            subbands_dict.setdefault(float(infn.freq), list()).append(infn)
+            subbands_dict.setdefault(float(infn['freq']), list()).append(infn)
     return subbands_dict
 
 

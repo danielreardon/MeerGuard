@@ -85,7 +85,7 @@ def group_files(infns, maxspan=None, maxgap=None):
         maxspan = config.cfg.combine_maxspan
     if maxgap is None:
         maxgap = config.cfg.combine_maxgap
-    mjds = np.array([fn.mjd for fn in infns])
+    mjds = np.array([fn['mjd'] for fn in infns])
     mjdind = np.argsort(mjds)
 
     # Sort infiles and MJDs based on MJD
@@ -102,8 +102,8 @@ def group_files(infns, maxspan=None, maxgap=None):
     start_secs = sorted(subints.keys())
     subint0 = subints[start_secs[0]]
     groups = [subint0]
-    last_subint_end = start_secs[0]+subint0[0].length
-    span = subint0[0].length
+    last_subint_end = start_secs[0]+subint0[0]['length']
+    span = subint0[0]['length']
 
     for secs in start_secs[1:]:
         gap = secs - last_subint_end
@@ -111,15 +111,15 @@ def group_files(infns, maxspan=None, maxgap=None):
         if gap >= maxgap:
             groups.append(subint)
             utils.print_info("Starting new subint (gap=%g >= %g)." % (gap, maxgap), 2)
-            span = subint[0].length
+            span = subint[0]['length']
         elif span >= maxspan:
             groups.append(subint)
             utils.print_info("Starting new subint (span=%g >= %g)." % (span, maxspan), 2)
-            span = subint[0].length
+            span = subint[0]['length']
         else:
             groups[-1].extend(subint)
-            span += subint[0].length
-        last_subint_end = secs + subint[0].length
+            span += subint[0]['length']
+        last_subint_end = secs + subint[0]['length']
     return groups
 
 
@@ -177,7 +177,7 @@ def check_files(infns, expected_nsubbands=None):
 
     subints = {}
     for infn in infns:
-        subint = subints.setdefault((infn.yyyymmdd, infn.secs), [])
+        subint = subints.setdefault((infn['yyyymmdd'], infn['secs']), [])
         subint.append(infn)
 
     outfns = []
