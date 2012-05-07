@@ -507,6 +507,10 @@ if __name__=="__main__":
                         callback=parser.override_config, type='int', \
                         help="The number of channels to trim from the edge of each " \
                             "subband. (Default: %d)" % config.cfg.nchan_to_trim)
+    parser.add_option('--frac-to-trim', dest='frac_to_trim', action='callback', \
+                        callback=parser.override_config, type='int', \
+                        help="The fraction of channels to trim from the edge of each " \
+                            "subband. (Default: %g)" % config.cfg.frac_to_trim)
     parser.add_option('--rcvr-response-lims', dest='rcvr_response_lims', \
                         action='callback', callback=parser.override_config, \
                         type='int', nargs=2, \

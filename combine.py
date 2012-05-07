@@ -85,6 +85,9 @@ def group_files(infns, maxspan=None, maxgap=None):
         maxspan = config.cfg.combine_maxspan
     if maxgap is None:
         maxgap = config.cfg.combine_maxgap
+    if not infns:
+        return []
+    utils.print_debug("infns: %s\nTotal: %d files" % (infns, len(infns)), 'combine')
     mjds = np.array([fn['mjd'] for fn in infns])
     mjdind = np.argsort(mjds)
 
@@ -250,6 +253,10 @@ if __name__=="__main__":
                         callback=parser.override_config, type='int', \
                         help="The number of channels to trim from the edge of each " \
                             "subband. (Default: %d)" % config.cfg.nchan_to_trim)
+    parser.add_option('--frac-to-trim', dest='frac_to_trim', action='callback', \
+                        callback=parser.override_config, type='int', \
+                        help="The fraction of channels to trim from the edge of each " \
+                            "subband. (Default: %g)" % config.cfg.frac_to_trim)
     parser.add_option('--max-span', dest='combine_maxspan', action='callback', \
                         callback=parser.override_config, type='int', \
                         help="Max number of seconds a combined archive can span. " \
