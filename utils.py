@@ -58,6 +58,9 @@ site_to_telescope = {'i': 'WSRT',
                      'sardinia': 'SRT',
                      'srt': 'SRT'}
 
+# A cache for pulsar preferred names
+prefname_cache = {}
+
 def print_info(msg, level=1):
     """Print an informative message if the current verbosity is
         higher than the 'level' of this message.
@@ -433,22 +436,28 @@ def get_prefname(psrname):
         Output:
             prefname: Preferred name of the pulsar.
     """
-    cmd = "psrcat -nohead -nonumber -c 'PSRJ PSRB' -o short -null '' '%s'" % psrname
-    stdout, stderr = execute(cmd)
+    global prefname_cache
 
-    names = [line.strip().split() for line in stdout.split('\n') \
-                    if line.strip() and not line.startswith("WARNING:")]
-    
-    if len(names) == 1:
-        prefname = names[0][-1]
-    elif len(names) == 0:
-        prefname = psrname
-        warnings.warn("Pulsar name '%s' cannot be found in psrcat. " \
-                        "No preferred name available." % psrname, \
-                        errors.CoastGuardWarning)
+    if psrname in prefname_cache:
+        prefname = prefname_cache[psrname]
     else:
-        raise errors.BadPulsarNameError("Pulsar name '%s' has a bad number of " \
-                                "matches (%d) in psrcat" % (psrname, len(names)))
+        cmd = "psrcat -nohead -nonumber -c 'PSRJ PSRB' -o short -null '' '%s'" % psrname
+        stdout, stderr = execute(cmd)
+
+        names = [line.strip().split() for line in stdout.split('\n') \
+                        if line.strip() and not line.startswith("WARNING:")]
+    
+        if len(names) == 1:
+            prefname = names[0][-1]
+        elif len(names) == 0:
+            prefname = psrname
+            warnings.warn("Pulsar name '%s' cannot be found in psrcat. " \
+                            "No preferred name available." % psrname, \
+                            errors.CoastGuardWarning)
+        else:
+            raise errors.BadPulsarNameError("Pulsar name '%s' has a bad number of " \
+                                    "matches (%d) in psrcat" % (psrname, len(names)))
+        prefname_cache[psrname] = prefname
     return prefname
 
 
