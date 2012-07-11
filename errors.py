@@ -51,6 +51,11 @@ class HeaderCorrectionError(CoastGuardError):
 class DiagnosticError(CoastGuardError):
     pass
 
+
+class InputError(CoastGuardError):
+    pass
+
+
 # Custom Warnings
 class CoastGuardWarning(Warning):
     def __str__(self):
