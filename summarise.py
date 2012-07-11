@@ -5,12 +5,16 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
-from coast_guard import config
-from coast_guard import utils
+import config
+import utils
+import errors
 
 TOP = 0.95
 BOT = 0.05
+LEFT = 0.05
+RIGHT = 0.98
 
+TEXT_SIZE = 8 # pt
 
 def get_archives(arfns, centre_prof=None, \
                     sortkeys=['mjd', 'rcvr', 'name']):
@@ -39,26 +43,49 @@ def get_archives(arfns, centre_prof=None, \
     return arfs
 
 
-def plot(arfs, scale_indep=False):
+def plot(arfs, scale_indep=False, numcols=1):
     psrs = set([arf['name'] for arf in arfs])
 
-    first = True
-    fig = plt.figure(figsize=(8,10))
-    plot_height = (TOP-BOT)/len(arfs)
+    numpercol = int(np.ceil(len(arfs)/float(numcols)))
+
+    plot_height = (TOP-BOT)/numpercol
+    panel_width = (RIGHT-LEFT)/(numcols) # The "panel" includes plots+text
+    if len(psrs) > 1:
+        text_width = 0.225
+    else:
+        text_width = 0.15
+    plot_width = panel_width-text_width
     mins = []
     maxs = []
+    fig = plt.figure(figsize=(8,10))
+    first = True
+    oldcol = 0
     for ii, arf in enumerate(arfs):
+        col = ii/numpercol
+        row = ii % numpercol
+
+        top = TOP - plot_height*row
+        left = LEFT + panel_width*col
+
+        if oldcol < col:
+            # We've moved onto a new column, label the previous axes
+            # Turn on tick labels for the bottom plot, and add a label
+            plt.xlabel("Phase", size='small')
+            plt.setp(plt.gca().xaxis.get_ticklabels(), visible=True, \
+                        size='x-small', rotation=30)
+            oldcol = col
+
         if first:
-            ax0 = plt.axes([0.05, TOP-plot_height*(ii+1), 0.7, plot_height])
+            ax0 = plt.axes([left, top-plot_height, plot_width, plot_height])
             plt.setp(ax0.xaxis.get_ticklabels(), visible=False)
             plt.setp(ax0.yaxis.get_ticklabels(), visible=False)
             first = False
         else:
             if scale_indep:
-                ax = plt.axes([0.05, TOP-plot_height*(ii+1), 0.7, plot_height], \
+                ax = plt.axes([left, top-plot_height, plot_width, plot_height], \
                                 sharex=ax0)
             else:
-                ax = plt.axes([0.05, TOP-plot_height*(ii+1), 0.7, plot_height], \
+                ax = plt.axes([left, top-plot_height, plot_width, plot_height], \
                                 sharex=ax0, sharey=ax0)
             plt.setp(ax.xaxis.get_ticklabels(), visible=False)
             plt.setp(ax.yaxis.get_ticklabels(), visible=False)
@@ -80,25 +107,22 @@ def plot(arfs, scale_indep=False):
 
         # Add some text
         if len(psrs) > 1:
-            plt.figtext(0.77, TOP-plot_height*ii-0.017, "%(name)s" % arf, \
-                        va='bottom', ha='left', size='x-small')
-            plt.figtext(0.88, TOP-plot_height*ii-0.022, "MJD: %(mjd).2f" % arf, \
+            plt.figtext(left+plot_width+0.02, top-0.001, "%(name)s" % arf, \
+                        va='top', ha='left', size='x-small')
+            plt.figtext(left+plot_width+0.13, top-0.013, "MJD: %(mjd).2f" % arf, \
                         va='top', ha='left', size='xx-small')
-            plt.figtext(0.77, TOP-plot_height*ii-0.022, "%(rcvr)s" % arf, \
-                        va='top', ha='left', size='xx-small')
-            plt.figtext(0.82, TOP-plot_height*ii-0.022, "(%(length)d s)" % arf, \
+            plt.figtext(left+plot_width+0.02, top-0.013, "%(rcvr)s  (%(length)d s)" % arf, \
                         va='top', ha='left', size='xx-small')
         else:
-            plt.figtext(0.77, TOP-plot_height*ii-0.017, "MJD: %(mjd).2f" % arf, \
-                        va='bottom', ha='left', size='xx-small')
-            plt.figtext(0.77, TOP-plot_height*ii-0.022, "%(rcvr)s" % arf, \
+            plt.figtext(left+plot_width+0.02, top-0.001, "MJD: %(mjd).2f" % arf, \
                         va='top', ha='left', size='xx-small')
-            plt.figtext(0.82, TOP-plot_height*ii-0.022, "(%(length)d s)" % arf, \
+            plt.figtext(left+plot_width+0.02, top-0.013, "%(rcvr)s  (%(length)d s)" % arf, \
                         va='top', ha='left', size='xx-small')
 
     # Turn on tick labels for the bottom plot, and add a label
-    plt.xlabel("Phase")
-    plt.setp(plt.gca().xaxis.get_ticklabels(), visible=True)
+    plt.xlabel("Phase", size='small')
+    plt.setp(plt.gca().xaxis.get_ticklabels(), visible=True, \
+                    size='x-small', rotation=30)
 
     plt.xlim(0, 1)
     if not scale_indep:
@@ -111,11 +135,14 @@ def plot(arfs, scale_indep=False):
 
 def main():
     arfns = args
+    if not len(arfns):
+        raise errors.InputError("No input archives provided! " \
+                                "Here's your summary: NOTHING!")
     print "Making summary plot of %d files" % len(arfns)
     arfs = get_archives(arfns, options.centre_prof, options.sortkeys)
-    plot(arfs, options.scale_indep)
+    plot(arfs, options.scale_indep, numcols=options.numcols)
     if options.savefn:
-        plt.savefig(savefn)
+        plt.savefig(options.savefn)
     if options.interactive:
         plt.show()
 
@@ -147,7 +174,11 @@ if __name__ == "__main__":
             "vap-recognized keywords. Multiple --sort options can " \
             "be provided. Options provided later will take precedent " \
             "over previous options. (Default: Sort by MJD, receiver, " \
-            " and source name.)")
+            "then source name.)")
+    parser.add_option('--numcols', dest='numcols', \
+        default=1, type='int', \
+        help="Number of columns to arrange plots into. (Default: use " \
+            "a one-column format.)")
     options, args = parser.parse_args()
     if not options.sortkeys:
         options.sortkeys = ['mjd', 'rcvr', 'name']
