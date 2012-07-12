@@ -5,4 +5,4 @@ import utils
 import toas
 
 arf = utils.ArchiveFile(sys.argv[1])
-print toas.get_standard(arf)
+print toas.get_standard(arf, analytic=False)

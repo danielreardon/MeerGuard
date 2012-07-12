@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import os
 import os.path
 
@@ -5,26 +6,33 @@ import utils
 import config
 import errors
 
-def get_standard(arf, base_standards_dir=None):
+def get_standard(arf, base_standards_dir=None, analytic=None):
     """Given an archive file name return the name of the 
         standard profile to use for TOA fitting.
 
         Input:
             arf: An ArchiveFile object for which we want to get a standard.
             base_stddir: The base directory containing standard profiles.
-                (Default: The current working directory)
+                (Default: Use value from configuration file.)
+            analytic: True if an analytic profile should be returned.
+                (Default: Use value from configuration file.)
 
         Output:
             std: The name of the standard profile.
     """
     if base_standards_dir is None:
         base_standards_dir = config.cfg.base_standards_dir
+    if analytic is None:
+        analytic = config.cfg.use_analytic
 
-    stdfn = utils.get_outfn("%(name)s_%(telescop)s_%(rcvr)s_%(backend)s.std", arf)
-    stdfn = stdfn.capitalize() # J/B should be capitalized, all the rest lower case
-    stdpath = os.path.join(base_standards_dir, arf['telescop'].lower(), \
+    if analytic:
+        fn = utils.get_outfn("%(name)s_%(telescop)s_%(rcvr)s_%(backend)s.m", arf)
+    else:
+        fn = utils.get_outfn("%(name)s_%(telescop)s_%(rcvr)s_%(backend)s.std", arf)
+    fn = stdfn.capitalize() # J/B should be capitalized, all the rest lower case
+    path = os.path.join(base_standards_dir, arf['telescop'].lower(), \
                             arf['rcvr'].lower(), arf['backend'].lower())
-    stdfn = os.path.join(stdpath, stdfn)
+    fn = os.path.join(path, fn)
 
     return stdfn
 
@@ -59,8 +67,17 @@ def get_toas(arf, stdfn, nsubint=None, nchan=None, makediag=True, \
         method = config.cfg.toa_method
     if fmt is None:
         fmt = config.cfg.toa_format
+
     # Prepare most of call to 'pat'
-    patcmd = "pat -s %s -A %s -f %s " % (stdfn, method, fmt)
+    if stdfn.endswith(".std"):
+        patcmd = "pat -s %s -A %s -f %s " % (stdfn, method, fmt)
+    elif stdfn.endswith(".m"):
+        patcmd = "pat -m %s -A %s -f %s " % (stdfn, method, fmt)
+    else:
+        raise errors.StandardProfileError("Only standards with filename " \
+                            "extensions of '.std' and '.m' are recognized. " \
+                            "(Standard provided: %s)" % stdfn)
+
     if makediag:
         patcmd += "-t "
 
@@ -111,9 +128,9 @@ def main():
         config.cfg.load_configs_for_archive(arf)
         stdfn = get_standard(arf)
         if not os.path.isfile(stdfn):
-            raise errors.NoStandardProfileError("The standard profile (%s) " \
+            raise errors.StandardProfileError("The standard profile (%s) " \
                                             "cannot be found!" % stdfn)
-        toastrs = get_toas(arf.fn, stdfn)
+        toastrs = get_toas(arf, stdfn)
         for toastr in toastrs:
             print toastr
 
@@ -162,5 +179,26 @@ if __name__=="__main__":
                         callback=parser.override_config, type='string', \
                         help="The base directory containing standard profiles. " \
                              "(Default: %s)" % config.cfg.base_standards_dir)
+    parser.add_option('-t', '--template', dest='template', \
+                        help="The template to use. This may be " \
+                            "a standard profile (*.std), or an analytic " \
+                            "template (*.m). No other filename extensions " \
+                            "are recognized. (Default: automatically grab " \
+                            "template for this pulsar, telescope, receiver, " \
+                            "and backend combination.)")
+    parser.add_option('-m', '--use-analytic', dest="analytic", action='callback', \
+                        callback=parser.set_override_config, \
+                        help="Use an analytic template (*.m). NOTE: This only " \
+                            "applies if the template is automatically " \
+                            "fetched. (Default: %s)" % \
+                            ((config.cfg.analytic and "Use analytic") or \
+                                    "Use standard profile"))
+    parser.add_option('-s', '--use-standard', dest="analytic", action='callback', \
+                        callback=parser.unset_override_config, \
+                        help="Use a stardard profile (*.std). NOTE: This only " \
+                            "applies if the template is automatically " \
+                            "fetched. (Default: %s)" % \
+                            ((config.cfg.analytic and "Use analytic") or \
+                                    "Use standard profile"))
     options, args = parser.parse_args()
     main()
