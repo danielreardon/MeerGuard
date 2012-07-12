@@ -23,18 +23,18 @@ def get_standard(arf, base_standards_dir=None, analytic=None):
     if base_standards_dir is None:
         base_standards_dir = config.cfg.base_standards_dir
     if analytic is None:
-        analytic = config.cfg.use_analytic
+        analytic = config.cfg.analytic
 
     if analytic:
         fn = utils.get_outfn("%(name)s_%(telescop)s_%(rcvr)s_%(backend)s.m", arf)
     else:
         fn = utils.get_outfn("%(name)s_%(telescop)s_%(rcvr)s_%(backend)s.std", arf)
-    fn = stdfn.capitalize() # J/B should be capitalized, all the rest lower case
+    fn = fn.capitalize() # J/B should be capitalized, all the rest lower case
     path = os.path.join(base_standards_dir, arf['telescop'].lower(), \
                             arf['rcvr'].lower(), arf['backend'].lower())
     fn = os.path.join(path, fn)
 
-    return stdfn
+    return fn
 
 
 def get_toas(arf, stdfn, nsubint=None, nchan=None, makediag=True, \
@@ -132,7 +132,14 @@ def main():
                                             "cannot be found!" % stdfn)
         toastrs = get_toas(arf, stdfn)
         for toastr in toastrs:
+            flagstrs = [utils.get_outfn(flag, arf) for flag in config.cfg.flags]
+            if flagstrs:
+                toastr = toastr + " " + " ".join(flagstrs) 
             print toastr
+
+
+def purge_flags_callback(option, opt_str, value, parser):
+    config.cfg.flags[:] = []
 
 
 if __name__=="__main__":
@@ -200,5 +207,15 @@ if __name__=="__main__":
                             "fetched. (Default: %s)" % \
                             ((config.cfg.analytic and "Use analytic") or \
                                     "Use standard profile"))
+    parser.add_option('-f', '--flag', dest='flags', \
+                        action='append', default=config.cfg.flags, \
+                        help="Add the following flag to each TOA line. " \
+                            "Be sure to include both the flag name and value. " \
+                            "Also, make sure you properly quote your flag+value. " \
+                            "(Default: '%s')" % "', '".join(config.cfg.flags))
+    parser.add_option('--burn-flags', dest='flags', action='callback', \
+                        callback=purge_flags_callback, \
+                        help="Remove all flags (including those previously " \
+                                "added on the command line).")
     options, args = parser.parse_args()
     main()
