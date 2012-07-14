@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 
 import sys
+import os.path
+import datetime
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,33 +10,32 @@ import matplotlib.pyplot as plt
 import config
 import utils
 import errors
+import toas
+import clean_utils
 
 TOP = 0.95
 BOT = 0.05
 LEFT = 0.05
 RIGHT = 0.98
 
-TEXT_SIZE = 8 # pt
 
-def get_archives(arfns, centre_prof=None, \
-                    sortkeys=['mjd', 'rcvr', 'name']):
-    if centre_prof is None:
-        centre_prof = config.cfg.centre_prof
-
+def get_archives(arfns, sortkeys=['mjd', 'rcvr', 'name']):
     arfs = [utils.ArchiveFile(arfn) for arfn in arfns]
     for sortkey in sortkeys:
-        utils.print_info("Sorting by %s..." % sortkey, 2)
-        if utils.header_param_types.get(sortkey) == str:
-            arfs.sort(key=lambda x: x[sortkey].lower())
+        if sortkey.endswith("_rev"):
+            sortkey = sortkey[:-4]
+            rev = True
+            utils.print_info("Sorting (in reverse) by %s..." % sortkey, 2)
         else:
-            arfs.sort(key=lambda x: x[sortkey])
+            rev = False
+            utils.print_info("Sorting by %s..." % sortkey, 2)
+        if utils.header_param_types.get(sortkey) == str:
+            arfs.sort(key=lambda x: x[sortkey].lower(), reverse=rev)
+        else:
+            arfs.sort(key=lambda x: x[sortkey], reverse=rev)
 
-    if centre_prof:
-        utils.print_info("Centering profile...", 2)
     for arf in arfs:
         ar = arf.get_archive()
-        if centre_prof:
-            ar.centre_max_bin()
         ar.dedisperse()
         ar.remove_baseline()
         ar.fscrunch()
@@ -43,8 +44,14 @@ def get_archives(arfns, centre_prof=None, \
     return arfs
 
 
-def plot(arfs, scale_indep=False, numcols=1):
+def plot(arfs, scale_indep=False, numcols=1, show_template=False, \
+                    centre_prof=None):
+    if centre_prof is None:
+        centre_prof = config.cfg.centre_prof
+
     psrs = set([arf['name'] for arf in arfs])
+    dates = set([arf['yyyymmdd'] for arf in arfs])
+    rcvrs = set([arf['rcvr'] for arf in arfs])
 
     numpercol = int(np.ceil(len(arfs)/float(numcols)))
 
@@ -92,16 +99,50 @@ def plot(arfs, scale_indep=False, numcols=1):
 
         # Get and prep archive
         ar = arf.get_archive()
-        # Get and scale profile
-        prof = ar.get_data().squeeze()
-        prof -= np.median(prof)
-        prof /= np.median(np.abs(prof))
-
-        # Compute phases
-        phases = np.linspace(0, 1.0, len(prof), endpoint=False)
+        if show_template:
+            stdfn = toas.get_standard(arf, analytic=False)
+            if os.path.exists(stdfn):
+                # Standard exists
+                stdarf = utils.ArchiveFile(stdfn)
+                # Scrunch it fully
+                stdar = stdarf.get_archive()
+                stdar.pscrunch()
+                stdar.fscrunch()
+                stdar.tscrunch()
+                if centre_prof:
+                    stdar.centre_max_bin()
+                # Align profile with standard profile
+                phs, err = ar.get_Profile(0,0,0).shift(stdar.get_Profile(0,0,0))
+                ar.rotate_phase(phs)
+                # Get and scale profile
+                prof = ar.get_data().squeeze()
+                prof -= np.median(prof)
+                prof /= np.median(np.abs(prof))
+                template = stdar.get_data().squeeze()
+                try:
+                    amp, offset = clean_utils.fit_template(prof, template)
+                except errors.FitError:
+                    show_template = False
+                else:
+                    template = amp*template - offset
+            else:
+                show_template = False
+        if not show_template:
+            # This isn't an else-clause of the above because there are
+            # cases where we turn template-showing off.
+            if centre_prof:
+                utils.print_info("Centering profile...", 2)
+                ar.centre_max_bin()
+            # Get and scale profile
+            prof = ar.get_data().squeeze()
+            prof -= np.median(prof)
+            prof /= np.median(np.abs(prof))
 
         # plot
+        phases = np.linspace(0, 1.0, len(prof), endpoint=False)
         plt.plot(phases, prof, 'k-')
+        if show_template:
+            plt.plot(phases, template, 'r-', lw=1.5, alpha=0.5)
         mins.append(prof.min())
         maxs.append(prof.max())
 
@@ -127,10 +168,21 @@ def plot(arfs, scale_indep=False, numcols=1):
     plt.xlim(0, 1)
     if not scale_indep:
         plt.ylim(min(mins), max(maxs))
+    title = "Summary of "
     if len(psrs) > 1:
-        plt.suptitle("%d Pulsars" % len(psrs))
+        title += "%d Pulsars" % len(psrs)
     else:
-        plt.suptitle("PSR %(name)s" % arfs[0])
+        title += "PSR %(name)s" % arfs[0]
+    fmt_date = lambda datestr: datetime.datetime.strptime(datestr, "%Y%m%d").strftime("%b %d, %Y")
+    if len(dates) > 1:
+        title += ", %s to %s" % (fmt_date(min(dates)), fmt_date(max(dates)))
+    else:
+        title += ", %s" % fmt_date(arfs[0]['yyyymmdd'])
+    if len(rcvrs) > 1:
+        title += ", %d receivers" % len(rcvrs)
+    else:
+        title += ", %(rcvr)s receiver" % arfs[0]
+    plt.suptitle(title)
 
 
 def main():
@@ -139,8 +191,10 @@ def main():
         raise errors.InputError("No input archives provided! " \
                                 "Here's your summary: NOTHING!")
     print "Making summary plot of %d files" % len(arfns)
-    arfs = get_archives(arfns, options.centre_prof, options.sortkeys)
-    plot(arfs, options.scale_indep, numcols=options.numcols)
+    arfs = get_archives(arfns, options.sortkeys)
+    plot(arfs, options.scale_indep, numcols=options.numcols, \
+                    show_template=options.show_template, \
+                    centre_prof=options.centre_prof)
     if options.savefn:
         plt.savefig(options.savefn)
     if options.interactive:
@@ -179,6 +233,10 @@ if __name__ == "__main__":
         default=1, type='int', \
         help="Number of columns to arrange plots into. (Default: use " \
             "a one-column format.)")
+    parser.add_option('-t', '--show-template', dest='show_template', \
+        default=False, action='store_true', \
+        help="Overlay the template of each pulsar (if available). " \
+            "(Default: Don't bother with the template.)")
     options, args = parser.parse_args()
     if not options.sortkeys:
         options.sortkeys = ['mjd', 'rcvr', 'name']

@@ -12,6 +12,7 @@ import scipy.optimize
 
 import utils
 import config
+import errors
 
 def get_subint_weights(ar):
     return ar.get_weights().sum(axis=1)
@@ -312,6 +313,23 @@ def fft_rotate(data, bins):
     return np.fft.irfft(phasor*np.fft.rfft(data))
 
 
+def fit_template(prof, template):
+    warnings.warn("Does this fitting work properly?", errors.CoastGuardWarning)
+    # Define the error function for the leastsq fit
+    err = lambda params: params[0]*template - prof - params[1]
+    
+    # Determine initial guesses
+    init_offset = 0
+    init_amp = np.max(prof)/float(np.max(template))
+
+    # Fit
+    params, status = scipy.optimize.leastsq(err, [init_amp, init_offset])
+    if status not in (1,2,3,4):
+        raise errors.FitError("Bad status for least squares fit of " \
+                                "template to profile")
+    return params
+    
+
 def remove_profile1d(prof, isub, ichan, template):
     #err = lambda (amp, phs): amp*fft_rotate(template, phs) - prof
     #params, status = scipy.optimize.leastsq(err, [1, 0])
@@ -319,7 +337,7 @@ def remove_profile1d(prof, isub, ichan, template):
     params, status = scipy.optimize.leastsq(err, [1])
     if status not in (1,2,3,4):
         warnings.warn("Bad status for least squares fit when " \
-                            "removing profile")
+                            "removing profile", errors.CoastGuardWarning)
         return (isub, ichan), np.zeros_like(prof)
     else:
         return (isub, ichan), err(params)
@@ -349,7 +367,7 @@ def remove_profile1d_inplace(prof, isub, ichan, template):
     params, status = scipy.optimize.leastsq(err, [1])
     if status not in (1,2,3,4):
         warnings.warn("Bad status for least squares fit when " \
-                            "removing profile")
+                            "removing profile", errors.CoastGuardWarning)
         return (isub, ichan), None
     else:
         return (isub, ichan), err(params)

@@ -16,7 +16,7 @@ class SystemCallError(CoastGuardError):
     pass
 
 
-class NoStandardProfileError(CoastGuardError):
+class StandardProfileError(CoastGuardError):
     pass
 
 
@@ -53,6 +53,10 @@ class DiagnosticError(CoastGuardError):
 
 
 class InputError(CoastGuardError):
+    pass
+
+
+class FitError(CoastGuardError):
     pass
 
 
