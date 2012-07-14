@@ -461,13 +461,13 @@ def get_prefname(psrname):
     return prefname
 
 
-def get_outfn(fmtstr, arfn):
+def get_outfn(fmtstr, arf):
     """Replace any format string codes using file header info
         to get the output file name.
 
         Inputs:
             fmtstr: The string to replace header info into.
-            arfn: An archive file object to get header info from using vap.
+            arf: An archive file object to get header info from using vap.
 
         Output:
             outfn: The output filename with (hopefully) all
@@ -478,7 +478,7 @@ def get_outfn(fmtstr, arfn):
         return fmtstr
 
     # Cast some values and compute others
-    outfn = fmtstr % arfn
+    outfn = fmtstr % arf
 
     if '%' in outfn:
         raise errors.BadFile("Interpolated file name (%s) shouldn't " \
