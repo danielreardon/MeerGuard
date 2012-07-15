@@ -19,8 +19,6 @@ import scipy.optimize as opt
 import matplotlib
 import matplotlib.pyplot as plt
 
-import psrchive
-
 import utils
 import clean_utils
 import config
