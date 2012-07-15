@@ -3,8 +3,10 @@
 import sys
 import os.path
 import datetime
+import warnings
 
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 
 import config
@@ -45,62 +47,138 @@ def get_archives(arfns, sortkeys=['mjd', 'rcvr', 'name']):
     return arfs
 
 
-def plot(arfs, scale_indep=False, numcols=1, show_template=False, \
-                    centre_prof=None):
-    if centre_prof is None:
-        centre_prof = config.cfg.centre_prof
+class SummaryFigure(matplotlib.figure.Figure):
+    def __init__(self, arfs, scale_indep=False, show_template=False, \
+                    centre_prof=None, margins=(TOP, BOT, LEFT, RIGHT), \
+                    layout=(2,10), *args, **kwargs):
+        if centre_prof is None:
+            centre_prof = config.cfg.centre_prof
 
-    psrs = set([arf['name'] for arf in arfs])
-    dates = set([arf['yyyymmdd'] for arf in arfs])
-    rcvrs = set([arf['rcvr'] for arf in arfs])
+        if len(layout) != 2:
+            raise errors.DiagnosticError("Bad number of layout dimensions " \
+                                         "(%d != 2)." % len(layout))
+        if len(margins) != 4:
+            raise errors.DiagnosticError("Bad number of margins provided " \
+                                         "(%d != 4)." % len(margins))
+        npanels = layout[0]*layout[1]
+        if len(arfs) > npanels:
+            raise errors.DiagnosticError("Cannot include more than %d " \
+                                            "profiles." % npanels) 
+        super(SummaryFigure, self).__init__(*args, **kwargs)
+        self.arfs = arfs
+        self.ax_to_arf = {}
+        self.show_template = show_template
+        self.centre_prof = centre_prof
+        self.scale_indep = scale_indep
+        self.numperrow, self.numpercol = layout
+        self.top, self.bot, self.left, self.right = margins
 
-    numpercol = int(np.ceil(len(arfs)/float(numcols)))
-
-    plot_height = (TOP-BOT)/numpercol
-    panel_width = (RIGHT-LEFT)/(numcols) # The "panel" includes plots+text
-    if len(psrs) > 1:
-        text_width = 0.225
-    else:
-        text_width = 0.15
-    plot_width = panel_width-text_width
-    mins = []
-    maxs = []
-    fig = plt.figure(figsize=(8,10))
-    first = True
-    oldcol = 0
-    for ii, arf in enumerate(arfs):
-        col = ii/numpercol
-        row = ii % numpercol
-
-        top = TOP - plot_height*row
-        left = LEFT + panel_width*col
-
-        if oldcol < col:
-            # We've moved onto a new column, label the previous axes
-            # Turn on tick labels for the bottom plot, and add a label
-            plt.xlabel("Phase", size='small')
-            plt.setp(plt.gca().xaxis.get_ticklabels(), visible=True, \
-                        size='x-small', rotation=30)
-            oldcol = col
-
-        if first:
-            ax0 = plt.axes([left, top-plot_height, plot_width, plot_height])
-            plt.setp(ax0.xaxis.get_ticklabels(), visible=False)
-            plt.setp(ax0.yaxis.get_ticklabels(), visible=False)
-            first = False
+        # Count the number of pulsars, observing dates, and receivers
+        self.psrs = set([arf['name'] for arf in arfs])
+        self.dates = set([arf['yyyymmdd'] for arf in arfs])
+        self.rcvrs = set([arf['rcvr'] for arf in arfs])
+        
+        # Compute the sizes of various elements of the summary plot
+        self.panel_height = (self.top-self.bot)/self.numpercol
+        self.panel_width = (self.right-self.left)/self.numperrow
+        if len(self.psrs) > 1:
+            self.text_width = 0.225
         else:
-            if scale_indep:
-                ax = plt.axes([left, top-plot_height, plot_width, plot_height], \
-                                sharex=ax0)
-            else:
-                ax = plt.axes([left, top-plot_height, plot_width, plot_height], \
-                                sharex=ax0, sharey=ax0)
-            plt.setp(ax.xaxis.get_ticklabels(), visible=False)
-            plt.setp(ax.yaxis.get_ticklabels(), visible=False)
+            self.text_width = 0.15
+        self.plot_width = self.panel_width-self.text_width 
+        self.plot_height = self.panel_height
 
+    def buttonpress(self, event):
+        if (event.button == 2) and (event.inaxes in self.ax_to_arf):
+            arf = self.ax_to_arf[event.inaxes]
+            print "Filename:", arf.fn
+            print "Source name:", arf['name']
+            print "Telescope:", arf['telescop']
+            print "Receiver:", arf['rcvr']
+            print "Backend:", arf['backend']
+            print "Observation length (s):", arf['length']
+            print "Bandwidth (MHz):", arf['bw']
+            print "MJD:", arf['mjd']
+            print "Date (yyyymmdd):", arf['yyyymmdd']
+            print "Seconds since midnight:", arf['secs']
+
+    def connect_event_triggers(self):
+        self.canvas.mpl_connect("button_press_event", self.buttonpress)
+
+    def plot(self):
+        utils.print_info("Plotting summary of %d archives..." % \
+                            len(self.arfs), 2)
+        first = True
+        oldcol = 0
+        for ii, arf in enumerate(self.arfs):
+            col = ii/self.numpercol
+            row = ii % self.numpercol
+         
+            panel_top = self.top - self.panel_height*row
+            panel_left = self.left + self.panel_width*col
+         
+            if oldcol < col:
+                # We've moved onto a new column, label the previous axes
+                # Turn on tick labels for the bottom plot, and add a label
+                plt.xlabel("Phase", size='small')
+                plt.setp(plt.gca().xaxis.get_ticklabels(), visible=True, \
+                            size='x-small', rotation=30)
+                oldcol = col
+         
+            if first:
+                ax0 = plt.axes([panel_left, panel_top-self.plot_height, \
+                                self.plot_width, self.plot_height])
+                plt.setp(ax0.xaxis.get_ticklabels(), visible=False)
+                plt.setp(ax0.yaxis.get_ticklabels(), visible=False)
+                first = False
+                ax = ax0
+            else:
+                if self.scale_indep:
+                    ax = plt.axes([panel_left, panel_top-self.plot_height, \
+                                    self.plot_width, self.plot_height], \
+                                    sharex=ax0)
+                else:
+                    ax = plt.axes([panel_left, panel_top-self.plot_height, \
+                                    self.plot_width, self.plot_height], \
+                                    sharex=ax0, sharey=ax0)
+                plt.setp(ax.xaxis.get_ticklabels(), visible=False)
+                plt.setp(ax.yaxis.get_ticklabels(), visible=False)
+            self.plot_panel(arf, ax)
+            # Record mapping between axes and ArchiveFile
+            self.ax_to_arf[ax] = arf
+
+            # Add some text
+            if len(self.psrs) > 1:
+                plt.figtext(panel_left+self.plot_width+0.02, \
+                            panel_top-0.001, "%(name)s" % arf, \
+                            va='top', ha='left', size='x-small')
+                plt.figtext(panel_left+self.plot_width+0.13, \
+                            panel_top-0.013, "MJD: %(mjd).2f" % arf, \
+                            va='top', ha='left', size='xx-small')
+                plt.figtext(panel_left+self.plot_width+0.02, \
+                            panel_top-0.013, "%(rcvr)s  (%(length)d s)" % arf, \
+                            va='top', ha='left', size='xx-small')
+            else:
+                plt.figtext(panel_left+self.plot_width+0.02, \
+                            panel_top-0.001, "MJD: %(mjd).2f" % arf, \
+                            va='top', ha='left', size='xx-small')
+                plt.figtext(panel_left+self.plot_width+0.02, \
+                            panel_top-0.013, "%(rcvr)s  (%(length)d s)" % arf, \
+                            va='top', ha='left', size='xx-small')
+
+        # Turn on tick labels for the bottom plot, and add a label
+        plt.xlabel("Phase", size='small')
+        plt.setp(plt.gca().xaxis.get_ticklabels(), visible=True, \
+                        size='x-small', rotation=30)
+
+        plt.xlim(0, 1)
+        plt.suptitle(self.get_title())
+
+    def plot_panel(self, arf, ax):
         # Get and prep archive
         ar = arf.get_archive()
-        if show_template:
+        usetemplate = self.show_template
+        if usetemplate:
             stdfn = toas.get_standard(arf, analytic=False)
             if os.path.exists(stdfn):
                 # Standard exists
@@ -110,7 +188,7 @@ def plot(arfs, scale_indep=False, numcols=1, show_template=False, \
                 stdar.pscrunch()
                 stdar.fscrunch()
                 stdar.tscrunch()
-                if centre_prof:
+                if self.centre_prof:
                     stdar.centre_max_bin()
                 # Align profile with standard profile
                 phs, err = ar.get_Profile(0,0,0).shift(stdar.get_Profile(0,0,0))
@@ -123,15 +201,21 @@ def plot(arfs, scale_indep=False, numcols=1, show_template=False, \
                 try:
                     amp, offset = clean_utils.fit_template(prof, template)
                 except errors.FitError:
-                    show_template = False
+                    warnings.warn("Error when scaling template. " \
+                                    "Template will not be shown.", \
+                                    errors.CoastGuardWarning)
+                    usetemplate = False
                 else:
                     template = amp*template - offset
             else:
-                show_template = False
-        if not show_template:
+                warnings.warn("No template available. " \
+                                "template will not be shown.", \
+                                errors.CoastGuardWarning)
+                usetemplate = False
+        if not usetemplate:
             # This isn't an else-clause of the above because there are
             # cases where we turn template-showing off.
-            if centre_prof:
+            if self.centre_prof:
                 utils.print_info("Centering profile...", 2)
                 ar.centre_max_bin()
             # Get and scale profile
@@ -141,49 +225,30 @@ def plot(arfs, scale_indep=False, numcols=1, show_template=False, \
 
         # plot
         phases = np.linspace(0, 1.0, len(prof), endpoint=False)
-        plt.plot(phases, prof, 'k-')
-        if show_template:
-            plt.plot(phases, template, 'r-', lw=1.5, alpha=0.5)
-        mins.append(prof.min())
-        maxs.append(prof.max())
+        ax.plot(phases, prof, 'k-')
+        if usetemplate:
+            ax.plot(phases, template, 'r-', lw=1.5, alpha=0.5)
+        #ax.format_coord = lambda x,y: "%s; x=%g, y=%g" % \
+        #                    (os.path.split(arf.fn)[-1], x, y)
 
-        # Add some text
-        if len(psrs) > 1:
-            plt.figtext(left+plot_width+0.02, top-0.001, "%(name)s" % arf, \
-                        va='top', ha='left', size='x-small')
-            plt.figtext(left+plot_width+0.13, top-0.013, "MJD: %(mjd).2f" % arf, \
-                        va='top', ha='left', size='xx-small')
-            plt.figtext(left+plot_width+0.02, top-0.013, "%(rcvr)s  (%(length)d s)" % arf, \
-                        va='top', ha='left', size='xx-small')
+    def get_title(self):
+        title = "Summary of "
+        if len(self.psrs) > 1:
+            title += "%d Pulsars" % len(self.psrs)
         else:
-            plt.figtext(left+plot_width+0.02, top-0.001, "MJD: %(mjd).2f" % arf, \
-                        va='top', ha='left', size='xx-small')
-            plt.figtext(left+plot_width+0.02, top-0.013, "%(rcvr)s  (%(length)d s)" % arf, \
-                        va='top', ha='left', size='xx-small')
-
-    # Turn on tick labels for the bottom plot, and add a label
-    plt.xlabel("Phase", size='small')
-    plt.setp(plt.gca().xaxis.get_ticklabels(), visible=True, \
-                    size='x-small', rotation=30)
-
-    plt.xlim(0, 1)
-    if not scale_indep:
-        plt.ylim(min(mins), max(maxs))
-    title = "Summary of "
-    if len(psrs) > 1:
-        title += "%d Pulsars" % len(psrs)
-    else:
-        title += "PSR %(name)s" % arfs[0]
-    fmt_date = lambda datestr: datetime.datetime.strptime(datestr, "%Y%m%d").strftime("%b %d, %Y")
-    if len(dates) > 1:
-        title += ", %s to %s" % (fmt_date(min(dates)), fmt_date(max(dates)))
-    else:
-        title += ", %s" % fmt_date(arfs[0]['yyyymmdd'])
-    if len(rcvrs) > 1:
-        title += ", %d receivers" % len(rcvrs)
-    else:
-        title += ", %(rcvr)s receiver" % arfs[0]
-    plt.suptitle(title)
+            title += "PSR %(name)s" % self.arfs[0]
+        fmt_date = lambda datestr: datetime.datetime.strptime(datestr, \
+                                        "%Y%m%d").strftime("%b %d, %Y")
+        if len(self.dates) > 1:
+            title += ", %s to %s" % (fmt_date(min(self.dates)), \
+                                        fmt_date(max(self.dates)))
+        else:
+            title += ", %s" % fmt_date(self.arfs[0]['yyyymmdd'])
+        if len(self.rcvrs) > 1:
+            title += ", %d receivers" % len(self.rcvrs)
+        else:
+            title += ", %(rcvr)s receiver" % self.arfs[0]
+        return title
 
 
 def main():
@@ -192,12 +257,30 @@ def main():
         raise errors.InputError("No input archives provided! " \
                                 "Here's your summary: NOTHING!")
     print "Making summary plot of %d files" % len(arfns)
+    if options.numrows is None:
+        numrows = int(np.ceil(len(arfns)/float(options.numcols)))
+    else:
+        numrows = options.numrows
+    layout = (options.numcols, numrows)
+    numpanels = np.prod(layout)
     arfs = get_archives(arfns, options.sortkeys)
-    plot(arfs, options.scale_indep, numcols=options.numcols, \
-                    show_template=options.show_template, \
-                    centre_prof=options.centre_prof)
-    if options.savefn:
-        plt.savefig(options.savefn)
+    numfigs = int(np.ceil(len(arfns)/float(numpanels)))
+    for fignum in range(numfigs):
+        arfs_toplot = arfs[fignum*numpanels:(fignum+1)*numpanels]
+        fig = plt.figure(figsize=(8,11), FigureClass=SummaryFigure, 
+                arfs=arfs_toplot, scale_indep=options.scale_indep, \
+                show_template=options.show_template, \
+                centre_prof=options.centre_prof, layout=layout)
+        fig.connect_event_triggers()
+        fig.plot()
+        if options.savefn:
+            if numfigs > 1:
+                fn, ext = os.path.splitext(options.savefn)
+                plt.savefig(fn+("_page%d"%(fignum+1))+ext)
+            else:
+                plt.savefig(options.savefn)
+        fig.canvas.mpl_connect('key_press_event', \
+                lambda ev: ev.key in ('q', 'Q') and plt.close(fig))
     if options.interactive:
         plt.show()
 
@@ -234,6 +317,10 @@ if __name__ == "__main__":
         default=1, type='int', \
         help="Number of columns to arrange plots into. (Default: use " \
             "a one-column format.)")
+    parser.add_option('--numrows', dest='numrows', \
+        default=None, type='int', \
+        help="Number of rows to arrange plots into. (Default: use " \
+            "as many rows as necessary to fit onto one page.)")
     parser.add_option('-t', '--show-template', dest='show_template', \
         default=False, action='store_true', \
         help="Overlay the template of each pulsar (if available). " \
