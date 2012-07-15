@@ -559,7 +559,7 @@ def mjd_to_date(mjds):
 
 class ArchiveFile(object):
     def __init__(self, fn):
-        self.fn = fn
+        self.fn = os.path.abspath(fn)
         self.ar = None
         if not os.path.isfile(self.fn):
             raise errors.BadFile("Archive file could not be found (%s)!" % \
