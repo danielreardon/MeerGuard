@@ -33,7 +33,8 @@ def get_archives(arfns, sortkeys=['mjd', 'rcvr', 'name']):
             arfs.sort(key=lambda x: x[sortkey].lower(), reverse=rev)
         else:
             arfs.sort(key=lambda x: x[sortkey], reverse=rev)
-
+    
+    # Pre-process archives
     for arf in arfs:
         ar = arf.get_archive()
         ar.dedisperse()
