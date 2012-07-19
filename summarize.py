@@ -50,7 +50,8 @@ def get_archives(arfns, sortkeys=['mjd', 'rcvr', 'name']):
 class SummaryFigure(matplotlib.figure.Figure):
     def __init__(self, arfs, scale_indep=False, show_template=False, \
                     centre_prof=None, margins=(TOP, BOT, LEFT, RIGHT), \
-                    layout=(2,10), *args, **kwargs):
+                    layout=(2,10), infotext="MJD: %(mjd).2f\n%(rcvr)s  (%(length)d s)", \
+                    *args, **kwargs):
         if centre_prof is None:
             centre_prof = config.cfg.centre_prof
 
@@ -72,6 +73,7 @@ class SummaryFigure(matplotlib.figure.Figure):
         self.scale_indep = scale_indep
         self.numperrow, self.numpercol = layout
         self.top, self.bot, self.left, self.right = margins
+        self.infotext = infotext
 
         # Count the number of pulsars, observing dates, and receivers
         self.psrs = set([arf['name'] for arf in arfs])
@@ -89,7 +91,8 @@ class SummaryFigure(matplotlib.figure.Figure):
         self.plot_height = self.panel_height
 
     def buttonpress(self, event):
-        if (event.button == 2) and (event.inaxes in self.ax_to_arf):
+        if (event.button==2 or (event.key=='shift' and event.button==1)) and \
+                        (event.inaxes in self.ax_to_arf):
             arf = self.ax_to_arf[event.inaxes]
             print "Filename:", arf.fn
             print "Source name:", arf['name']
@@ -149,21 +152,17 @@ class SummaryFigure(matplotlib.figure.Figure):
 
             # Add some text
             if len(self.psrs) > 1:
+                towrite = (self.infotext % arf).replace(r"\n", "\n")
                 plt.figtext(panel_left+self.plot_width+0.02, \
                             panel_top-0.001, "%(name)s" % arf, \
                             va='top', ha='left', size='x-small')
-                plt.figtext(panel_left+self.plot_width+0.13, \
-                            panel_top-0.013, "MJD: %(mjd).2f" % arf, \
-                            va='top', ha='left', size='xx-small')
                 plt.figtext(panel_left+self.plot_width+0.02, \
-                            panel_top-0.013, "%(rcvr)s  (%(length)d s)" % arf, \
+                            panel_top-0.013, towrite, \
                             va='top', ha='left', size='xx-small')
             else:
+                towrite = (self.infotext % arf).replace(r"\n", "\n")
                 plt.figtext(panel_left+self.plot_width+0.02, \
-                            panel_top-0.001, "MJD: %(mjd).2f" % arf, \
-                            va='top', ha='left', size='xx-small')
-                plt.figtext(panel_left+self.plot_width+0.02, \
-                            panel_top-0.013, "%(rcvr)s  (%(length)d s)" % arf, \
+                            panel_top-0.001, towrite, \
                             va='top', ha='left', size='xx-small')
 
         # Turn on tick labels for the bottom plot, and add a label
@@ -270,7 +269,9 @@ def main():
         fig = plt.figure(figsize=(8,11), FigureClass=SummaryFigure, 
                 arfs=arfs_toplot, scale_indep=options.scale_indep, \
                 show_template=options.show_template, \
-                centre_prof=options.centre_prof, layout=layout)
+                centre_prof=options.centre_prof, layout=layout, \
+                infotext=options.info_text)
+        fig.text(0.94, 0.02, "%d / %d" % (fignum+1, numfigs), size='small')
         fig.connect_event_triggers()
         fig.plot()
         if options.savefn:
@@ -325,6 +326,10 @@ if __name__ == "__main__":
         default=False, action='store_true', \
         help="Overlay the template of each pulsar (if available). " \
             "(Default: Don't bother with the template.)")
+    parser.add_option('-i', '--info-text', dest='info_text', \
+        default="MJD: %(mjd).2f\n%(rcvr)s  (%(length)d s)", \
+        help="Text to display next to each panel. (Default: " \
+            "display MJD, receiver, and observation length.)")
     options, args = parser.parse_args()
     if not options.sortkeys:
         options.sortkeys = ['mjd', 'rcvr', 'name']
