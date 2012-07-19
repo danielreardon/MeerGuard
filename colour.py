@@ -23,7 +23,8 @@ preset_codes = {"default": DEFAULT_CODE, \
                 "debughdr": "\033[1;35m", \
                 "debug": "\033[0;35m", \
                 "warning": "\033[1;33m", \
-                "error": "\033[1;31m"}
+                "error": "\033[1;31m", \
+                "success": "\033[1;32m"}
 
 attributes = {"reset": 0, \
               "bold": 1, \
@@ -200,11 +201,13 @@ def main():
 
 
 if __name__ == '__main__':
+    presets = [cstring(pre, preset=pre) for pre in sorted(preset_codes.keys()) \
+                    if pre not in ("default", "reset")] 
     parser = optparse.OptionParser()
     parser.add_option('-s', '--set', dest='toset', type='string', action='callback', callback=parse_attributes, help="Set text attributes. Possible attributes to set are: defaut, bold, dim, underline, blink, reverse and hidden.")
     parser.add_option('-f', '--fg', dest='fg', action='store', help='Forground text colour.', default='default')
     parser.add_option('-b', '--bg', dest='bg', action='store', help='Background text colour.', default='default')
-    parser.add_option('-p', '--preset', dest='preset', action='store', help='Use a preset colour scheme. Other options will be ignored.', default=None)
+    parser.add_option('-p', '--preset', dest='preset', action='store', help="Use a preset colour scheme. Other options will be ignored. Presets are: '%s'" % "', '".join(presets), default=None)
     options, args = parser.parse_args()
     # Ensure that options.attributes exists even if not attributes are set
     if not hasattr(parser.values, 'attributes'):
