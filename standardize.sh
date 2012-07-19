@@ -5,6 +5,8 @@ basefn=$(basename ${stdfn} .std)
 mfn=${dir}/${basefn}.m
 txtfn=${dir}/${basefn}.txt
 
+shift
+
 echo "Creating a standard using paas for ${arfn}"
 
 if [ -f ${stdfn} ]; then
@@ -16,7 +18,7 @@ else
     psrplot -p flux -D 5000/xs ${arfn} # Open another plot because paas 
                                        # commandeers last opened PGPLOT window
     mkdir -p ${dir}
-    paas -w ${mfn} -d 57/xs -s ${stdfn} -j ${txtfn} -i ${arfn}
+    paas -w ${mfn} -d 57/xs -s ${stdfn} -j ${txtfn} -i ${arfn} $@
     if [ -s ${mfn} ]; then
         # Create diagnostic
         tmpfn=$(mktemp)
