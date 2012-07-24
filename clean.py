@@ -306,8 +306,17 @@ def prune_band(infn, response=None):
         lofreq = infn['freq'] - 0.5*infn['bw']
         hifreq = infn['freq'] + 0.5*infn['bw']
         utils.print_info("Pruning frequency band to (%g-%g MHz)" % response, 2)
-        utils.execute('paz -m -F "%f %f" -F "%f %f" %s' % \
-                        (lofreq, response[0], response[1], hifreq, infn.fn))
+        pazcmd = 'paz -m %s ' % infn.fn
+        if response[0] > lofreq:
+            # Part of archive's low freqs are outside rcvr's response
+            pazcmd += '-F "%f %f ' % (lofreq, response[0])
+            runpaz = True
+        if response[1] < hifreq:
+            # Part of archive's high freqs are outside rcvr's response
+            pazcmd += '-F "%f %f ' % (response[1], hifreq)
+            runpaz = True
+        if runpaz:        
+            utils.execute(pazcmd)
 
 
 def trim_edge_channels(infn, nchan_to_trim=None, frac_to_trim=None):
