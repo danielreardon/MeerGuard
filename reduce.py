@@ -22,7 +22,6 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import psrchive
-import pympler
 
 import toas
 import diagnose
@@ -166,7 +165,6 @@ class ReductionJob(object):
                 outfn: The final reduced file name.
                 toas: TOA strings.
         """
-        tr = pympler.tracker.SummaryTracker()
         if len(self.infns) > 1:
             combinearfs = combine.combine_all(self.infns, self.basenm+".cmb")
         else:
@@ -182,20 +180,21 @@ class ReductionJob(object):
             config.cfg.load_configs_for_archive(combinearf)
             # Create diagnostic plots for pre-cleaned data
             utils.print_info("Creating diagnostics for %s" % combinearf.fn, 1)
-            tr.print_diff()
             for func_key in config.cfg.funcs_to_plot:
                 diagnose.make_diagnostic_figure(combinearf, func_key, \
                                             rmprof=True)
                 plt.savefig("%s_diag_noprof_%s.png" % (combinearf.fn, func_key), dpi=600)
+                plt.clf()
+                plt.close()
                 diagnose.make_diagnostic_figure(combinearf, func_key, \
                                             rmprof=False)
                 plt.savefig("%s_diag_%s.png" % (combinearf.fn, func_key), dpi=600)
-                tr.print_diff()
+                plt.clf()
+                plt.close()
  
             # Clean the data
             utils.print_info("Cleaning %s" % combinearf.fn, 1)
             cleanarf = clean.clean_archive(combinearf, self.outfn)
-            tr.print_diff()
             
             # Re-create diagnostic plots for clean data
             utils.print_info("Creating diagnostics for %s" % cleanarf.fn, 1)
@@ -203,10 +202,13 @@ class ReductionJob(object):
                 diagnose.make_diagnostic_figure(cleanarf, func_key, \
                                                 rmprof=True)
                 plt.savefig("%s_diag_noprof_%s.png" % (cleanarf.fn, func_key), dpi=600)
+                plt.clf()
+                plt.close()
                 diagnose.make_diagnostic_figure(cleanarf, func_key, \
                                                 rmprof=False)
                 plt.savefig("%s_diag_%s.png" % (cleanarf.fn, func_key), dpi=600)
-                tr.print_diff()
+                plt.clf()
+                plt.close()
 
             cleanarfs.append(cleanarf)
             
@@ -218,7 +220,6 @@ class ReductionJob(object):
                                                 "cannot be found!" % stdfn)
             utils.print_info("Standard profile: %s" % stdfn, 2)
             toastrs.extend(toas.get_toas(cleanarf, stdfn))
-            tr.print_diff()
         return cleanarfs, toastrs
 
 
