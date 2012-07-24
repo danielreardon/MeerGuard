@@ -332,14 +332,14 @@ def trim_edge_channels(infn, nchan_to_trim=None, frac_to_trim=None):
         frac_to_trim=config.cfg.frac_to_trim
 
     if nchan_to_trim > 0:
-        utils.print_info("Trimming %d channels from subband edges " % \
-                        nchan_to_trim, 2)
+        #utils.print_info("Trimming %d channels from subband edges " % \
+        #                nchan_to_trim, 2)
         numchans = int(infn['nchan'])
         utils.execute('paz -m -Z "0 %d" -Z "%d %d" %s' % \
                     (nchan_to_trim-1, numchans-nchan_to_trim, numchans-1, infn.fn))
     if frac_to_trim > 0:
-        utils.print_info("Trimming %g %% from subband edges " % \
-                        frac_to_trim*100, 2)
+        #utils.print_info("Trimming %g %% from subband edges " % \
+        #                frac_to_trim*100, 2)
         utils.execute('paz -m -E %f %s' % (frac_to_trim*100, infn.fn))
 
 
