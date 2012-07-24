@@ -346,17 +346,23 @@ def remove_profile1d(prof, isub, ichan, template):
 def remove_profile(data, nsubs, nchans, template, nthreads=None):
     if nthreads is None:
         nthreads = config.cfg.nthreads
-    pool = multiprocessing.Pool(processes=nthreads)
-    results = []
-    for isub, ichan in np.ndindex(nsubs, nchans):
-        results.append(pool.apply_async(remove_profile1d, \
-                        args=(data[isub, ichan], isub, ichan, template)))
-    pool.close()
-    pool.join()
-    for result in results:
-        result.successful()
-        (isub, ichan), prof = result.get()
-        data[isub, ichan] = prof
+    if nthreads == 1:
+        print "Single threaded..."
+        for isub, ichan in np.ndindex(nsubs, nchans):
+            data[isub, ichan] = remove_profile1d(data[isub, ichan], \
+                                            isub, ichan, template)[1]
+    else:
+        pool = multiprocessing.Pool(processes=nthreads)
+        results = []
+        for isub, ichan in np.ndindex(nsubs, nchans):
+            results.append(pool.apply_async(remove_profile1d, \
+                            args=(data[isub, ichan], isub, ichan, template)))
+        pool.close()
+        pool.join()
+        for result in results:
+            result.successful()
+            (isub, ichan), prof = result.get()
+            data[isub, ichan] = prof
     return data 
 
 
@@ -377,21 +383,31 @@ def remove_profile_inplace(ar, template, nthreads=1):
     data = ar.get_data().squeeze()
     if nthreads is None:
         nthreads = config.cfg.nthreads
-    pool = multiprocessing.Pool(processes=nthreads)
-    results = []
-    for isub, ichan in np.ndindex(ar.get_nsubint(), ar.get_nchan()):
-        results.append(pool.apply_async(remove_profile1d, \
-                        args=(data[isub, ichan], isub, ichan, template)))
-    pool.close()
-    pool.join()
-    for result in results:
-        result.successful()
-        (isub, ichan), amps = result.get()
-        prof = ar.get_Profile(isub, 0, ichan)
-        if amps is None:
-            prof.set_weight(0)
-        else:
-            prof.get_amps()[:] = amps
+    if nthreads == 1:
+        print "Single threaded (inplace)..."
+        for isub, ichan in np.ndindex(ar.get_nsubint(), ar.get_nchan()):
+            amps = remove_profile1d(data[isub, ichan], isub, ichan, template)[1]
+            prof = ar.get_Profile(isub, 0, ichan)
+            if amps is None:
+                prof.set_weight(0)
+            else:
+                prof.get_amps()[:] = amps
+    else:
+        pool = multiprocessing.Pool(processes=nthreads)
+        results = []
+        for isub, ichan in np.ndindex(ar.get_nsubint(), ar.get_nchan()):
+            results.append(pool.apply_async(remove_profile1d, \
+                            args=(data[isub, ichan], isub, ichan, template)))
+        pool.close()
+        pool.join()
+        for result in results:
+            result.successful()
+            (isub, ichan), amps = result.get()
+            prof = ar.get_Profile(isub, 0, ichan)
+            if amps is None:
+                prof.set_weight(0)
+            else:
+                prof.get_amps()[:] = amps
 
 
 def zero_weight_subint(ar, isub):
