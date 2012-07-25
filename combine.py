@@ -18,7 +18,7 @@ import clean
 import config
 import errors
 
-def combine_all(infns, outfn):
+def combine_all(infns, outfn, expected_nsubbands=None):
     """Given a list of ArchiveFile objects group them into sub-bands
         then remove the edges of each sub-band to remove the artifacts
         caused by aliasing. Finally, combine the sub-bands into a single 
@@ -29,11 +29,16 @@ def combine_all(infns, outfn):
         Inputs:
             infns: A list of input ArchiveFile objects.
             outfn: The output file's name.
+            expected_nsubbands: The expected number of subbands for each 
+                subintegration.
 
         Outputs:
             combinedfns: A list of output (combined) files.
     """
-    infns = check_files(infns)
+    if expected_nsubbands is None:
+        expected_nsubbands = config.cfg.expected_nsubbands
+
+    infns = check_files(infns, expected_nsubbands=expected_nsubands)
     groups = group_files(infns)
     combinedfiles = []
     # Combine files from the same sub-band in the time direction
@@ -249,6 +254,10 @@ if __name__=="__main__":
                             "expression should be properly quoted to not be " \
                             "expanded by the shell prematurely. (Default: " \
                             "exclude any files.)")
+    parser.add_option('--expected-nsubbands', dest='expected_nsubbands', action='callback', \
+                        callback=parser.override_config, type='int', \
+                        help="The expected number of subband files for each subint. " \
+                            "(Default: %d)" % config.cfg.expected_nsubbands)
     parser.add_option('--nchan-to-trim', dest='nchan_to_trim', action='callback', \
                         callback=parser.override_config, type='int', \
                         help="The number of channels to trim from the edge of each " \
