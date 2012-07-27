@@ -307,6 +307,7 @@ def prune_band(infn, response=None):
         hifreq = infn['freq'] + 0.5*infn['bw']
         utils.print_info("Pruning frequency band to (%g-%g MHz)" % response, 2)
         pazcmd = 'paz -m %s ' % infn.fn
+        runpaz = False # Only run paz if either of the following clauses are True
         if response[0] > lofreq:
             # Part of archive's low freqs are outside rcvr's response
             pazcmd += '-F "%f %f ' % (lofreq, response[0])
