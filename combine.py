@@ -38,7 +38,7 @@ def combine_all(infns, outfn, expected_nsubbands=None):
     if expected_nsubbands is None:
         expected_nsubbands = config.cfg.expected_nsubbands
 
-    infns = check_files(infns, expected_nsubbands=expected_nsubands)
+    infns = check_files(infns, expected_nsubbands=expected_nsubbands)
     groups = group_files(infns)
     combinedfiles = []
     # Combine files from the same sub-band in the time direction
@@ -163,19 +163,23 @@ def combine_subbands(infns, outfn):
     return utils.ArchiveFile(outfn)
 
 
-def check_files(infns, expected_nsubbands=None):
+def check_files(infns, expected_nsubbands=None, missing_subint_tolerance=None):
     """Check a list of input files to make sure their headers are
         consistent and to make sure subints include all subbands.
 
         Input:
             infns: A list of input files (ArchiveFile objects).
             expected_nsubbands: The expected number of subbands to check for.
+            missing_subint_tolerance: The tolerance for missing subints before
+                removing an entire subband.
 
         Output:
             outfns: A list of complete, consistent files.
     """
     if expected_nsubbands is None:
         expected_nsubbands = config.cfg.expected_nsubbands
+    if missing_subint_tolerance is None:
+        missing_subint_tolerance = config.cfg.missing_subint_tolerance
 
     # Ensure all files have the same bandwidth and number of channels
     # discard any sub-ints that are outliers
@@ -184,10 +188,34 @@ def check_files(infns, expected_nsubbands=None):
     infns = utils.enforce_file_consistency(infns, 'length', discard=True)
 
     subints = {}
+    subbands = {}
     for infn in infns:
         subint = subints.setdefault((infn['yyyymmdd'], infn['secs']), [])
         subint.append(infn)
+        subband = subbands.setdefault(infn['freq'], [])
+        subband.append(infn)
 
+    numsubints = len(subints.keys())
+    freqs_to_purge = []
+    for freq, subband in subbands.iteritems():
+        fracmissing = 1-len(subband)/float(numsubints)
+        if fracmissing > missing_subint_tolerance:
+            utils.print_debug("Frequency subband (%g MHz) is missing to many " \
+                                "subints to be tolerated (%g > %g). It is " \
+                                "being removed." % (freq, fracmissing, \
+                                missing_subint_tolerance), 'grouping')
+            freqs_to_purge.append(freq)
+            expected_nsubbands -= 1
+    
+    if freqs_to_purge:
+        utils.print_info("Purging incomplete subbands (%s)" % \
+                            ", ".join(["%g MHz" % f for f in freqs_to_purge]), 2)
+        for subint in subints.itervalues():
+            for ii in reversed(range(len(subint))):
+                fn = subint[ii]
+                if fn['freq'] in freqs_to_purge:
+                    subint.pop(ii)
+                        
     outfns = []
     for key in sorted(subints.keys()):
         if len(subints[key]) == expected_nsubbands:
@@ -258,6 +286,11 @@ if __name__=="__main__":
                         callback=parser.override_config, type='int', \
                         help="The expected number of subband files for each subint. " \
                             "(Default: %d)" % config.cfg.expected_nsubbands)
+    parser.add_option('--missing-subint-tolerance', dest='missing_subint_tolerance', \
+                        action='callback', callback=parser.override_config, type='float', \
+                        help="The fractional number of subint files that can be " \
+                            "missing from a subband before removing the entire " \
+                            "subband (Default: %g)" % config.cfg.missing_subint_tolerance)
     parser.add_option('--nchan-to-trim', dest='nchan_to_trim', action='callback', \
                         callback=parser.override_config, type='int', \
                         help="The number of channels to trim from the edge of each " \
