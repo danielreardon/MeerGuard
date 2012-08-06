@@ -218,6 +218,22 @@ def get_header_vals(fn, hdritems):
     return params
 
 
+def get_archive_snr(fn):
+    """Get the SNR of an archive using psrstat.
+        Fully scrunch the archive first.
+
+        Input:
+            fn: The name of the archive.
+
+        Output:
+            snr: The signal-to-noise ratio of the fully scrunched archive.
+    """
+    cmd = "psrstat -Qq -j DTFp -c 'snr' %s" % fn
+    outstr, errstr = execute(cmd)
+    snr = float(outstr)
+    return snr
+
+
 def exclude_files(file_list, to_exclude):
     return [f for f in file_list if f not in to_exclude]
 
@@ -580,7 +596,10 @@ class ArchiveFile(object):
     
     def __getitem__(self, key):
         if key not in self.hdr:
-            self.hdr.update(get_header_vals(self.fn, [key]))
+            if key == 'snr':
+                self.hdr['snr'] = get_archive_snr(self.fn)
+            else:
+                self.hdr.update(get_header_vals(self.fn, [key]))
         return self.hdr[key]
     
     def get_archive(self):
