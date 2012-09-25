@@ -310,11 +310,11 @@ def prune_band(infn, response=None):
         runpaz = False # Only run paz if either of the following clauses are True
         if response[0] > lofreq:
             # Part of archive's low freqs are outside rcvr's response
-            pazcmd += '-F "%f %f ' % (lofreq, response[0])
+            pazcmd += '-F "%f %f" ' % (lofreq, response[0])
             runpaz = True
         if response[1] < hifreq:
             # Part of archive's high freqs are outside rcvr's response
-            pazcmd += '-F "%f %f ' % (response[1], hifreq)
+            pazcmd += '-F "%f %f" ' % (response[1], hifreq)
             runpaz = True
         if runpaz:        
             utils.execute(pazcmd)
