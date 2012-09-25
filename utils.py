@@ -35,7 +35,9 @@ header_param_types = {'freq': float, \
                       'npol': int, \
                       'nbin': int, \
                       'nsub': int, \
-                      'tbin': float}
+                      'tbin': float, \
+                      'period': float, \
+                      'dm': float}
 
 site_to_telescope = {'i': 'WSRT',
                      'wt': 'WSRT',
@@ -584,7 +586,7 @@ class ArchiveFile(object):
         self.hdr = get_header_vals(self.fn, ['freq', 'length', 'bw', 'mjd', 
                                             'intmjd', 'fracmjd', 'backend', 
                                             'rcvr', 'telescop', 'name', 
-                                            'nchan', 'asite'])
+                                            'nchan', 'asite', 'period', 'dm'])
         try:
             self.hdr['name'] = get_prefname(self.hdr['name']) # Use preferred name
         except errors.BadPulsarNameError:
@@ -593,6 +595,7 @@ class ArchiveFile(object):
                             errors.CoastGuardWarning)
         self.hdr['secs'] = int(self.hdr['fracmjd']*24*3600+0.5) # Add 0.5 so we actually round
         self.hdr['yyyymmdd'] = "%04d%02d%02d" % mjd_to_date(self.hdr['mjd'])
+        self.hdr['pms'] = self.hdr['period']*1000.0
     
     def __getitem__(self, key):
         if key not in self.hdr:
