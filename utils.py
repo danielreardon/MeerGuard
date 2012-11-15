@@ -14,6 +14,7 @@ import sys
 import subprocess
 import types
 import inspect
+import datetime
 
 import numpy as np
 
@@ -536,7 +537,7 @@ def correct_asterix_header(arfn):
 
 
 def mjd_to_date(mjds):
-    """Convert Julian Day (JD) to a date.
+    """Convert Modified Julian Day (MJD) to the year, month, day.
 
         Input:
             mjds: Array of Modified Julian days
@@ -579,6 +580,25 @@ def mjd_to_date(mjds):
                 day.squeeze())
 
 
+def mjd_to_datetime(mjd):
+    """Given an MJD return a datetime.datetime object.
+        
+        Input:
+            mjds: Array of Modified Julian days
+
+        Output:
+            date: The datetime object.
+    """
+    yy, mm, dd = mjd_to_date(mjd)
+    hh = (dd % 1.0)*24
+    mm = (hh % 1.0)*60
+    ss = (mm % 1.0)*60
+    mus = (ss % 1.0)*1e6
+    date = datetime.datetime(int(yy), int(mm), int(dd), int(hh), int(mm), int(ss), int(mus))
+    return date
+        
+
+
 class ArchiveFile(object):
     def __init__(self, fn):
         self.fn = os.path.abspath(fn)
@@ -598,16 +618,23 @@ class ArchiveFile(object):
                             "Will continue using '%s'" % self.hdr['name'], \
                             errors.CoastGuardWarning)
         self.hdr['secs'] = int(self.hdr['fracmjd']*24*3600+0.5) # Add 0.5 so we actually round
-        self.hdr['yyyymmdd'] = "%04d%02d%02d" % mjd_to_date(self.hdr['mjd'])
+        self.datetime = mjd_to_datetime(self.hdr['mjd'])
+        self.hdr['yyyymmdd'] = self.datetime.strftime("%Y%m%d")
         self.hdr['pms'] = self.hdr['period']*1000.0
     
     def __getitem__(self, key):
         if key not in self.hdr:
             if key == 'snr':
                 self.hdr['snr'] = get_archive_snr(self.fn)
+                val = self.hdr[key]
+            elif key.startswith("date:"):
+                val = self.datetime.strftime(key[5:])    
             else:
                 self.hdr.update(get_header_vals(self.fn, [key]))
-        return self.hdr[key]
+                val = self.hdr[key]
+        else:
+            val = self.hdr[key]
+        return val
     
     def get_archive(self):
         if self.ar is None:
