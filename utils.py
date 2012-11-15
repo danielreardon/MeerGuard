@@ -591,10 +591,10 @@ def mjd_to_datetime(mjd):
     """
     yy, mm, dd = mjd_to_date(mjd)
     hh = (dd % 1.0)*24
-    mm = (hh % 1.0)*60
-    ss = (mm % 1.0)*60
+    mins = (hh % 1.0)*60
+    ss = (mins % 1.0)*60
     mus = (ss % 1.0)*1e6
-    date = datetime.datetime(int(yy), int(mm), int(dd), int(hh), int(mm), int(ss), int(mus))
+    date = datetime.datetime(int(yy), int(mm), int(dd), int(hh), int(mins), int(ss), int(mus))
     return date
         
 
