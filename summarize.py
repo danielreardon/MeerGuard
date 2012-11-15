@@ -151,19 +151,13 @@ class SummaryFigure(matplotlib.figure.Figure):
             self.ax_to_arf[ax] = arf
 
             # Add some text
-            if len(self.psrs) > 1:
-                towrite = (self.infotext % arf).replace(r"\n", "\n")
-                plt.figtext(panel_left+self.plot_width+0.02, \
-                            panel_top-0.001, "%(name)s" % arf, \
-                            va='top', ha='left', size='x-small')
-                plt.figtext(panel_left+self.plot_width+0.02, \
-                            panel_top-0.013, towrite, \
-                            va='top', ha='left', size='xx-small')
-            else:
-                towrite = (self.infotext % arf).replace(r"\n", "\n")
-                plt.figtext(panel_left+self.plot_width+0.02, \
-                            panel_top-0.001, towrite, \
-                            va='top', ha='left', size='xx-small')
+            towrite = self.infotext.decode('string-escape') % arf
+            plt.figtext(panel_left+self.plot_width+0.02, \
+                        panel_top-0.001, "%(name)s" % arf, \
+                        va='top', ha='left', size='x-small')
+            plt.figtext(panel_left+self.plot_width+0.02, \
+                        panel_top-0.013, towrite, \
+                        va='top', ha='left', size='xx-small')
 
         # Turn on tick labels for the bottom plot, and add a label
         plt.xlabel("Phase", size='small')
@@ -232,17 +226,11 @@ class SummaryFigure(matplotlib.figure.Figure):
 
     def get_title(self):
         title = "Summary of "
-        if len(self.psrs) > 1:
-            title += "%d Pulsars" % len(self.psrs)
-        else:
-            title += "PSR %(name)s" % self.arfs[0]
+        title += "%d Pulsars" % len(self.psrs)
         fmt_date = lambda datestr: datetime.datetime.strptime(datestr, \
                                         "%Y%m%d").strftime("%b %d, %Y")
-        if len(self.dates) > 1:
-            title += ", %s to %s" % (fmt_date(min(self.dates)), \
+        title += ", %s to %s" % (fmt_date(min(self.dates)), \
                                         fmt_date(max(self.dates)))
-        else:
-            title += ", %s" % fmt_date(self.arfs[0]['yyyymmdd'])
         if len(self.rcvrs) > 1:
             title += ", %d receivers" % len(self.rcvrs)
         else:
@@ -277,9 +265,9 @@ def main():
         if options.savefn:
             if numfigs > 1:
                 fn, ext = os.path.splitext(options.savefn)
-                plt.savefig(fn+("_page%d"%(fignum+1))+ext)
+                plt.savefig(fn+("_page%d"%(fignum+1))+ext, papertype='a4')
             else:
-                plt.savefig(options.savefn)
+                plt.savefig(options.savefn, papertype='a4')
         fig.canvas.mpl_connect('key_press_event', \
                 lambda ev: ev.key in ('q', 'Q') and plt.close(fig))
     if options.interactive:
