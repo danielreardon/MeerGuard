@@ -6,8 +6,10 @@ if [[ $# -lt 3 ]]; then
     exit 1
 fi
 
+ALWAYS_ADD=1
+
 outfn=$1
-echo $outfn
+echo "Output file name: $outfn"
 shift
 
 if [ -f $outfn ]; then
@@ -28,7 +30,7 @@ for fn in $(psrstat -Q -j DFTp -c snr $@ | sort -n -k2 -r | cut -f 1 -d ' '); do
         # Normalise source name
         currname=$(vap -n -c name ${fn} | awk '{print $2}')
         prefname=$(get_prefname.py ${currname})
-        pam -m --name ${prefname} ${outfn}
+        pam -DFTp -m --name ${prefname} ${outfn}
         snradd=$(psrstat -Q -q -j DFTp -c snr ${outfn})
     else
         # Copy input file and normalise source name
@@ -37,12 +39,20 @@ for fn in $(psrstat -Q -j DFTp -c snr $@ | sort -n -k2 -r | cut -f 1 -d ' '); do
         prefname=$(get_prefname.py ${currname})
         pam -m --name ${prefname} ${toadd}
         # Add to temp file
-        psradd -j TDFp -F -ip -P -o ${temp} -T ${outfn} ${toadd}
+        phs_offset=$(pat -TF -R -s ${outfn} ${toadd} | awk '{print $4}')
+        echo "Phase offset: ${phs_offset}"
+        cp ${toadd} ${temp}
+        pam -m -r ${phs_offset} ${temp}
+        psradd -F -ip -T -o ${temp} ${temp} ${outfn}
         # Get SNR of temp file
         snrtmp=$(psrstat -Q -q -j DFTp -c snr ${temp})
         echo "snrtmp: ${snrtmp}; snradd: ${snradd}"
         # Compare with old added file
-        isbetter=$(echo "${snrtmp} > ${snradd}" | bc -l)
+        if [ $ALWAYS_ADD -eq 1]; then
+            isbetter=1
+        else
+            isbetter=$(echo "${snrtmp} > ${snradd}" | bc -l)
+        fi
         if [ $isbetter -eq 1 ]; then
             # If SNR improved keep temp and our added file
             echo "SNR has improved from ${snradd} to ${snrtmp}"
