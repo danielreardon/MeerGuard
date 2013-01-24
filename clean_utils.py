@@ -39,7 +39,7 @@ def comprehensive_stats(data, axis, chanthresh=None, subintthresh=None, binthres
         subintthresh = config.cfg.clean_subintthresh
     if binthresh is None:
         binthresh = config.cfg.clean_binthresh
-   
+
     nsubs, nchans, nbins = data.shape
     diagnostic_functions = [
             np.ma.std, \
@@ -55,25 +55,6 @@ def comprehensive_stats(data, axis, chanthresh=None, subintthresh=None, binthres
     for func in diagnostic_functions:
         diagnostics.append(func(data, axis=2))
 
-    def channel_scaler(array2d):
-        scaled = np.empty_like(array2d)
-        for ichan in np.arange(nchans):
-            detrended = iterative_detrend(array2d[:,ichan], order=1, numpieces=4)
-            median = np.ma.median(detrended)
-            mad = np.ma.median(np.abs(detrended-median))
-            scaled[:, ichan] = (detrended-median)/mad
-        return scaled
-
-    def subint_scaler(array2d):
-        scaled = np.empty_like(array2d)
-        for isub in np.arange(nsubs):
-            detrended = iterative_detrend(array2d[isub,:], order=2, numpieces=2)
-            detrended = iterative_detrend(detrended, order=1, numpieces=4)
-            median = np.ma.median(detrended)
-            mad = np.ma.median(np.abs(detrended-median))
-            scaled[isub,:] = (detrended-median)/mad
-        return scaled
-        
     # Now step through data and identify bad profiles
     scaled_diagnostics = []
     for diag in diagnostics:
@@ -89,6 +70,39 @@ def comprehensive_stats(data, axis, chanthresh=None, subintthresh=None, binthres
     test_results = np.median(scaled_diagnostics, axis=0)
     return test_results
 
+
+def channel_scaler(array2d):
+    scaled = np.empty_like(array2d)
+    nchans = array2d.shape[1]
+    for ichan in np.arange(nchans):
+        detrended = array2d[:,ichan]
+        for order, bp, numpieces in zip(config.cfg.chan_order, \
+                                        config.cfg.chan_breakpoints, \
+                                        config.cfg.chan_numpieces):
+            detrended = iterative_detrend(detrended, order=order, \
+                                            bp=bp, numpieces=numpieces)
+        median = np.ma.median(detrended)
+        mad = np.ma.median(np.abs(detrended-median))
+        scaled[:, ichan] = (detrended-median)/mad
+    return scaled
+
+
+def subint_scaler(array2d):
+    
+    scaled = np.empty_like(array2d)
+    nsubs = array2d.shape[0]
+    for isub in np.arange(nsubs):
+        detrended = array2d[isub,:]
+        for order, bp, numpieces in zip(config.cfg.subint_order, \
+                                        config.cfg.subint_breakpoints, \
+                                        config.cfg.subint_numpieces):
+            detrended = iterative_detrend(array2d[isub,:], order=order, \
+                                            bp=bp, numpieces=numpieces)
+        median = np.ma.median(detrended)
+        mad = np.ma.median(np.abs(detrended-median))
+        scaled[isub,:] = (detrended-median)/mad
+    return scaled
+        
 
 def get_robust_std(data, weights, trimfrac=0.1):
     mdata = np.ma.masked_where(np.bitwise_not(weights), data)
@@ -157,7 +171,9 @@ def detrend(ydata, xdata=None, order=1, bp=[], numpieces=None):
 def iterative_detrend(ydata, thresh=5, reset_mask=True, *args, **kwargs):
     origmask = np.ma.getmaskarray(ydata)
     ymasked = np.ma.masked_array(ydata, mask=origmask)
-
+    if not np.ma.count(ymasked):
+        # No un-masked values
+        return ymasked
     detrended = ymasked.copy()
     # mask outliers based on median and median absolute deviation
     median = np.ma.median(detrended)

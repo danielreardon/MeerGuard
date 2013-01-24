@@ -8,9 +8,12 @@ Patrick Lazarus, Dec. 12, 2011
 
 import re
 import sys
+import os
 import os.path
 import optparse
 import copy
+import tempfile
+import shutil
 
 import numpy as np
 import scipy.signal
@@ -306,11 +309,7 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         mask = (self.weights[self.subint, :]==0)
         toplot = np.ma.masked_array(self.imdata[self.subint, :], mask=mask)
         if self.scale:
-            toplot = clean_utils.iterative_detrend(toplot, order=2, numpieces=2)
-            toplot = clean_utils.iterative_detrend(toplot, order=1, numpieces=4)
-            median = np.ma.median(toplot)
-            mad = np.ma.median(np.abs(toplot-median))
-            toplot = (toplot-median)/mad
+            toplot = clean_utils.subint_scaler(toplot[np.newaxis])[0]
         select_str += " %g" % toplot[self.chan]
         indices = np.repeat(np.arange(-0.5, self.nchans+0.5, 1),2)[1:-1]
         invertedmask = np.ma.masked_array(np.ones(self.nchans), mask=np.bitwise_not(mask))
@@ -332,10 +331,7 @@ class SlicerDiagnosticFigure(matplotlib.figure.Figure):
         mask = (self.weights[:, self.chan]==0)
         toplot = np.ma.masked_array(self.imdata[:,self.chan], mask=mask)
         if self.scale:
-            toplot = clean_utils.iterative_detrend(toplot, order=1, numpieces=4)
-            median = np.ma.median(toplot)
-            mad = np.ma.median(np.abs(toplot-median))
-            toplot = (toplot-median)/mad
+            toplot = clean_utils.channel_scaler(toplot[:,np.newaxis])[:,0]
         select_str += " %g" % toplot[self.subint]
         indices = np.repeat(np.arange(-0.5, self.nsubs+0.5, 1),2)[1:-1]
         invertedmask = np.ma.masked_array(np.ones(self.nsubs), mask=np.bitwise_not(mask))
@@ -846,6 +842,7 @@ def preprocess_archive_file(arf, rmbaseline=None, dedisp=None, \
 
 def main():
     inarf = utils.ArchiveFile(args[0])
+    config.cfg.load_configs_for_archive(inarf)
     fig = make_diagnostic_figure(inarf, \
                 func_re=options.func_to_plot, diag_re=options.diagnostic)
     if options.savefn:
