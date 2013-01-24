@@ -13,10 +13,13 @@ shift
 while (( "$#" )); do
     fn=$1
     outdir=${digestbasedir}/$(get_outfn.py "%(name)s/%(rcvr)s/" ${fn})
-    echo "Digesting ${fn} into ${outdir}"
     mkdir -p ${outdir}
-    pam -u ${outdir} -e DTFp -T -F -p -D ${fn}
-    
+    if [ -f ${outdir}/$(echo ${fn} | sed -e 's/[^.]*$/DTFp/') ]; then
+        echo "Skipping ${fn}"
+    else
+        echo "Digesting ${fn} into ${outdir}"
+        pam -u ${outdir} -e DTFp -T -F -p -D ${fn}
+    fi
     shift
 
 done
