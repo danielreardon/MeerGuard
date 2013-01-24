@@ -841,8 +841,10 @@ def preprocess_archive_file(arf, rmbaseline=None, dedisp=None, \
 
 
 def make_composite_summary_plot(arfn, preproc='C,D', outpsfn=None):
+    utils.print_info("Creating composite summary plot for %s" % arfn, 1)
     if outpsfn is None:
         outpsfn = "%s.ps" % arfn
+    utils.print_info("Output plot name: %s" % outpsfn, 2)
     handle, tmpfn = tempfile.mkstemp(suffix=".ps")
     os.close(handle)
     utils.execute("psrplot -O -j '%s' -c 'above:c=' %s -D %s/CPS " \
