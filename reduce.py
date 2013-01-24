@@ -179,36 +179,23 @@ class ReductionJob(object):
             # Reload configurations
             config.cfg.load_configs_for_archive(combinearf)
             # Create diagnostic plots for pre-cleaned data
-            utils.print_info("Creating diagnostics for %s" % combinearf.fn, 1)
-            for func_key in config.cfg.funcs_to_plot:
-                diagnose.make_diagnostic_figure(combinearf, func_key, \
-                                            rmprof=True)
-                plt.savefig("%s_diag_noprof_%s.png" % (combinearf.fn, func_key), dpi=600)
-                plt.clf()
-                plt.close()
-                diagnose.make_diagnostic_figure(combinearf, func_key, \
-                                            rmprof=False)
-                plt.savefig("%s_diag_%s.png" % (combinearf.fn, func_key), dpi=600)
-                plt.clf()
-                plt.close()
+            diagnose.make_composite_summary_plot(combinearf.fn)
+            preproc = 'C,D,B 128,F 32'
+            if combinearf['nsub'] > 32:
+                preproc += ",T 32"
+            diagnose.make_composite_summary_plot(combinearf.fn, preproc, \
+                                            combinearf.fn+".scrunched.ps")
  
             # Clean the data
             utils.print_info("Cleaning %s" % combinearf.fn, 1)
             cleanarf = clean.clean_archive(combinearf, self.outfn)
-            
             # Re-create diagnostic plots for clean data
-            utils.print_info("Creating diagnostics for %s" % cleanarf.fn, 1)
-            for func_key in config.cfg.funcs_to_plot:
-                diagnose.make_diagnostic_figure(cleanarf, func_key, \
-                                                rmprof=True)
-                plt.savefig("%s_diag_noprof_%s.png" % (cleanarf.fn, func_key), dpi=600)
-                plt.clf()
-                plt.close()
-                diagnose.make_diagnostic_figure(cleanarf, func_key, \
-                                                rmprof=False)
-                plt.savefig("%s_diag_%s.png" % (cleanarf.fn, func_key), dpi=600)
-                plt.clf()
-                plt.close()
+            diagnose.make_composite_summary_plot(cleanarf.fn)
+            preproc = 'C,D,B 128,F 32'
+            if cleanarf['nsub'] > 32:
+                preproc += ",T 32"
+            diagnose.make_composite_summary_plot(cleanarf.fn, preproc, \
+                                            cleanarf.fn+".scrunched.ps")
 
             cleanarfs.append(cleanarf)
             
