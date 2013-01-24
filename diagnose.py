@@ -840,6 +840,37 @@ def preprocess_archive_file(arf, rmbaseline=None, dedisp=None, \
     return clean_utils.apply_weights(data, ar.get_weights())
 
 
+def make_composite_summary_plot(arfn, preproc='C,D', outpsfn=None):
+    if outpsfn is None:
+        outpsfn = "%s.ps" % arfn
+    handle, tmpfn = tempfile.mkstemp(suffix=".ps")
+    os.close(handle)
+    utils.execute("psrplot -O -j '%s' -c 'above:c=' %s -D %s/CPS " \
+                    "-p flux -c ':0:x:view=0.075:0.45," \
+                                   "y:view=0.70:0.85," \
+                                   "subint=I," \
+                                   "chan=I," \
+                                   "pol=I," \
+                                   "x:opt=BCTS," \
+                                   "x:lab=," \
+                                   "below:l=," \
+                                   "above:l=$file," \
+                                   "above:off=5' " \
+                    "-p freq -c ':1:x:view=0.075:0.45," \
+                                   "y:view=0.15:0.70," \
+                                   "subint=I," \
+                                   "pol=I," \
+                                   "cmap:map=plasma' " \
+                    "-p time -c ':2:x:view=0.575:0.925," \
+                                   "y:view=0.15:0.85," \
+                                   "chan=I," \
+                                   "pol=I," \
+                                   "cmap:map=plasma'" % \
+                        (preproc, arfn, tmpfn))
+    # Rename tmpfn to requested output filename
+    shutil.move(tmpfn, outpsfn)
+
+
 def main():
     inarf = utils.ArchiveFile(args[0])
     config.cfg.load_configs_for_archive(inarf)
