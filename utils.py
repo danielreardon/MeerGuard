@@ -59,7 +59,9 @@ site_to_telescope = {'i': 'WSRT',
                      'ncy': 'Nancay',
                      'nancay': 'Nancay',
                      'sardinia': 'SRT',
-                     'srt': 'SRT'}
+                     'srt': 'SRT',
+                     'parkes':'Parkes',
+                     '7':'Parkes'}
 
 # A cache for pulsar preferred names
 prefname_cache = {}
