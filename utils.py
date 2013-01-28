@@ -462,11 +462,12 @@ def get_prefname(psrname):
     if psrname in prefname_cache:
         prefname = prefname_cache[psrname]
     else:
+        search = psrname
         if not psrname[0] in ('J', 'B') and len(psrname)==7:
             # Could be B-name, or truncated J-name. Add wildcard at end just in case.
-            psrname += '*'
+            search += '*'
             
-        cmd = "psrcat -nohead -nonumber -c 'PSRJ PSRB' -o short -null '' '%s'" % psrname
+        cmd = "psrcat -nohead -nonumber -c 'PSRJ PSRB' -o short -null '' '%s'" % search
         stdout, stderr = execute(cmd)
 
         names = [line.strip().split() for line in stdout.split('\n') \
