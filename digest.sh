@@ -13,6 +13,8 @@ shift
 while (( "$#" )); do
     fn=$1
     outdir=${digestbasedir}/$(get_outfn.py "%(name)s/%(rcvr)s/" ${fn})
+    echo "Filename: ${fn}"
+    echo "Output directory: ${outdir}"
     mkdir -p ${outdir}
     if [ -f ${outdir}/$(echo ${fn} | sed -e 's/[^.]*$/DTFp/') ]; then
         echo "Skipping ${fn}"
