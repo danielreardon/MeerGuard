@@ -61,7 +61,11 @@ site_to_telescope = {'i': 'WSRT',
                      'sardinia': 'SRT',
                      'srt': 'SRT',
                      'parkes':'Parkes',
-                     '7':'Parkes'}
+                     '7':'Parkes', 
+                     'arecibo':'Arecibo', 
+                     'ao':'Arecibo',
+                     'ao 305m':'Arecibo', 
+                     '3':'Arecibo'}
 
 # A cache for pulsar preferred names
 prefname_cache = {}
@@ -216,6 +220,9 @@ def get_header_vals(fn, hdritems):
                             "defined in this file (%s)" % (key, fn), \
                             errors.CoastGuardWarning)
             params[key] = None
+        elif val == '*error*':
+            raise errors.SystemCallError("The vap header key '%s' returned " \
+                            "'*error*'!" % key)
         else:
             # Get param's type to cast value
             caster = header_param_types.get(key, str)
