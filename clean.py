@@ -10,6 +10,8 @@ import sys
 import types
 import re
 import shutil
+import os
+import tempfile
 
 import numpy as np
 import scipy.stats
@@ -20,7 +22,7 @@ import utils
 import clean_utils
 import errors
 
-cleaners = ['deep_clean', 'dummy', 'surgical_scrub']
+cleaners = ['deep_clean', 'dummy', 'surgical_scrub', 'clean_hotbins']
 
 
 def dummy(ar):
@@ -32,6 +34,83 @@ def dummy(ar):
             None - The archive is cleaned in place.
     """
     return ar
+
+
+def clean_hotbins(ar, thresh=None, fscrunchfirst=None, onpulse=[]):
+    """Replace hot bits with white noise.
+
+        Inputs:
+            ar: The archive to be cleaned
+            thresh: The threshold (in number of sigmas) for a 
+                bin to be removed.
+            fscrunchfirst: Determine which bins to removed by
+                looking at frequency scrunched data. Remove
+                the hot bins in all frequency channels.
+            onpulse: On-pulse regions to be ignored when computing
+                profile statistics. A list of 2-tuples is expected.
+
+        Outputs:
+            None - The archive is cleaned in place.
+    """
+    if thresh is None:
+        thresh = config.cfg.clean_hotbins_thresh
+    if fscrunchfirst is None:
+        fscrunchfirst = config.cfg.clean_hotbins_fscrunchfirst
+    utils.print_debug("Cleaning hot bins (thresh: %g, " \
+                    "on-pulse regions: %s)" % (thresh, onpulse), 'clean')
+    nbins = ar.get_nbin()
+    indices = np.arange(nbins)
+    offbins = np.ones(nbins, dtype='bool')
+    offbin_indices = indices[offbins]
+    for lobin, hibin in onpulse:
+        offbins[lobin:hibin] = False
+  
+    if fscrunchfirst:
+        utils.print_debug("Determining hotbins based on f-scrunched data", 'clean')
+        reference = ar.clone()
+        reference.set_dispersion_measure(0)
+        reference.fscrunch()
+    else:
+        reference = ar
+    nsub = reference.get_nsubint()
+    for isub in np.arange(nsub):
+        for ichan in np.arange(reference.get_nchan()):
+            for ipol in np.arange(reference.get_npol()):
+                prof = reference.get_Profile(int(isub), int(ipol), int(ichan))
+                data = prof.get_amps()
+                offdata = data[offbins]
+                med = np.median(offdata)
+                mad = np.median(np.abs(offdata-med))
+                std = mad*1.4826 # This is the approximate relation between the
+                                 # standard deviation and the median absolute
+                                 # deviation (assuming normally distributed data).
+                ioffbad = np.abs(offdata-med) > std*thresh
+                ibad = offbin_indices[ioffbad]
+                igood = offbin_indices[~ioffbad]
+                nbad = np.sum(ioffbad)
+                utils.print_debug('isub: %d, ichan: %d, ipol: %d\n' \
+                            '    med: %g, mad: %g\n' \
+                            '    %d hotbins found (ibin: %s)' % \
+                            (isub, ichan, ipol, med, mad, nbad, ibad), 'clean')
+                # Replace data in cleaned archive with noise
+                if fscrunchfirst:
+                    # We need to clean all frequency channels
+                    for jchan in np.arange(ar.get_nchan()):
+                        cleanedprof = ar.get_Profile(int(isub), int(ipol), int(jchan))
+                        cleaneddata = cleanedprof.get_amps()
+                        gooddata = cleaneddata[igood]
+                        avg = gooddata.mean()
+                        std = gooddata.std()
+                        if std > 0:
+                            noise = np.random.normal(avg, std, size=nbad).astype('float32')
+                            cleaneddata[ibad] = noise
+                else:
+                    gooddata = data[igood]
+                    avg = gooddata.mean()
+                    std = gooddata.std()
+                    if std > 0:
+                        noise = np.random.normal(avg, std, size=nbad).astype('float32')
+                        data[ibad] = noise
 
 
 def surgical_scrub(ar, chanthresh=None, subintthresh=None, binthresh=None):
@@ -438,30 +517,36 @@ def clean_archive(inarf, outfn, clean_re=None, *args, **kwargs):
     
     if clean_re is None:
         clean_re = config.cfg.clean_strategy
-    
-    outfn = utils.get_outfn(outfn, inarf)
-    shutil.copy(inarf.fn, outfn)
-    
-    outarf = utils.ArchiveFile(outfn)
-
-    trim_edge_channels(outarf)
-    prune_band(outarf)
-    remove_bad_channels(outarf)
-    remove_bad_subints(outarf)
-    
-    matching_cleaners = [clnr for clnr in cleaners if clean_re and re.search(clean_re, clnr)]
-    if len(matching_cleaners) == 1:
-        ar = psrchive.Archive_load(outarf.fn)
-        cleaner = eval(matching_cleaners[0])
-        utils.print_info("Cleaning using '%s(...)'." % matching_cleaners[0], 2)
-        cleaner(ar, *args, **kwargs)
-        ar.unload(outfn)
-    elif len(matching_cleaners) == 0:
-        utils.print_info("No cleaning strategy selected. Skipping...", 2)
-    else:
-        raise errors.CleanError("Bad cleaner selection. " \
-                                "'%s' has %d matches." % \
-                                (clean_re, len(matching_cleaners)))
+    try:
+        outfn = utils.get_outfn(outfn, inarf)
+        shutil.copy(inarf.fn, outfn)
+        
+        outarf = utils.ArchiveFile(outfn)
+ 
+        trim_edge_channels(outarf)
+        prune_band(outarf)
+        remove_bad_channels(outarf)
+        remove_bad_subints(outarf)
+        
+        matching_cleaners = [clnr for clnr in cleaners if clean_re and re.search(clean_re, clnr)]
+        if len(matching_cleaners) == 1:
+            ar = psrchive.Archive_load(outarf.fn)
+            cleaner = eval(matching_cleaners[0])
+            utils.print_info("Cleaning using '%s(...)'." % matching_cleaners[0], 2)
+            cleaner(ar, *args, **kwargs)
+            ar.unload(outfn)
+        elif len(matching_cleaners) == 0:
+            utils.print_info("No cleaning strategy selected. Skipping...", 2)
+        else:
+            raise errors.CleanError("Bad cleaner selection. " \
+                                    "'%s' has %d matches." % \
+                                    (clean_re, len(matching_cleaners)))
+    except:
+        # An error prevented cleaning from being successful
+        # Remove the output file because it may confuse the user
+        if os.path.exists(outfn):
+            os.remove(outfn)
+        raise
     return outarf
 
 
