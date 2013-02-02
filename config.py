@@ -6,8 +6,13 @@ import utils
 import debug
 import errors
 
-# Read in global configurations
-execfile(os.path.join(os.path.split(__file__)[0], "global.cfg"), {}, locals())
+
+base_config_dir = os.getenv("COASTGUARD_CFG", None)
+if base_config_dir is None:
+    raise ValueError("COASTGUARD_CFG environment variable must be set. " \
+                        "(It should point to the CoastGuard configurations " \
+                        "directory to use.)")
+execfile(os.path.join(base_config_dir, "global.cfg"), {}, locals())
 
 
 class ConfigDict(dict):
@@ -38,7 +43,7 @@ def read_file(fn, required=False):
 
 
 class CoastGuardConfigs(object):
-    def __init__(self, base_config_dir=default_config_dir):
+    def __init__(self, base_config_dir=base_config_dir):
         self.base_config_dir = base_config_dir
         default_config_fn = os.path.join(self.base_config_dir, "default.cfg")
 
