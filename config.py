@@ -126,7 +126,7 @@ class CoastGuardConfigs(object):
         
         for fn in config_files:
             self.obsconfigs += read_file(fn)
-             
+        utils.print_debug("Current configurations:\n%s" % self, 'config')
 
 cfg = CoastGuardConfigs()
 
