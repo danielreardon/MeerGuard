@@ -473,12 +473,17 @@ def get_prefname(psrname):
         if not psrname[0] in ('J', 'B') and len(psrname)==7:
             # Could be B-name, or truncated J-name. Add wildcard at end just in case.
             search += '*'
-            
-        cmd = "psrcat -nohead -nonumber -c 'PSRJ PSRB' -o short -null '' '%s'" % search
-        stdout, stderr = execute(cmd)
+        try:   
+            cmd = "psrcat -nohead -nonumber -c 'PSRJ PSRB' -o short -null '' '%s'" % search
+            stdout, stderr = execute(cmd)
 
-        names = [line.strip().split() for line in stdout.split('\n') \
-                        if line.strip() and not line.startswith("WARNING:")]
+            names = [line.strip().split() for line in stdout.split('\n') \
+                            if line.strip() and not line.startswith("WARNING:")]
+        except errors.SystemCallError:
+            warnings.warn("Error occurred while trying to run 'psrcat' " \
+                            "to get prefname for '%s'" % psrname, \
+                            errors.CoastGuardWarning)
+            names = []
     
         if len(names) == 1:
             prefname = names[0][-1]
@@ -631,7 +636,9 @@ class ArchiveFile(object):
         self.datetime = mjd_to_datetime(self.hdr['mjd'])
         self.hdr['yyyymmdd'] = self.datetime.strftime("%Y%m%d")
         self.hdr['pms'] = self.hdr['period']*1000.0
-    
+        self.hdr['inputfn'] = os.path.split(self.fn)[-1]
+        self.hdr['inputbasenm'] = os.path.splitext(self.hdr['inputfn'])[0]
+
     def __getitem__(self, key):
         if key not in self.hdr:
             if key == 'snr':
@@ -640,8 +647,13 @@ class ArchiveFile(object):
             elif key.startswith("date:"):
                 val = self.datetime.strftime(key[5:])    
             else:
-                self.hdr.update(get_header_vals(self.fn, [key]))
-                val = self.hdr[key]
+                try:
+                    self.hdr.update(get_header_vals(self.fn, [key]))
+                    val = self.hdr[key]
+                except:
+                    raise errors.CoastGuardError("Parameter '%s' is not " \
+                            "recognized. Valid keys are '%s'" % \
+                            (key, "', '".join([str(xx) for xx in self.hdr.keys()])))
         else:
             val = self.hdr[key]
         return val
