@@ -396,7 +396,10 @@ def remove_profile1d_inplace(prof, isub, ichan, template):
     
 
 def remove_profile_inplace(ar, template, nthreads=1):
-    data = ar.get_data().squeeze()
+    data = ar.get_data()[:,0,:,:] # Select first polarization channel
+                                  # archive is P-scrunched, so this is
+                                  # total intensity, the only polarization
+                                  # channel
     if nthreads is None:
         nthreads = config.cfg.nthreads
     if nthreads == 1:

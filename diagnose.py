@@ -836,7 +836,10 @@ def preprocess_archive_file(arf, rmbaseline=None, dedisp=None, \
         utils.print_info("Dedispersing to DM=0...", 2)
         ar.dededisperse()
     
-    data = ar.get_data().squeeze()
+    data = ar.get_data()[:,0,:,:] # Select first polarization channel
+                                  # archive is P-scrunched, so this is
+                                  # total intensity, the only polarization
+                                  # channel
     return clean_utils.apply_weights(data, ar.get_weights())
 
 
