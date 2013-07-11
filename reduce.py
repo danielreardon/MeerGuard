@@ -103,7 +103,7 @@ class ReductionLog(object):
 class ReductionJob(object):
     """An object to represent the reduction of an observation.
     """
-    def __init__(self, infns, outfn, is_asterix=False):
+    def __init__(self, infns, outfn, is_asterix=False, maketoas=True):
         """Given a list of PSRCHIVE file names create a
             ReductionJob object.
 
@@ -113,6 +113,8 @@ class ReductionJob(object):
                 is_asterix: If the data is from Effelsberg's Asterix backend.
                     If True, the header information will be corrected.
                     (Default: False)
+                maketoas: Whether or not TOAs should be made.
+                    (Default: True)
 
             Output:
                 job: The Reduction job object.
@@ -122,6 +124,7 @@ class ReductionJob(object):
         self.basenm = os.path.splitext(self.outfn)[0]
 
         self.is_asterix = is_asterix # Hopefully only temporary
+        self.maketoas = maketoas
 
         logfn = utils.get_outfn(self.basenm+'.log', infns[0])
         self.log = ReductionLog(infns, logfn)
@@ -198,15 +201,17 @@ class ReductionJob(object):
                                             cleanarf.fn+".scrunched.ps")
 
             cleanarfs.append(cleanarf)
-            
-            # Make TOAs
-            utils.print_info("Generating TOAs", 1)
-            stdfn = toas.get_standard(cleanarf)
-            if not os.path.isfile(stdfn):
-                raise errors.NoStandardProfileError("The standard profile (%s) " \
-                                                "cannot be found!" % stdfn)
-            utils.print_info("Standard profile: %s" % stdfn, 2)
-            toastrs.extend(toas.get_toas(cleanarf, stdfn))
+            if self.maketoas: 
+                # Make TOAs
+                utils.print_info("Generating TOAs", 1)
+                stdfn = toas.get_standard(cleanarf)
+                if not os.path.isfile(stdfn):
+                    raise errors.NoStandardProfileError("The standard profile (%s) " \
+                                                    "cannot be found!" % stdfn)
+                utils.print_info("Standard profile: %s" % stdfn, 2)
+                toastrs.extend(toas.get_toas(cleanarf, stdfn))
+            else:
+                toastrs = None
         return cleanarfs, toastrs
 
 
@@ -228,16 +233,19 @@ def main():
     # Read configurations
     config.cfg.load_configs_for_archive(to_reduce[0])
   
-    job = ReductionJob(to_reduce, options.outfn, is_asterix=options.is_asterix)
+    job = ReductionJob(to_reduce, options.outfn, is_asterix=options.is_asterix, \
+                        maketoas=options.maketoas)
     outfns, toastrs = job.run()
 
     print "Output file names:"
     for outfn in outfns:
         print "    %s" % outfn.fn
-
-    print "TOAs:"
-    print "\n".join(toastrs)
-
+    
+    if toastrs:
+        print "TOAs:"
+        print "\n".join(toastrs)
+    else:
+        print "No TOAs"
 
 if __name__=="__main__":
     parser = utils.DefaultOptions(usage="%prog [OPTIONS] FILES ...", \
@@ -273,5 +281,8 @@ if __name__=="__main__":
                         help="If the data are from Effelsberg's Asterix backend " \
                             "guess the receiver used and correct the output " \
                             "archive's header. (Default: False)")
+    parser.add_option('--notoas', dest='maketoas', action='store_false', \
+                        default=True, \
+                        help="Do not make TOAs. (Default: Make TOAs)")
     options, args = parser.parse_args()
     main()
