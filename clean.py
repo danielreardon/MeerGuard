@@ -21,6 +21,7 @@ import config
 import utils
 import clean_utils
 import errors
+import warnings
 
 cleaners = ['deep_clean', 'dummy', 'surgical_scrub', 'clean_hotbins']
 
@@ -382,9 +383,12 @@ def prune_band(infn, response=None):
     if response is None:
         utils.print_info("No freq range specified for band pruning. Skipping...", 2)
     else:
-        lofreq = infn['freq'] - 0.5*infn['bw']
-        hifreq = infn['freq'] + 0.5*infn['bw']
+        # Use absolute value in case band is flipped (BW<0)
+        lofreq = infn['freq'] - np.abs(0.5*infn['bw'])
+        hifreq = infn['freq'] + np.abs(0.5*infn['bw'])
         utils.print_info("Pruning frequency band to (%g-%g MHz)" % response, 2)
+        utils.print_debug("Archive's freq band (%g-%g MHz)" % \
+                            (lofreq, hifreq), 'clean')
         pazcmd = 'paz -m %s ' % infn.fn
         runpaz = False # Only run paz if either of the following clauses are True
         if response[0] > lofreq:
@@ -397,6 +401,10 @@ def prune_band(infn, response=None):
             runpaz = True
         if runpaz:        
             utils.execute(pazcmd)
+        else:
+            warnings.warn("Not pruning band edges! All data are " \
+                            "within the receiver's response.", \
+                            errors.CoastGuardWarning)
 
 
 def trim_edge_channels(infn, nchan_to_trim=None, frac_to_trim=None):
