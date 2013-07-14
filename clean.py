@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Given a PSRCHIVE archive clean it up using 'paz'.
+Given a PSRCHIVE archive clean it up.
 
 Patrick Lazarus, Nov. 11, 2011
 """
@@ -12,6 +12,8 @@ import re
 import shutil
 import os
 import tempfile
+import argparse
+import warnings
 
 import numpy as np
 import scipy.stats
@@ -21,10 +23,8 @@ import config
 import utils
 import clean_utils
 import errors
-import warnings
-
-cleaners = ['deep_clean', 'dummy', 'surgical_scrub', 'clean_hotbins']
-
+import cleaners
+import colour
 
 def dummy(ar):
     """A do-nothing dummy cleaning function.
@@ -576,67 +576,70 @@ def main():
         outarf = clean_archive(arf, options.outfn)
         print "Cleaned archive: %s" % outarf.fn
 
+    
+class CleanerArguments(argparse.ArgumentParser):
+    def __init__(self, *args, **kwargs):
+        super(CleanerArguments, self).__init__(add_help=False, \
+                                                *args, **kwargs)
+        self.add_argument('-h', '--help', nargs='?', dest='help_topic', \
+                            metavar='CLEANER', \
+                            action=self.HelpAction, type=str, \
+                            help="Display this help message. If provided "
+                                "with the name of a cleaner, display "
+                                "its help.")
+
+    class HelpAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string):
+            if values is None:
+                parser.print_help()
+            else:
+                cleaner = cleaners.load_cleaner(values)
+                print cleaner.get_help(full=True)
+            sys.exit(1)
+
+    class ListCleanersAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string):
+            colour.cprint("Available Cleaners:", \
+                            bold=True, underline=True) 
+            for name in sorted(cleaners.registered_cleaners):
+                cleaner = cleaners.load_cleaner(name)
+                print cleaner.get_help()
+            sys.exit(1)
+
 
 if __name__=="__main__":
-    parser = utils.DefaultOptions(usage="%prog [OPTIONS] FILES ...", \
+    parser = CleanerArguments(usage="%(prog)s [OPTIONS] FILES ...", \
                         description="Given a list of PSRCHIVE file names " \
-                                    "clean RFI from each one. \nNOTE: " \
-                                    "The files are cleaned non-desctructively " \
-                                    "by applying zero-weighting.")
-    parser.add_option('-o', '--outname', dest='outfn', type='string', \
-                        help="The output (reduced) file's name. " \
-                            "(Default: '%(name)s_%(yyyymmdd)s_%(secs)05d_cleaned.ar')", \
-                        default="%(name)s_%(yyyymmdd)s_%(secs)05d_cleaned.ar")
-    parser.add_option('-g', '--glob', dest='from_glob', action='callback', \
-                        callback=utils.get_files_from_glob, default=[], \
-                        type='string', \
-                        help="Glob expression of input files. Glob expression " \
-                            "should be properly quoted to not be expanded by " \
-                            "the shell prematurely. (Default: no glob " \
-                            "expression is used.)") 
-    parser.add_option('-x', '--exclude-file', dest='excluded_files', \
-                        type='string', action='append', default=[], \
-                        help="Exclude a single file. Multiple -x/--exclude-file " \
-                            "options can be provided. (Default: don't exclude " \
-                            "any files.)")
-    parser.add_option('--exclude-glob', dest='excluded_by_glob', action='callback', \
-                        callback=utils.get_files_from_glob, default=[], \
-                        type='string', \
-                        help="Glob expression of files to exclude as input. Glob " \
-                            "expression should be properly quoted to not be " \
-                            "expanded by the shell prematurely. (Default: " \
-                            "exclude any files.)")
-    parser.add_option('--nchan-to-trim', dest='nchan_to_trim', action='callback', \
-                        callback=parser.override_config, type='int', \
-                        help="The number of channels to trim from the edge of each " \
-                            "subband. (Default: %d)" % config.cfg.nchan_to_trim)
-    parser.add_option('--frac-to-trim', dest='frac_to_trim', action='callback', \
-                        callback=parser.override_config, type='float', \
-                        help="The fraction of channels to trim from the edge of each " \
-                            "subband. (Default: %g)" % config.cfg.frac_to_trim)
-    parser.add_option('--rcvr-response-lims', dest='rcvr_response_lims', \
-                        action='callback', callback=parser.override_config, \
-                        type='int', nargs=2, \
-                        help="Two values containg the low and high frequency " \
-                            "limits of the receiver's response (in MHz). Channels " \
-                            "outside of this region will be de-weighted. " \
-                            "(Default: %s)" % config.cfg.rcvr_response_lims)
-    parser.add_option('--clean-strategy', dest='clean_strategy', action='callback', \
-                        callback=parser.override_config, type='str', \
-                        help="A string that matches one of the names of the available " \
-                             "cleaning functions. Possibilities are: '%s'. (Default: %s) " % \
-                             ("', '".join(cleaners), config.cfg.clean_strategy))
-    parser.add_option('--chan-thresh', dest='clean_chanthresh', action='callback', \
-                        callback=parser.override_config, type='float', \
-                        help="Threshold for removing an entire channel. (Default: %g)" % \
-                            config.cfg.clean_chanthresh)
-    parser.add_option('--subint-thresh', dest='clean_subintthresh', action='callback', \
-                        callback=parser.override_config, type='float', \
-                        help="Threshold for removing an entire sub-int. (Default: %g)" % \
-                            config.cfg.clean_subintthresh)
-    parser.add_option('--bin-thresh', dest='clean_binthresh', action='callback', \
-                        callback=parser.override_config, type='float', \
-                        help="Threshold for removing phase bins. (Default: %g)" % \
-                            config.cfg.clean_binthresh)
+                                    "clean RFI from each one.")
+#    parser.add_argument('-o', '--outname', dest='outfn', type=str, \
+#                        help="The output (reduced) file's name. " \
+#                            "(Default: '%(name)s_%(yyyymmdd)s_%(secs)05d_cleaned.ar')", \
+#                        default="%(name)s_%(yyyymmdd)s_%(secs)05d_cleaned.ar")
+#    parser.add_argument('-g', '--glob', dest='from_glob', action='callback', \
+#                        callback=utils.get_files_from_glob, default=[], \
+#                        type='string', \
+#                        help="Glob expression of input files. Glob expression " \
+#                            "should be properly quoted to not be expanded by " \
+#                            "the shell prematurely. (Default: no glob " \
+#                            "expression is used.)") 
+#    parser.add_argument('-x', '--exclude-file', dest='excluded_files', \
+#                        type=str, action='append', default=[], \
+#                        help="Exclude a single file. Multiple -x/--exclude-file " \
+#                            "options can be provided. (Default: don't exclude " \
+#                            "any files.)")
+#    parser.add_argument('--exclude-glob', dest='excluded_by_glob', action='callback', \
+#                        callback=utils.get_files_from_glob, default=[], \
+#                        type='string', \
+#                        help="Glob expression of files to exclude as input. Glob " \
+#                            "expression should be properly quoted to not be " \
+#                            "expanded by the shell prematurely. (Default: " \
+#                            "exclude any files.)")
+#    parser.add_argument('-F', '--cleaner', dest='cleaner', \
+#                        action=parser.PushCleanerAction, type=str, \
+#                        help="A string that matches one of the names of the available " \
+#                             "cleaning functions.")
+    parser.add_argument('--list-cleaners', nargs=0, \
+                        action=parser.ListCleanersAction, \
+                        help="List available cleaners and descriptions, then exit.")
     options, args = parser.parse_args()
     main()
