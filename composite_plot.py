@@ -5,7 +5,8 @@ import diagnose
 def main():
     for arfn in args:
         print "Plotting %s" % arfn,
-        diagnose.make_composite_summary_plot(arfn, \
+        arf = utils.ArchiveFile(arfn)
+        diagnose.make_composite_summary_plot(arf, \
                     options.preproc, options.outpsfn)
         print " Done"
 

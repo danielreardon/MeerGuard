@@ -843,37 +843,117 @@ def preprocess_archive_file(arf, rmbaseline=None, dedisp=None, \
     return clean_utils.apply_weights(data, ar.get_weights())
 
 
-def make_composite_summary_plot(arfn, preproc='C,D', outpsfn=None):
-    utils.print_info("Creating composite summary plot for %s" % arfn, 1)
+def make_composite_summary_plot(ar, preproc='C,D', outpsfn=None):
+    utils.print_info("Creating composite summary plot for %s" % ar.fn, 3)
     if outpsfn is None:
-        outpsfn = "%s.ps" % arfn
+        outpsfn = "%s.ps" % ar.fn
     utils.print_info("Output plot name: %s" % outpsfn, 2)
     handle, tmpfn = tempfile.mkstemp(suffix=".ps")
-    os.close(handle)
-    utils.execute("psrplot -O -j '%s' -c 'above:c=' %s -D %s/CPS " \
-                    "-p flux -c ':0:x:view=0.075:0.45," \
-                                   "y:view=0.70:0.85," \
+    
+    if (ar['nsub'] > 1) and (ar['nchan'] > 1):
+        __plot_all(tmpfn, ar, preproc)
+    elif (ar['nsub'] > 1) and (ar['nchan'] == 1):
+        __plot_nofreq(tmpfn, ar, preproc)
+    elif (ar['nsub'] == 1) and (ar['nchan'] > 1):
+        __plot_notime(tmpfn, ar, preproc)
+    elif  (ar['nsub'] == 1) and (ar['nchan'] == 1):
+        __plot_profonly(tmpfn, ar, preproc)
+    else:
+        raise errors.FileError("Not sure how to plot diagnostic for file. " \
+                                "(nsub: %d; nchan: %d)" % \
+                                (ar['nsub'], ar['nchan']))
+    # Rename tmpfn to requested output filename
+    shutil.move(tmpfn, outpsfn)
+
+
+def __get_info(ar):
+    info = "above:l=%s\n" \
+                   "%s    %s (%s)\n" \
+                   "Length=%.1f s    BW=%.1f MHz\n" \
+                   "N\\dbin\\u=$nbin    N\\dchan\\u=$nchan    N\\dsub\\u=$nsubint," \
+           "above:off=3.5" % \
+                    (os.path.split(ar.fn)[-1], \
+                     ar['telescop'], ar['rcvr'], \
+                     ar['backend'], ar['length'], ar['bw'])
+    return info
+
+def __plot_profonly(tmpfn, ar, preproc="D"):
+    info = __get_info(ar)
+    cmd = ["psrplot", "-O", "-j", preproc, "-c", "above:c=,x:range=0:2", \
+            ar.fn, "-D", "%s/PNG" % tmpfn, \
+            "-p", "flux", "-c", ":0:x:view=0.075:0.95," \
+                                     "y:view=0.15:0.7," \
+                                     "subint=I," \
+                                     "chan=I," \
+                                     "pol=I," \
+                                     "below:l=," \
+                                     "%s" % info]
+    utils.execute(cmd)
+    
+def __plot_nofreq(tmpfn, ar, preproc="D"):
+    info = __get_info(ar)
+    cmd = ["psrplot", "-O", "-j", preproc, "-c", "above:c=,x:range=0:2", \
+            ar.fn, "-D", "%s/PNG" % tmpfn, \
+            "-p", "flux", "-c", ":0:x:view=0.075:0.95," \
+                                    "y:view=0.5:0.7," \
+                                    "subint=I," \
+                                    "chan=I," \
+                                    "pol=I," \
+                                    "x:opt=BCTS," \
+                                    "x:lab=," \
+                                    "below:l=," \
+                                    "%s" % info, \
+            "-p", "time", "-c", ":1:x:view=0.075:0.95," \
+                                    "y:view=0.15:0.5," \
+                                    "chan=I," \
+                                    "pol=I," \
+                                    "cmap:map=plasma"]
+    utils.execute(cmd)
+    
+def __plot_notime(tmpfn, ar, preproc="D"):
+    info = __get_info(ar)
+    cmd = ["psrplot", "-O", "-j", preproc, "-c", "above:c=,x:range=0:2", \
+            ar.fn, "-D", "%s/PNG" % tmpfn, \
+            "-p", "flux", "-c", ":0:x:view=0.075:0.95," \
+                                   "y:view=0.5:0.7," \
                                    "subint=I," \
                                    "chan=I," \
                                    "pol=I," \
                                    "x:opt=BCTS," \
                                    "x:lab=," \
                                    "below:l=," \
-                                   "above:l=$file," \
-                                   "above:off=5' " \
-                    "-p freq -c ':1:x:view=0.075:0.45," \
-                                   "y:view=0.15:0.70," \
+                                   "%s" % info, \
+            "-p", "freq", "-c", ":1:x:view=0.075:0.95," \
+                                   "y:view=0.15:0.5," \
                                    "subint=I," \
                                    "pol=I," \
-                                   "cmap:map=plasma' " \
-                    "-p time -c ':2:x:view=0.575:0.925," \
-                                   "y:view=0.15:0.85," \
+                                   "cmap:map=plasma"]
+    utils.execute(cmd)
+    
+def __plot_all(tmpfn, ar, preproc="D"):
+    info = __get_info(ar)
+    cmd = ["psrplot", "-O", "-j", preproc, "-c", "above:c=,x:range=0:2", \
+            ar.fn, "-D", "%s/PNG" % tmpfn, \
+            "-p", "flux", "-c", ":0:x:view=0.575:0.95," \
+                                   "y:view=0.7:0.9," \
+                                   "subint=I," \
                                    "chan=I," \
                                    "pol=I," \
-                                   "cmap:map=plasma'" % \
-                        (preproc, arfn, tmpfn))
-    # Rename tmpfn to requested output filename
-    shutil.move(tmpfn, outpsfn)
+                                   "x:opt=BCTS," \
+                                   "x:lab=," \
+                                   "below:l=", \
+            "-p", "freq", "-c", ":1:x:view=0.075:0.45," \
+                                   "y:view=0.15:0.7," \
+                                   "subint=I," \
+                                   "pol=I," \
+                                   "%s," \
+                                   "cmap:map=plasma" % info, \
+            "-p", "time", "-c", ":2:x:view=0.575:0.95," \
+                                   "y:view=0.15:0.7," \
+                                   "chan=I," \
+                                   "pol=I," \
+                                   "cmap:map=plasma"]
+    utils.execute(cmd)
 
 
 def main():
