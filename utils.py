@@ -277,7 +277,11 @@ def execute(cmd, stdout=subprocess.PIPE, stderr=sys.stderr, dir=None):
         stderrfile = True
     
     # Run (and time) the command. Check for errors.
-    pipe = subprocess.Popen(cmd, shell=True, cwd=dir, \
+    if type(cmd) == types.StringType:
+        shell=True
+    else:
+        shell=False
+    pipe = subprocess.Popen(cmd, shell=shell, cwd=dir, \
                             stdout=stdout, stderr=stderr)
     (stdoutdata, stderrdata) = pipe.communicate()
     retcode = pipe.returncode 
