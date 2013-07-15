@@ -39,7 +39,11 @@ class BaseCleaner(object):
     def __init__(self):
         self.configs = Configurations()
         self._set_config_params()
-    
+   
+    def __repr__(self):
+        return "<%s object -- params: %s>" % \
+                    (self.__class__.__name__, self.configs)
+
     def parse_config_string(self, cfgstr):
         """Parse a configuration string, setting the cleaner's
             configurable parameters accordingly.
@@ -52,7 +56,7 @@ class BaseCleaner(object):
             Outputs:
                 None
         """
-        self.configs.add_from_string(cfgstr)
+        self.configs.set_from_string(cfgstr)
 
     def _clean(self, ar):
         """Clean an ArchiveFile object in-place.
@@ -121,30 +125,33 @@ class Configurations(dict):
         Contains methods for parsing configuration strings, and writing 
         normalised configuration strings.
     """
-    types = {} # dictionary where keys are configuration names
-               # and values are the caster functions
-
-    aliases = {} # dictionary where keys are aliases and
-                 # values are the normalised names, which 
-                 # appear in 'types'
-
     def __init__(self, *args, **kwargs):
         super(Configurations, self).__init__(*args, **kwargs)
         self.cfgstrs = {}
+        self.types = {} # dictionary where keys are configuration names
+                        # and values are the caster functions
+
+        self.aliases = {} # dictionary where keys are aliases and
+                          # values are the normalised names, which 
+                          # appear in 'types'
+
+
+    def __str__(self):
+        return self.to_string()
 
     def __setitem__(self, key, valstr):
         key = self.aliases.get(key, key) # Normalise key 
                                          # in case an alias was provided
-        self.cfgstrs[key] = valstr # Save value-string and normalised key pairs
-        castedval = self.types[key](self.get(key, None), valstr) # Cast string into value
+        cfgtype = self.types[key]
+        # Save normalized value-string and normalised key pairs
+        self.cfgstrs[key] = cfgtype.normalize_param_string(valstr)
+        # Convert string into value
+        castedval = cfgtype.get_param_value(valstr) 
         super(Configurations, self).__setitem__(key, castedval)
 
     def to_string(self):
-        cfgstrs = []
-        for key, val in self.cfgstrs.iteritems():
-            cfgstrs.append("%s=%s" % (key, val))
-        cfgstrs.sort() # Sort to normalise order
-        return ",".join(cfgstrs)
+        # Sort to normalise order
+        return ",".join(sorted(["%s=%s" % ii for ii in self.cfgstrs.iteritems()]))
 
     def set_from_string(self, cfgstr):
         """Set configurations from a string.

@@ -606,15 +606,24 @@ class CleanerArguments(argparse.ArgumentParser):
                 print cleaner.get_help()
             sys.exit(1)
 
+    class AppendCleanerAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string):
+            getattr(namespace, self.dest).append(cleaners.load_cleaner(values))
+
+    class ConfigureCleanerAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string):
+            getattr(namespace, 'cleaner_queue')[-1].parse_config_string(values)
+
 
 if __name__=="__main__":
     parser = CleanerArguments(usage="%(prog)s [OPTIONS] FILES ...", \
                         description="Given a list of PSRCHIVE file names " \
                                     "clean RFI from each one.")
-#    parser.add_argument('-o', '--outname', dest='outfn', type=str, \
-#                        help="The output (reduced) file's name. " \
-#                            "(Default: '%(name)s_%(yyyymmdd)s_%(secs)05d_cleaned.ar')", \
-#                        default="%(name)s_%(yyyymmdd)s_%(secs)05d_cleaned.ar")
+    parser.set_defaults(cleaner_queue=[])
+    parser.add_argument('-o', '--outname', dest='outfn', type=str, \
+                        help="The output (reduced) file's name. " \
+                            "(Default: '%%(name)s_%%(yyyymmdd)s_%%(secs)05d_cleaned.ar')", \
+                        default="%(name)s_%(yyyymmdd)s_%(secs)05d_cleaned.ar")
 #    parser.add_argument('-g', '--glob', dest='from_glob', action='callback', \
 #                        callback=utils.get_files_from_glob, default=[], \
 #                        type='string', \
@@ -634,12 +643,19 @@ if __name__=="__main__":
 #                            "expression should be properly quoted to not be " \
 #                            "expanded by the shell prematurely. (Default: " \
 #                            "exclude any files.)")
-#    parser.add_argument('-F', '--cleaner', dest='cleaner', \
-#                        action=parser.PushCleanerAction, type=str, \
-#                        help="A string that matches one of the names of the available " \
-#                             "cleaning functions.")
+    parser.add_argument('-F', '--cleaner', dest='cleaner_queue', \
+                        action=parser.AppendCleanerAction, type=str, \
+                        help="A string that matches one of the names of " \
+                             "the available cleaning functions.")
+    parser.add_argument('-c', dest='cfgstr', \
+                        action=parser.ConfigureCleanerAction, type=str, \
+                        help="A string of Cleaner configurations to " \
+                            "apply to the cleaner most recently added " \
+                            "to the queue.")
     parser.add_argument('--list-cleaners', nargs=0, \
                         action=parser.ListCleanersAction, \
                         help="List available cleaners and descriptions, then exit.")
-    options, args = parser.parse_args()
+    args = parser.parse_args()
+    print args.cleaner_queue
+    sys.exit(200)
     main()
