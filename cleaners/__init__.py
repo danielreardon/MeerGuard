@@ -112,10 +112,9 @@ class BaseCleaner(object):
         helptext = "\n".join(helplines)
         return helptext
 
-    def run(self, infn, outname, tmpdir=None):
-        utils.print_info("Cleaning '%s' with %s" % (infn, self.name), 1)
-        utils.print_debug("Cleaning parameters: %s" % self.get_config_string())
-        ar = utils.ArchiveFile(infn)
+    def run(self, ar):
+        utils.print_info("Cleaning '%s' with %s" % (ar.get_filename(), self.name), 1)
+        utils.print_debug("Cleaning parameters: %s" % self.get_config_string(), 'clean')
         self._clean(ar)
 
 
@@ -148,6 +147,9 @@ class Configurations(dict):
         # Convert string into value
         castedval = cfgtype.get_param_value(valstr) 
         super(Configurations, self).__setitem__(key, castedval)
+
+    def __getattr__(self, key):
+        return self[key]
 
     def to_string(self):
         # Sort to normalise order
