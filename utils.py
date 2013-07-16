@@ -15,6 +15,7 @@ import subprocess
 import types
 import inspect
 import datetime
+import argparse
 
 import numpy as np
 
@@ -770,3 +771,159 @@ class DefaultOptions(optparse.OptionParser):
         for name, desc in config.debug.modes:
             print "    %s: %s" % (name, desc)
         sys.exit(1)
+
+
+class DefaultArguments(argparse.ArgumentParser):
+    def __init__(self, *args, **kwargs):
+        self.added_std_group = False
+        self.added_debug_group = False
+        self.added_file_group = False
+        argparse.ArgumentParser.__init__(self, *args, **kwargs)
+
+    def parse_args(self, *args, **kwargs):
+        if not self._subparsers:
+            # Add default groups just before parsing so it is the last set of
+            # options displayed in help text
+            self.add_standard_group()
+            self.add_debug_group()
+        args = argparse.ArgumentParser.parse_args(self, *args, **kwargs)
+        return args
+
+    def add_file_selection_group(self):
+        if self.added_file_group:
+            # Already added file selection group
+            return
+        group = self.add_argument_group("File Selection Options", \
+                    "The following options are used to select files to process.")
+        group.add_argument('-g', '--glob', dest='from_glob', \
+                            action=self.GetFilesFromGlobAction, default=[], \
+                            type=str, \
+                            help="Glob expression of input files. Glob expression " \
+                                "should be properly quoted to not be expanded by " \
+                                "the shell prematurely. (Default: no glob " \
+                                "expression is used.)") 
+        group.add_argument('-x', '--exclude-file', dest='excluded_files', \
+                            type=str, action='append', default=[], \
+                            help="Exclude a single file. Multiple -x/--exclude-file " \
+                                "options can be provided. (Default: don't exclude " \
+                                "any files.)")
+        group.add_argument('--exclude-glob', dest='excluded_by_glob', \
+                            action=self.GetFilesFromGlobAction, default=[], \
+                            type=str, \
+                            help="Glob expression of files to exclude as input. Glob " \
+                                "expression should be properly quoted to not be " \
+                                "expanded by the shell prematurely. (Default: " \
+                                "exclude any files.)")
+        self.added_file_group = True
+
+    def add_standard_group(self):
+        if self.added_std_group:
+            # Already added standard group
+            return
+        group = self.add_argument_group("Standard Options", \
+                    "The following options get used by various programs.")
+        group.add_argument('-v', '--more-verbose', nargs=0, \
+                            action=self.TurnUpVerbosity, \
+                            help="Be more verbose. (Default: " \
+                                 "verbosity level = %d)." % config.verbosity)
+        group.add_argument('-q', '--less-verbose', nargs=0, \
+                            action=self.TurnDownVerbosity, \
+                            help="Be less verbose. (Default: " \
+                                 "verbosity level = %d)." % config.verbosity)
+        group.add_argument('--set-verbosity', nargs=1, dest='level', \
+                            action=self.SetVerbosity, type=int, \
+                            help="Set verbosity level. (Default: " \
+                                 "verbosity level = %d)." % config.verbosity)
+        group.add_argument('--toggle-colour', action=self.ToggleConfigAction, \
+                          dest='colour', \
+                          help="Toggle colourised output. " \
+                                "(Default: colours are %s)" % \
+                                ((config.colour and "on") or "off"))
+        group.add_argument('--toggle-exverb', action=self.ToggleConfigAction, \
+                          dest='excessive_verbosity', \
+                          help="Toggle excessive verbosity. " \
+                                "(Default: excessive verbosity is %s)" % \
+                                ((config.excessive_verbosity and "on") or "off"))
+        self.added_std_group = True
+
+    def add_debug_group(self):
+        if self.added_debug_group:
+            # Debug group has already been added
+            return
+        group = self.add_argument_group("Debug Options", \
+                    "The following options turn on various debugging " \
+                    "statements. Multiple debugging options can be " \
+                    "provided.")
+        group.add_argument('-d', '--debug', nargs=0, \
+                            action=self.SetAllDebugModes, \
+                            help="Turn on all debugging modes. (Same as --debug-all).")
+        group.add_argument('--debug-all', nargs=0, \
+                            action=self.SetAllDebugModes, \
+                            help="Turn on all debugging modes. (Same as -d/--debug).")
+        group.add_argument('--set-debug-mode', nargs=1, dest='mode', \
+                            action=self.SetDebugMode, \
+                            help="Turn on specified debugging mode. Use " \
+                                "--list-debug-modes to see the list of " \
+                                "available modes and descriptions. " \
+                                "(Default: all debugging modes are off)")
+        group.add_argument('--list-debug-modes', nargs=0, \
+                            action=self.ListDebugModes, \
+                            help="List available debugging modes and " \
+                                "descriptions, then exit")
+        group.add_argument('--toggle-helpful-debug', action=self.ToggleConfigAction, \
+                          dest='helpful_debugging', \
+                          help="Toggle helpful debugging. " \
+                                "(Default: helpful debugging is %s)" % \
+                                ((config.helpful_debugging and "on") or "off"))
+        self.added_debug_group = True
+
+    class TurnUpVerbosity(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string):
+            config.verbosity += 1
+
+    class TurnDownVerbosity(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string):
+            config.verbosity -= 1
+ 
+    class SetVerbosity(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string):
+            config.verbosity = values[0]
+
+    class SetDebugMode(argparse.Action): 
+        def __call__(self, parser, namespace, values, option_string):
+            config.debug.set_mode_on(values[0])
+
+    class SetAllDebugModes(argparse.Action): 
+        def __call__(self, parser, namespace, values, option_string):
+            config.debug.set_allmodes_on()
+
+    class ListDebugModes(argparse.Action): 
+        def __call__(self, parser, namespace, values, option_string):
+            print "Available debugging modes:"
+            for name, desc in config.debug.modes:
+                if desc is None:
+                    continue
+                print "    %s: %s" % (name, desc)
+            sys.exit(1)
+
+    class ToggleConfigAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string):
+            val = getattr(config, self.dest)
+            setattr(config, setf.dest, not val)
+    
+    class OverrideConfigAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string):
+            config.cfg.set_override_config(self.dest, values)
+
+    class SetOverrideConfigAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string):
+            config.cfg.set_override_config(self.dest, True)
+
+    class UnetOverrideConfigAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string):
+            config.cfg.set_override_config(self.dest, False)
+
+    class GetFilesFromGlobAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string):
+            glob_file_list = getattr(namespace, self.dest)
+            glob_file_list.extend(glob.glob(values))

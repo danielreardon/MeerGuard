@@ -563,21 +563,37 @@ def main():
     print "         clean.py"
     print "     Patrick  Lazarus"
     print ""
-    file_list = args + options.from_glob
-    to_exclude = options.excluded_files + options.excluded_by_glob
+    file_list = args.files + args.from_glob
+    to_exclude = args.excluded_files + args.excluded_by_glob
     to_clean = utils.exclude_files(file_list, to_exclude)
     print "Number of input files: %d" % len(to_clean)
     
-    to_clean = [utils.ArchiveFile(fn) for fn in to_clean]
     
     # Read configurations
-    for arf in to_clean:
-        config.cfg.load_configs_for_archive(arf)
-        outarf = clean_archive(arf, options.outfn)
-        print "Cleaned archive: %s" % outarf.fn
-
+    for infn in to_clean:
+        inarf = utils.ArchiveFile(infn)
+        config.cfg.load_configs_for_archive(inarf)
+        outfn = utils.get_outfn(args.outfn, inarf)
+        shutil.copy(inarf.fn, outfn)
+        
+        outarf = utils.ArchiveFile(outfn)
+        ar = outarf.get_archive()
+        
+        try:
+            for cleaner in args.cleaner_queue:
+                cleaner.run(ar)
+        except:
+            # An error prevented cleaning from being successful
+            # Remove the output file because it may confuse the user
+            #if os.path.exists(outfn):
+            #    os.remove(outfn)
+            raise
+        finally:
+            ar.unload(outfn)
+            print "Cleaned archive: %s" % outfn
+        
     
-class CleanerArguments(argparse.ArgumentParser):
+class CleanerArguments(utils.DefaultArguments):
     def __init__(self, *args, **kwargs):
         super(CleanerArguments, self).__init__(add_help=False, \
                                                 *args, **kwargs)
@@ -620,29 +636,13 @@ if __name__=="__main__":
                         description="Given a list of PSRCHIVE file names " \
                                     "clean RFI from each one.")
     parser.set_defaults(cleaner_queue=[])
+    parser.add_argument('files', nargs='*', \
+                        help="Files to clean.")
     parser.add_argument('-o', '--outname', dest='outfn', type=str, \
                         help="The output (reduced) file's name. " \
                             "(Default: '%%(name)s_%%(yyyymmdd)s_%%(secs)05d_cleaned.ar')", \
                         default="%(name)s_%(yyyymmdd)s_%(secs)05d_cleaned.ar")
-#    parser.add_argument('-g', '--glob', dest='from_glob', action='callback', \
-#                        callback=utils.get_files_from_glob, default=[], \
-#                        type='string', \
-#                        help="Glob expression of input files. Glob expression " \
-#                            "should be properly quoted to not be expanded by " \
-#                            "the shell prematurely. (Default: no glob " \
-#                            "expression is used.)") 
-#    parser.add_argument('-x', '--exclude-file', dest='excluded_files', \
-#                        type=str, action='append', default=[], \
-#                        help="Exclude a single file. Multiple -x/--exclude-file " \
-#                            "options can be provided. (Default: don't exclude " \
-#                            "any files.)")
-#    parser.add_argument('--exclude-glob', dest='excluded_by_glob', action='callback', \
-#                        callback=utils.get_files_from_glob, default=[], \
-#                        type='string', \
-#                        help="Glob expression of files to exclude as input. Glob " \
-#                            "expression should be properly quoted to not be " \
-#                            "expanded by the shell prematurely. (Default: " \
-#                            "exclude any files.)")
+    parser.add_file_selection_group()
     parser.add_argument('-F', '--cleaner', dest='cleaner_queue', \
                         action=parser.AppendCleanerAction, type=str, \
                         help="A string that matches one of the names of " \
@@ -656,6 +656,4 @@ if __name__=="__main__":
                         action=parser.ListCleanersAction, \
                         help="List available cleaners and descriptions, then exit.")
     args = parser.parse_args()
-    print args.cleaner_queue
-    sys.exit(200)
     main()
