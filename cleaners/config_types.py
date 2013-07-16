@@ -104,7 +104,12 @@ class IntPairListVal(BaseConfigType):
         """Parse 'paramstr' as a list of integer pairs. The format must
             be <int>:<int>[;<int>:<int>...]. 
         """
-        return [self._to_int_pair(ss) for ss in paramstr.split(';')]
+        if paramstr.strip():
+            # Contains at least one pair
+            pairstrs = paramstr.split(';')
+            return [self._to_int_pair(ss) for ss in pairstrs]
+        else:
+            return []
     
     def normalize_param_string(self, paramstr):
         """Return a normalized version of the parameter string.
