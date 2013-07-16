@@ -1,6 +1,9 @@
+import numpy as np
+
 import config
 import cleaners
 import config_types
+import utils
 
 class HotbinsCleaner(cleaners.BaseCleaner):
     name = 'hotbins'
@@ -19,6 +22,7 @@ class HotbinsCleaner(cleaners.BaseCleaner):
                               'looking at frequency scrunched data. Remove ' \
                               'the hot bins in all frequency channels.')
         self.configs.add_param('onpulse', config_types.IntPairListVal, \
+                         default="",
                          help='On-pulse regions to be ignored when computing ' \
                               'profile statistics. A list of 2-tuples is expected.')
 
@@ -27,10 +31,10 @@ class HotbinsCleaner(cleaners.BaseCleaner):
         indices = np.arange(nbins)
         offbins = np.ones(nbins, dtype='bool')
         offbin_indices = indices[offbins]
-        for lobin, hibin in onpulse:
+        for lobin, hibin in self.configs.onpulse:
             offbins[lobin:hibin] = False
       
-        if fscrunchfirst:
+        if self.configs.fscrunchfirst:
             utils.print_debug("Determining hotbins based on f-scrunched data", 'clean')
             reference = ar.clone()
             reference.set_dispersion_measure(0)
@@ -49,7 +53,7 @@ class HotbinsCleaner(cleaners.BaseCleaner):
                     std = mad*1.4826 # This is the approximate relation between the
                                      # standard deviation and the median absolute
                                      # deviation (assuming normally distributed data).
-                    ioffbad = np.abs(offdata-med) > std*thresh
+                    ioffbad = np.abs(offdata-med) > std*self.configs.threshold
                     ibad = offbin_indices[ioffbad]
                     igood = offbin_indices[~ioffbad]
                     nbad = np.sum(ioffbad)
@@ -58,7 +62,7 @@ class HotbinsCleaner(cleaners.BaseCleaner):
                                 '    %d hotbins found (ibin: %s)' % \
                                 (isub, ichan, ipol, med, mad, nbad, ibad), 'clean')
                     # Replace data in cleaned archive with noise
-                    if fscrunchfirst:
+                    if self.configs.fscrunchfirst:
                         # We need to clean all frequency channels
                         for jchan in np.arange(ar.get_nchan()):
                             cleanedprof = ar.get_Profile(int(isub), int(ipol), int(jchan))
