@@ -12,19 +12,17 @@ class HotbinsCleaner(cleaners.BaseCleaner):
 
     def _set_config_params(self):
         self.configs.add_param('threshold', config_types.FloatVal, \
-                         default=str(config.cfg.clean_hotbins_thresh), \
                          aliases=['thresh'], \
                          help='The threshold (in number of sigmas) for a ' \
                                 'bin to be removed.')
         self.configs.add_param('fscrunchfirst', config_types.BoolVal, \
-                         default=str(config.cfg.clean_hotbins_fscrunchfirst), \
                          help='Determine which bins to removed by ' \
                               'looking at frequency scrunched data. Remove ' \
                               'the hot bins in all frequency channels.')
         self.configs.add_param('onpulse', config_types.IntPairListVal, \
-                         default="",
                          help='On-pulse regions to be ignored when computing ' \
                               'profile statistics. A list of 2-tuples is expected.')
+        self.parse_config_string(config.cfg.hotbins_default_params)
 
     def _clean(self, ar):
         nbins = ar.get_nbin()
