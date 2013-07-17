@@ -22,23 +22,27 @@ def get_chan_weights(ar):
     return ar.get_weights().sum(axis=0)
 
 
-def comprehensive_stats(data, axis, chanthresh=None, subintthresh=None, binthresh=None):
+def comprehensive_stats(data, axis, **kwargs):
     """The comprehensive scaled stats that are used for
         the "Surgical Scrub" cleaning strategy.
 
         Inputs:
             data: A 3-D numpy array.
             axis: The axis that should be used for computing stats.
+            chanthresh: The threshold (in number of sigmas) a 
+                profile needs to stand out compared to others in the 
+                same channel for it to be removed.
+                (Default: use value defined in config files)
+            subintthresh: The threshold (in number of sigmas) a profile 
+                needs to stand out compared to others in the same 
+                sub-int for it to be removed. 
+                (Default: use value defined in config files)
 
         Output:
             stats: A 2-D numpy array of stats.
     """
-    if chanthresh is None:
-        chanthresh = config.cfg.clean_chanthresh
-    if subintthresh is None:
-        subintthresh = config.cfg.clean_subintthresh
-    if binthresh is None:
-        binthresh = config.cfg.clean_binthresh
+    chanthresh = kwargs.pop('chanthresh', config.cfg.clean_chanthresh)
+    subintthresh = kwargs.pop('subintthresh', config.cfg.clean_subintthresh)
 
     nsubs, nchans, nbins = data.shape
     diagnostic_functions = [
@@ -58,8 +62,8 @@ def comprehensive_stats(data, axis, chanthresh=None, subintthresh=None, binthres
     # Now step through data and identify bad profiles
     scaled_diagnostics = []
     for diag in diagnostics:
-        chan_scaled = np.abs(channel_scaler(diag))/chanthresh
-        subint_scaled = np.abs(subint_scaler(diag))/subintthresh
+        chan_scaled = np.abs(channel_scaler(diag, **kwargs))/chanthresh
+        subint_scaled = np.abs(subint_scaler(diag, **kwargs))/subintthresh
         #print diag[95,76], chan_scaled[95,76]*chanthresh, subint_scaled[95,76]*subintthresh, chan_scaled.dtype, subint_scaled.dtype
         scaled_diagnostics.append(np.max((chan_scaled, subint_scaled), axis=0))
 
@@ -71,16 +75,21 @@ def comprehensive_stats(data, axis, chanthresh=None, subintthresh=None, binthres
     return test_results
 
 
-def channel_scaler(array2d):
+def channel_scaler(array2d, **kwargs):
+    """For each channel detrend and scale it.
+    """
+    # Grab key-word arguments. If not present use default configs.
+    order = kwargs.pop('chan_order', config.cfg.chan_order)
+    breakpoints = kwargs.pop('chan_breakpoints', config.cfg.chan_breakpoints)
+    numpieces = kwargs.pop('chan_numpieces', config.cfg.chan_numpieces)
+    
     scaled = np.empty_like(array2d)
     nchans = array2d.shape[1]
     for ichan in np.arange(nchans):
         detrended = array2d[:,ichan]
-        for order, bp, numpieces in zip(config.cfg.chan_order, \
-                                        config.cfg.chan_breakpoints, \
-                                        config.cfg.chan_numpieces):
+        for order, bp, np in zip(orders, breakpoints, numpieces):
             detrended = iterative_detrend(detrended, order=order, \
-                                            bp=bp, numpieces=numpieces)
+                                            bp=bp, numpieces=np)
         median = np.ma.median(detrended)
         mad = np.ma.median(np.abs(detrended-median))
         scaled[:, ichan] = (detrended-median)/mad
@@ -88,16 +97,20 @@ def channel_scaler(array2d):
 
 
 def subint_scaler(array2d):
+    """For each sub-int detrend and scale it.
+    """
+    # Grab key-word arguments. If not present use default configs.
+    order = kwargs.pop('subint_order', config.cfg.subint_order)
+    breakpoints = kwargs.pop('subint_breakpoints', config.cfg.subint_breakpoints)
+    numpieces = kwargs.pop('subint_numpieces', config.cfg.subint_numpieces)
     
     scaled = np.empty_like(array2d)
     nsubs = array2d.shape[0]
     for isub in np.arange(nsubs):
         detrended = array2d[isub,:]
-        for order, bp, numpieces in zip(config.cfg.subint_order, \
-                                        config.cfg.subint_breakpoints, \
-                                        config.cfg.subint_numpieces):
-            detrended = iterative_detrend(array2d[isub,:], order=order, \
-                                            bp=bp, numpieces=numpieces)
+        for order, bp, np in zip(orders, breakpoints, numpieces):
+            detrended = iterative_detrend(detrended, order=order, \
+                                            bp=bp, numpieces=np)
         median = np.ma.median(detrended)
         mad = np.ma.median(np.abs(detrended-median))
         scaled[isub,:] = (detrended-median)/mad
