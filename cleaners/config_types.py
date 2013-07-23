@@ -86,12 +86,80 @@ class BoolVal(BaseConfigType):
         return str(self.get_param_value(paramstr))
 
 
-class IntPairListVal(BaseConfigType):
+def _str_to_intlist(paramstr):
+    """Parse 'paramstr' as a list of integes. The format must
+        be <int>[;<int>>...]. 
+    """
+    if paramstr.strip():
+        # Contains at least one element
+        intstrs = paramstr.split(';')
+        return [int(ss) for ss in intstrs]
+    else:
+        return []
+
+
+class IntList(BaseConfigType):
+    """A configuration type for a list of integers.
+    """
+    name = "list of integers, or None"
+    description = "an integer list <int>[;<int>...], or None."
+    
+    def get_param_value(self, paramstr):
+        if paramstr.lower() == "none":
+            return None
+        else:
+            return _str_to_intlist(paramstr)
+
+    def normalize_param_string(self, paramstr):
+        """Return a normalized version of the parameter string.
+        """
+        val = self.get_param_value(paramstr)
+        if val is None:
+            return "None"
+        else:
+            ints = val
+            return ";".join(["%d" % ii for ii in ints])
+
+
+class IntListList(BaseConfigType):
+    """A configuration type for a list of integer lists.
+    """
+    name = "list of integer lists, or None"
+    description = "an integer list <int>[;<int>...][;;<int>[;<int>...]...], or None."
+    
+    def get_param_value(self, paramstr):
+        """Parse 'paramstr' as a list of integer lists. The format must
+            be <int>[;<int>...][;;<int>[;<int>...]...]. 
+        """
+        if paramstr.lower() == "none":
+            return None
+        intlists = []
+        if paramstr.strip():
+            remainder = paramstr
+            while remainder:
+                liststr, sep, remainder = remainder.partition(';;')
+                intlists.append(_str_to_intlist(liststr))
+        return intlists
+    
+    def normalize_param_string(self, paramstr):
+        """Return a normalized version of the parameter string.
+        """
+        val = self.get_param_value(paramstr)
+        if val is None:
+            return "None"
+        else:
+            intlists = val
+            intliststrs = []
+            for ints in intlists:
+                intliststrs.append(";".join(["%d" % ii for ii in ints]))
+            return ";;".join(intliststrs)
+
+
+class IntPairList(BaseConfigType):
     """A configuration type for a list of integer pairs.
     """
     name = "list of integer pairs"
-    description = "an integer pair <int>:<int>. The pair is append to " \
-                    "the list of previously collected pairs."
+    description = "a list of integer pairs <int>:<int>[;<int>:<int>...]. " \
 
     def _to_int_pair(self, paramstr):
         intstrs = paramstr.split(':')
@@ -114,8 +182,5 @@ class IntPairListVal(BaseConfigType):
     def normalize_param_string(self, paramstr):
         """Return a normalized version of the parameter string.
         """
-        # Sort to normalize order
         pairs = self.get_param_value(paramstr)
-        pairs.sort(key=operator.itemgetter(1))
-        pairs.sort(key=operator.itemgetter(0))
         return ";".join(["%d:%d" % pair for pair in pairs])

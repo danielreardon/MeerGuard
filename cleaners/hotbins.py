@@ -19,7 +19,7 @@ class HotbinsCleaner(cleaners.BaseCleaner):
                          help='Determine which bins to removed by ' \
                               'looking at frequency scrunched data. Remove ' \
                               'the hot bins in all frequency channels.')
-        self.configs.add_param('onpulse', config_types.IntPairListVal, \
+        self.configs.add_param('onpulse', config_types.IntPairList, \
                          help='On-pulse regions to be ignored when computing ' \
                               'profile statistics. A list of 2-tuples is expected.')
         self.parse_config_string(config.cfg.hotbins_default_params)

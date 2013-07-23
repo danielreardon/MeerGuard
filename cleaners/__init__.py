@@ -4,7 +4,7 @@ import utils
 import errors
 import colour
 
-registered_cleaners = ['hotbins']
+registered_cleaners = ['hotbins', 'surgical']
 
 __all__ = registered_cleaners
 
@@ -104,11 +104,20 @@ class BaseCleaner(object):
 
         wrapper = textwrap.TextWrapper(initial_indent=" "*8, \
                                         subsequent_indent=" "*12)
+        wrapper2 = textwrap.TextWrapper(initial_indent=" "*12, \
+                                        subsequent_indent=" "*16)
+                                        
         if full:
             helplines.append("    Parameters:")
             for cfg in sorted(self.configs.types):
                 cfgtype = self.configs.types[cfg]
-                helplines.append(wrapper.fill("%s -- %s" % (cfg, cfgtype.get_help())))
+                helpstr = self.configs.helpstrs[cfg]
+                helplines.append(wrapper.fill("%s -- %s" % (cfg, helpstr)))
+                helplines.append("")
+                helplines.append(wrapper2.fill(cfgtype.get_help()))
+                helplines.append(wrapper2.fill("Default: %s" % \
+                                        self.configs.cfgstrs[cfg]))
+                helplines.append("")
         helptext = "\n".join(helplines)
         return helptext
 
@@ -133,7 +142,8 @@ class Configurations(dict):
         self.aliases = {} # dictionary where keys are aliases and
                           # values are the normalised names, which 
                           # appear in 'types'
-
+        self.helpstrs = {} # dictionary where keys are configuration names
+                           # and values are help strings.
 
     def __str__(self):
         return self.to_string()
@@ -177,10 +187,6 @@ class Configurations(dict):
                 name: The normalised name of the parameter.
                 cfgtype: The configuration type. This must be a
                     subclass of ConfigType.
-                default: The default value of the parameter.
-                    NOTE: not providing a default will mean it must be
-                        provided by the user to use the cleaner.
-                    (Default: No default value).
                 aliases: A list of alternative ways the user can specify 
                     this parameter.
                     (Default: No aliases)
@@ -206,7 +212,5 @@ class Configurations(dict):
         # Add the aliases
         for alias in aliases:
             self.aliases[alias] = name
-        # Set the default value
-        if default is not None:
-            self[name] = default
-
+        # Set help string
+        self.helpstrs[name] = help
