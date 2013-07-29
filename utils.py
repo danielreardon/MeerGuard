@@ -65,7 +65,8 @@ site_to_telescope = {'i': 'WSRT',
                      'arecibo':'Arecibo', 
                      'ao':'Arecibo',
                      'ao 305m':'Arecibo', 
-                     '3':'Arecibo'}
+                     '3':'Arecibo',
+                     'lofar':'LOFAR'}
 
 # A cache for pulsar preferred names
 prefname_cache = {}
@@ -629,7 +630,7 @@ class ArchiveFile(object):
         self.hdr = get_header_vals(self.fn, ['freq', 'length', 'bw', 'mjd', 
                                             'intmjd', 'fracmjd', 'backend', 
                                             'rcvr', 'telescop', 'name', 
-                                            'nchan', 'asite', 'period', 'dm'])
+                                            'nchan', 'period', 'dm'])
         try:
             self.hdr['name'] = get_prefname(self.hdr['name']) # Use preferred name
         except errors.BadPulsarNameError:
