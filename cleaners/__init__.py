@@ -4,7 +4,7 @@ import utils
 import errors
 import colour
 
-registered_cleaners = ['hotbins', 'surgical']
+registered_cleaners = ['hotbins', 'surgical', 'rcvrstd']
 
 __all__ = registered_cleaners
 
