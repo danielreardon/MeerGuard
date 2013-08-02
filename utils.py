@@ -835,12 +835,12 @@ class DefaultArguments(argparse.ArgumentParser):
                             help="Set verbosity level. (Default: " \
                                  "verbosity level = %d)." % config.verbosity)
         group.add_argument('--toggle-colour', action=self.ToggleConfigAction, \
-                          dest='colour', \
+                          dest='colour', nargs=0, \
                           help="Toggle colourised output. " \
                                 "(Default: colours are %s)" % \
                                 ((config.colour and "on") or "off"))
         group.add_argument('--toggle-exverb', action=self.ToggleConfigAction, \
-                          dest='excessive_verbosity', \
+                          dest='excessive_verbosity', nargs=0, \
                           help="Toggle excessive verbosity. " \
                                 "(Default: excessive verbosity is %s)" % \
                                 ((config.excessive_verbosity and "on") or "off"))
@@ -909,7 +909,7 @@ class DefaultArguments(argparse.ArgumentParser):
     class ToggleConfigAction(argparse.Action):
         def __call__(self, parser, namespace, values, option_string):
             val = getattr(config, self.dest)
-            setattr(config, setf.dest, not val)
+            setattr(config, self.dest, not val)
     
     class OverrideConfigAction(argparse.Action):
         def __call__(self, parser, namespace, values, option_string):
