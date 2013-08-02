@@ -115,8 +115,11 @@ class BaseCleaner(object):
                 helplines.append(wrapper.fill("%s -- %s" % (cfg, helpstr)))
                 helplines.append("")
                 helplines.append(wrapper2.fill(cfgtype.get_help()))
-                helplines.append(wrapper2.fill("Default: %s" % \
-                                        self.configs.cfgstrs[cfg]))
+                if cfg in self.configs.cfgstrs:
+                    helplines.append(wrapper2.fill("Default: %s" % \
+                                            self.configs.cfgstrs[cfg]))
+                else:
+                    helplines.append(wrapper2.fill("Required"))
                 helplines.append("")
         helptext = "\n".join(helplines)
         return helptext
@@ -180,7 +183,8 @@ class Configurations(dict):
             key, val = cfg.split('=')
             self[key] = val
 
-    def add_param(self, name, cfgtype, default=None, aliases=[], help=""):
+    def add_param(self, name, cfgtype, default=None, aliases=[], \
+                    help="", nullable=False):
         """Add a single configuration parameter.
 
             Inputs:
@@ -192,6 +196,8 @@ class Configurations(dict):
                     (Default: No aliases)
                 help: Help text describing the parameter.
                     (Default: No help text)
+                nullable: If value can be set as None.
+                    (Default: not nullable).
 
             Outputs:
                 None - The parameters are created and stored.
@@ -205,7 +211,7 @@ class Configurations(dict):
         # Check that the cfgtype is of ConfigType
         if issubclass(cfgtype, config_types.BaseConfigType):
             # Add the config name and type
-            self.types[name] = cfgtype()
+            self.types[name] = cfgtype(nullable=nullable)
         else:
             raise ValueError("The provided 'cfgtype' is not a subclass of " \
                                 "ConfigType. (type=%s)" % type(cfgtype))
