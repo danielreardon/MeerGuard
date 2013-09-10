@@ -36,6 +36,10 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                         nullable=True, \
                         help='Bad channels and/or (inclusive) channel-intervals ' \
                             'to de-weight. Note: Channels are indexed starting at 0.')
+        self.config.add_param('badfreqs', config_types.FloatOrFloatPairList, \
+                        nullable=True, \
+                        help='Bad frequencies and/or (inclusive) frequency-intervals ' \
+                            'to de-weight.')
         self.parse_config_string(config.cfg.rcvrstd_default_params)
 
     def _clean(self, ar):
@@ -71,7 +75,7 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                 if (freq < lofreq) or (freq > hifreq):
                     clean_utils.zero_weight_chan(ar, ichan)
 
-    def __trim_edge_channels(infn, nchan_to_trim=None, frac_to_trim=None):
+    def __trim_edge_channels(self, ar):
         """Trim the edge channels of an input file to remove 
             band-pass roll-off and the effect of aliasing. 
             The file is modified in-place. However, zero-weighting 
@@ -95,7 +99,7 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                 clean_utils.zero_weight_chan(ar, ichan) # trim at beginning
                 clean_utils.zero_weight_chan(ar, nchan-ichan-1) # trim at end
 
-    def __remove_bad_subints(ar):
+    def __remove_bad_subints(self, ar):
         """Zero-weights bad subints.
             The file is modified in-place. However, zero-weighting 
             is used for trimming, so the process is reversible.
@@ -114,7 +118,7 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                 for xx in xrange(losubint, hisubint+1):
                     clean_utils.zero_weight_subint(ar, xx)
 
-    def __remove_bad_channels(ar):
+    def __remove_bad_channels(self, ar):
         """Zero-weight bad channels and channels containing bad
             frequencies. However, zero-weighting 
             is used for trimming, so the process is reversible.
@@ -125,27 +129,40 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
             Outputs:
                 None
         """
-        if badchans is None:
-            badchans = config.cfg.badchans
-        if badchan_intervals is None:
-            badchan_intervals = config.cfg.badchan_intervals
-        if badfreqs is None:
-            badfreqs = config.cfg.badfreqs
-        if badfreq_intervals is None:
-            badfreq_intervals = config.cfg.badfreq_intervals
+        if self.config.badchans:
+            for tozap in self.config.badchans:
+                if type(tozap) is types.IntType:
+                    # A single bad channel to zap
+                    clean_utils.zero_weight_chan(ar, tozap)
+                else:
+                    # An (inclusive) interval of bad channels to zap
+                    lochan, hichan = tozap
+                    for xx in xrange(lochan, hichan):
+                        clean_utils.zero_weight_chan(ar, tozap)
+        if self.config.badfreqs:
+            # Get a list of frequencies
+            nchan = ar.get_nchan()
+            lofreqs = np.empty(nchan)
+            hifreqs = np.empty(nchan)
+            chanbw = ar.get_bandwidth()/nchan
+            for ichan in xargs(nchan):
+                prof = ar.get_Profile(0, 0, ichan)
+                ctr = prof.get_centre_frequency()
+                lofreqs[ichan] = ctr - chanbw/2.0
+                lofreqs[ichan] = ctr + chanbw/2.0
+            
+            for tozap in self.config.badfreqs:
+                if type(tozap) is types.FloatType:
+                    # A single bad freq to zap
+                    for ichan in np.argwhere((lofreqs<=tozap) & (hifreqs>tozap)):
+                        ichan = ichan.squeeze()
+                        clean_utils.zero_weight_chan(ar, ichan)
+                else:
+                    # An (inclusive) interval of bad freqs to zap
+                    flo, fhi = tozap
+                    for ichan in np.argwhere((hifreqs>=flo) & (lofreqs<=fhi)):
+                        ichan = ichan.squeeze():
+                        clean_utils.zero_weight_chan(ar, ichan)
 
-        zaplets = []
-        if badchans:
-            zaplets.append("-z '%s'" % " ".join(['%d' % zz for zz in badchans]))
-        if badchan_intervals:
-            zaplets.extend(["-Z '%d %d'" % lohi for lohi in badchan_intervals])
-        if badfreqs:
-            zaplets.append("-f '%s'" % " ".join(['%f' % ff for ff in badfreqs]))
-        if badfreq_intervals:
-            zaplets.extend(["-F '%f %f'" % lohi for lohi in badfreq_intervals])
-
-        if zaplets:
-            utils.print_info("Removing bad channels.", 2)
-            utils.execute("paz -m %s %s" % (" ".join(zaplets), infn.fn))
 
 Cleaner = ReceiverBandCleaner
