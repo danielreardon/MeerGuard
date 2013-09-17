@@ -79,38 +79,46 @@ def channel_scaler(array2d, **kwargs):
     """For each channel detrend and scale it.
     """
     # Grab key-word arguments. If not present use default configs.
-    order = kwargs.pop('chan_order', config.cfg.chan_order)
+    orders = kwargs.pop('chan_order', config.cfg.chan_order)
     breakpoints = kwargs.pop('chan_breakpoints', config.cfg.chan_breakpoints)
     numpieces = kwargs.pop('chan_numpieces', config.cfg.chan_numpieces)
-    
+    if breakpoints is None:
+        breakpoints = [[]]*len(orders)
+    if numpieces is None:
+        numpieces = [None]*len(orders)
+
     scaled = np.empty_like(array2d)
     nchans = array2d.shape[1]
     for ichan in np.arange(nchans):
         detrended = array2d[:,ichan]
-        for order, bp, np in zip(orders, breakpoints, numpieces):
+        for order, brkpnts, numpcs in zip(orders, breakpoints, numpieces):
             detrended = iterative_detrend(detrended, order=order, \
-                                            bp=bp, numpieces=np)
+                                            bp=brkpnts, numpieces=numpcs)
         median = np.ma.median(detrended)
         mad = np.ma.median(np.abs(detrended-median))
         scaled[:, ichan] = (detrended-median)/mad
     return scaled
 
 
-def subint_scaler(array2d):
+def subint_scaler(array2d, **kwargs):
     """For each sub-int detrend and scale it.
     """
     # Grab key-word arguments. If not present use default configs.
-    order = kwargs.pop('subint_order', config.cfg.subint_order)
+    orders = kwargs.pop('subint_order', config.cfg.subint_order)
     breakpoints = kwargs.pop('subint_breakpoints', config.cfg.subint_breakpoints)
     numpieces = kwargs.pop('subint_numpieces', config.cfg.subint_numpieces)
+    if breakpoints is None:
+        breakpoints = [[]]*len(orders)
+    if numpieces is None:
+        numpieces = [None]*len(orders)
     
     scaled = np.empty_like(array2d)
     nsubs = array2d.shape[0]
     for isub in np.arange(nsubs):
         detrended = array2d[isub,:]
-        for order, bp, np in zip(orders, breakpoints, numpieces):
+        for order, brkpnts, numpcs in zip(orders, breakpoints, numpieces):
             detrended = iterative_detrend(detrended, order=order, \
-                                            bp=bp, numpieces=np)
+                                            bp=brkpnts, numpieces=numpcs)
         median = np.ma.median(detrended)
         mad = np.ma.median(np.abs(detrended-median))
         scaled[isub,:] = (detrended-median)/mad

@@ -843,27 +843,37 @@ def preprocess_archive_file(arf, rmbaseline=None, dedisp=None, \
     return clean_utils.apply_weights(data, ar.get_weights())
 
 
-def make_composite_summary_plot(ar, preproc='C,D', outpsfn=None):
+def make_composite_summary_plot(ar, preproc='C,D', outfn=None):
     utils.print_info("Creating composite summary plot for %s" % ar.fn, 3)
-    if outpsfn is None:
-        outpsfn = "%s.ps" % ar.fn
-    utils.print_info("Output plot name: %s" % outpsfn, 2)
-    handle, tmpfn = tempfile.mkstemp(suffix=".ps")
+    if outfn is None:
+        outfn = "%s.ps" % ar.fn
+    utils.print_info("Output plot name: %s" % outfn, 2)
+    suffix = os.path.splitext(outfn)[-1]
+    handle, tmpfn = tempfile.mkstemp(suffix=suffix)
     
+    if suffix == '.ps':
+        grdev = "%s/CPS" % tmpfn
+    elif suffix == '.png':
+        grdev = "%s/PNG" % tmpfn
+    else:
+        raise errors.InputError("Output file name extension for " \
+                        "composite plot (%s) is not recognized. Valid " \
+                        "extensions are '.png' and '.ps'." % outfn)
+
     if (ar['nsub'] > 1) and (ar['nchan'] > 1):
-        __plot_all(tmpfn, ar, preproc)
+        __plot_all(grdev, ar, preproc)
     elif (ar['nsub'] > 1) and (ar['nchan'] == 1):
-        __plot_nofreq(tmpfn, ar, preproc)
+        __plot_nofreq(grdev, ar, preproc)
     elif (ar['nsub'] == 1) and (ar['nchan'] > 1):
-        __plot_notime(tmpfn, ar, preproc)
+        __plot_notime(grdev, ar, preproc)
     elif  (ar['nsub'] == 1) and (ar['nchan'] == 1):
-        __plot_profonly(tmpfn, ar, preproc)
+        __plot_profonly(grdev, ar, preproc)
     else:
         raise errors.FileError("Not sure how to plot diagnostic for file. " \
                                 "(nsub: %d; nchan: %d)" % \
                                 (ar['nsub'], ar['nchan']))
     # Rename tmpfn to requested output filename
-    shutil.move(tmpfn, outpsfn)
+    shutil.move(tmpfn, outfn)
 
 
 def __get_info(ar):
@@ -877,10 +887,10 @@ def __get_info(ar):
                      ar['backend'], ar['length'], ar['bw'])
     return info
 
-def __plot_profonly(tmpfn, ar, preproc="D"):
+def __plot_profonly(grdev, ar, preproc="D"):
     info = __get_info(ar)
     cmd = ["psrplot", "-O", "-j", preproc, "-c", "above:c=,x:range=0:2", \
-            ar.fn, "-D", "%s/PNG" % tmpfn, \
+            ar.fn, "-D", grdev, \
             "-p", "flux", "-c", ":0:x:view=0.075:0.95," \
                                      "y:view=0.15:0.7," \
                                      "subint=I," \
@@ -890,10 +900,10 @@ def __plot_profonly(tmpfn, ar, preproc="D"):
                                      "%s" % info]
     utils.execute(cmd)
     
-def __plot_nofreq(tmpfn, ar, preproc="D"):
+def __plot_nofreq(grdev, ar, preproc="D"):
     info = __get_info(ar)
     cmd = ["psrplot", "-O", "-j", preproc, "-c", "above:c=,x:range=0:2", \
-            ar.fn, "-D", "%s/PNG" % tmpfn, \
+            ar.fn, "-D", grdev, \
             "-p", "flux", "-c", ":0:x:view=0.075:0.95," \
                                     "y:view=0.5:0.7," \
                                     "subint=I," \
@@ -910,10 +920,10 @@ def __plot_nofreq(tmpfn, ar, preproc="D"):
                                     "cmap:map=plasma"]
     utils.execute(cmd)
     
-def __plot_notime(tmpfn, ar, preproc="D"):
+def __plot_notime(grdev, ar, preproc="D"):
     info = __get_info(ar)
     cmd = ["psrplot", "-O", "-j", preproc, "-c", "above:c=,x:range=0:2", \
-            ar.fn, "-D", "%s/PNG" % tmpfn, \
+            ar.fn, "-D", grdev, \
             "-p", "flux", "-c", ":0:x:view=0.075:0.95," \
                                    "y:view=0.5:0.7," \
                                    "subint=I," \
@@ -930,10 +940,10 @@ def __plot_notime(tmpfn, ar, preproc="D"):
                                    "cmap:map=plasma"]
     utils.execute(cmd)
     
-def __plot_all(tmpfn, ar, preproc="D"):
+def __plot_all(grdev, ar, preproc="D"):
     info = __get_info(ar)
     cmd = ["psrplot", "-O", "-j", preproc, "-c", "above:c=,x:range=0:2", \
-            ar.fn, "-D", "%s/PNG" % tmpfn, \
+            ar.fn, "-D", grdev, \
             "-p", "flux", "-c", ":0:x:view=0.575:0.95," \
                                    "y:view=0.7:0.9," \
                                    "subint=I," \

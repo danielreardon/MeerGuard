@@ -98,12 +98,12 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         avg_test_results = clean_utils.comprehensive_stats(data, axis=2, \
                                     chanthresh=self.configs.chanthresh, \
                                     subintthresh=self.configs.subintthresh, \
-                                    chan_order=self.configs.chanorder, \
-                                    chan_breakpoints=self.configs.chanbp, \
-                                    chan_numpieces=self.configs.channp, \
-                                    subint_order=self.configs.subintorder, \
-                                    subint_breakpoints=self.configs.subintbp, \
-                                    subint_numpieces=self.configs.subintnp, \
+                                    chan_order=self.configs.chan_order, \
+                                    chan_breakpoints=self.configs.chan_breakpoints, \
+                                    chan_numpieces=self.configs.chan_numpieces, \
+                                    subint_order=self.configs.subint_order, \
+                                    subint_breakpoints=self.configs.subint_breakpoints, \
+                                    subint_numpieces=self.configs.subint_numpieces, \
                                     )
         for (isub, ichan) in np.argwhere(avg_test_results>=1):
             # Be sure to set weights on the original archive, and

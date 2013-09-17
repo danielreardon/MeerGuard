@@ -27,7 +27,7 @@ import toas
 import diagnose
 import utils
 import clean
-import clean_utils
+import cleaners
 import combine
 import config
 import errors
@@ -77,9 +77,12 @@ class ReductionLog(object):
             self.epilog += "\n    %s (MD5: %s)" % \
                             (outfn.fn, utils.get_md5sum(outfn.fn))
 
-        self.epilog += "\nGenerated %d TOAs:" % len(toastrs)
-        for toastr in toastrs:
-            self.epilog += "\n    %s" % toastr
+        if toastrs is None:
+            self.epilog += "\nTOAs were not generated"
+        else:
+            self.epilog += "\nGenerated %d TOAs:" % len(toastrs)
+            for toastr in toastrs:
+                self.epilog += "\n    %s" % toastr
 
     def to_file(self):
         f = open(self.fn, 'w')
@@ -182,22 +185,42 @@ class ReductionJob(object):
             # Reload configurations
             config.cfg.load_configs_for_archive(combinearf)
             # Create diagnostic plots for pre-cleaned data
-            diagnose.make_composite_summary_plot(combinearf.fn)
+            combinearf.get_archive().update()
+            diagnose.make_composite_summary_plot(combinearf)
             preproc = 'C,D,B 128,F 32'
             if combinearf['nsub'] > 32:
                 preproc += ",T 32"
-            diagnose.make_composite_summary_plot(combinearf.fn, preproc, \
+            diagnose.make_composite_summary_plot(combinearf, preproc, \
                                             combinearf.fn+".scrunched.ps")
  
             # Clean the data
             utils.print_info("Cleaning %s" % combinearf.fn, 1)
-            cleanarf = clean.clean_archive(combinearf, self.outfn)
+            # Load cleaners here because each data file might
+            # have different configurations. The configurations
+            # are set when the cleaner is loaded.
+            cleaner_queue = [cleaners.load_cleaner('rcvrstd'), \
+                             cleaners.load_cleaner('surgical')]
+
+            try:
+                ar = combinearf.get_archive()
+                for cleaner in cleaner_queue:
+                    cleaner.run(ar)
+            except:
+                # An error prevented cleaning from being successful
+                # Remove the output file because it may confuse the user
+                if os.path.exists(self.outfn):
+                    os.remove(self.outfn)
+                raise
+            finally:
+                combinearf.get_archive().unload(self.outfn)
+            
+            cleanarf = utils.ArchiveFile(self.outfn)
             # Re-create diagnostic plots for clean data
-            diagnose.make_composite_summary_plot(cleanarf.fn)
+            diagnose.make_composite_summary_plot(cleanarf)
             preproc = 'C,D,B 128,F 32'
             if cleanarf['nsub'] > 32:
                 preproc += ",T 32"
-            diagnose.make_composite_summary_plot(cleanarf.fn, preproc, \
+            diagnose.make_composite_summary_plot(cleanarf, preproc, \
                                             cleanarf.fn+".scrunched.ps")
 
             cleanarfs.append(cleanarf)

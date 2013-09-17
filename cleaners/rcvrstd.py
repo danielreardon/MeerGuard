@@ -36,15 +36,17 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                         nullable=True, \
                         help='Bad channels and/or (inclusive) channel-intervals ' \
                             'to de-weight. Note: Channels are indexed starting at 0.')
-        self.config.add_param('badfreqs', config_types.FloatOrFloatPairList, \
+        self.configs.add_param('badfreqs', config_types.FloatOrFloatPairList, \
                         nullable=True, \
                         help='Bad frequencies and/or (inclusive) frequency-intervals ' \
                             'to de-weight.')
         self.parse_config_string(config.cfg.rcvrstd_default_params)
 
     def _clean(self, ar):
-        raise NotImplementedError("Cleaning method is not implemented!")
-        pass
+        self.__prune_band_edges(ar)
+        self.__trim_edge_channels(ar)
+        self.__remove_bad_channels(ar)
+        self.__remove_bad_subints(ar)
 
     def __prune_band_edges(self, ar):
         """Prune the edges of the band. This is useful for
@@ -66,7 +68,7 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
             bw = ar.get_bandwidth()
             nchan = ar.get_nchan()
             chanbw = bw/nchan
-            utils.print_info("Pruning frequency band to (%g-%g MHz)" % response, 2)
+            utils.print_info("Pruning frequency band to (%g-%g MHz)" % (lofreq, hifreq), 2)
             # Loop over channels
             for ichan in xrange(nchan):
                 # Get profile for subint=0, pol=0
@@ -89,7 +91,7 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
         """
         nchan = ar.get_nchan()
         bw = float(ar.get_bandwidth())
-        num_to_trim = max(self.confgs.trimnum, \
+        num_to_trim = max(self.configs.trimnum, \
                           int(self.configs.trimfrac*nchan+0.5), \
                           int(self.configs.trimbw/bw*nchan+0.5))
         if num_to_trim > 0:
@@ -110,13 +112,14 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
             Outputs:
                 None
         """
-        for tozap in self.configs.badsubints:
-            if type(tozap) is types.IntType:
-                clean_utils.zero_weight_subint(ar, tozap)
-            else:
-                losubint, hisubint = tozap
-                for xx in xrange(losubint, hisubint+1):
-                    clean_utils.zero_weight_subint(ar, xx)
+        if self.configs.badsubints:
+            for tozap in self.configs.badsubints:
+                if type(tozap) is types.IntType:
+                    clean_utils.zero_weight_subint(ar, tozap)
+                else:
+                    losubint, hisubint = tozap
+                    for xx in xrange(losubint, hisubint+1):
+                        clean_utils.zero_weight_subint(ar, xx)
 
     def __remove_bad_channels(self, ar):
         """Zero-weight bad channels and channels containing bad
@@ -129,8 +132,8 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
             Outputs:
                 None
         """
-        if self.config.badchans:
-            for tozap in self.config.badchans:
+        if self.configs.badchans:
+            for tozap in self.configs.badchans:
                 if type(tozap) is types.IntType:
                     # A single bad channel to zap
                     clean_utils.zero_weight_chan(ar, tozap)
@@ -139,7 +142,7 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                     lochan, hichan = tozap
                     for xx in xrange(lochan, hichan):
                         clean_utils.zero_weight_chan(ar, tozap)
-        if self.config.badfreqs:
+        if self.configs.badfreqs:
             # Get a list of frequencies
             nchan = ar.get_nchan()
             lofreqs = np.empty(nchan)
@@ -151,7 +154,7 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                 lofreqs[ichan] = ctr - chanbw/2.0
                 lofreqs[ichan] = ctr + chanbw/2.0
             
-            for tozap in self.config.badfreqs:
+            for tozap in self.configs.badfreqs:
                 if type(tozap) is types.FloatType:
                     # A single bad freq to zap
                     for ichan in np.argwhere((lofreqs<=tozap) & (hifreqs>tozap)):
@@ -161,7 +164,7 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                     # An (inclusive) interval of bad freqs to zap
                     flo, fhi = tozap
                     for ichan in np.argwhere((hifreqs>=flo) & (lofreqs<=fhi)):
-                        ichan = ichan.squeeze():
+                        ichan = ichan.squeeze()
                         clean_utils.zero_weight_chan(ar, ichan)
 
 

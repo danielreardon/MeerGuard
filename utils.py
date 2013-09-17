@@ -630,7 +630,8 @@ class ArchiveFile(object):
         self.hdr = get_header_vals(self.fn, ['freq', 'length', 'bw', 'mjd', 
                                             'intmjd', 'fracmjd', 'backend', 
                                             'rcvr', 'telescop', 'name', 
-                                            'nchan', 'asite', 'period', 'dm'])
+                                            'nchan', 'asite', 'period', 'dm',
+                                            'nsub', 'nbin', 'npol'])
         try:
             self.hdr['name'] = get_prefname(self.hdr['name']) # Use preferred name
         except errors.BadPulsarNameError:
