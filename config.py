@@ -1,6 +1,7 @@
 import sys
 import copy
 import os.path
+import os
 
 import utils
 import debug
@@ -56,13 +57,13 @@ class CoastGuardConfigs(object):
 
     def __getitem__(self, key):
         if key in self.overrides:
-            utils.print_debug("Config '%s' found in Overrides" % key, 'config')
+            utils.print_debug("Config '%s' found in Overrides" % key, 'config', stepsback=3)
             val = self.overrides[key]
         elif key in self.obsconfigs:
-            utils.print_debug("Config '%s' found in Observation configs" % key, 'config')
+            utils.print_debug("Config '%s' found in Observation configs" % key, 'config', stepsback=3)
             val = self.obsconfigs[key]
         elif key in self.defaults:
-            utils.print_debug("Config '%s' found in Default" % key, 'config')
+            utils.print_debug("Config '%s' found in Default" % key, 'config', stepsback=3)
             val = self.defaults[key]
         else:
             raise errors.ConfigurationError("The configuration '%s' " \
@@ -128,7 +129,34 @@ class CoastGuardConfigs(object):
             self.obsconfigs += read_file(fn)
         utils.print_debug("Current configurations:\n%s" % self, 'config')
 
-cfg = CoastGuardConfigs()
+
+class ConfigManager(object):
+    """An object to hold and manage CoastCuardConfigs objects
+        from multiple threads.
+
+        This is important because each thread may require
+        different configurations.
+    """
+
+    def __init__(self):
+        self.configs = {}
+
+    def __contains__(self, name):
+        return name in self.configs
+
+    def get(self):
+        name = os.getpid()
+        if name not in self:
+            self.configs[name] = CoastGuardConfigs()
+        return self.configs[name]
+   
+    def load_configs_for_archive(self, arf):
+        self.get().load_configs_for_archive(arf)
+
+    def __getattr__(self, key):
+        return self.get()[key]
+
+cfg = ConfigManager()
 
 def main():
     arf = utils.ArchiveFile(sys.argv[1])
