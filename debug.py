@@ -16,6 +16,7 @@ modes = [('syscalls', 'Print commands being executed as system calls.'), \
          ('combine', 'Print debugging information relevant to ' \
                             'archive combining.'), \
          ('grouping', 'Print debugging information relevant to grouping.'), \
+         ('reduce', 'Print debugging information relevant to automated data reduction.'), \
         ]
 
 modes.sort()
