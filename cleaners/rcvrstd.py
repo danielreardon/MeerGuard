@@ -148,7 +148,7 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
             lofreqs = np.empty(nchan)
             hifreqs = np.empty(nchan)
             chanbw = ar.get_bandwidth()/nchan
-            for ichan in xargs(nchan):
+            for ichan in xrange(nchan):
                 prof = ar.get_Profile(0, 0, ichan)
                 ctr = prof.get_centre_frequency()
                 lofreqs[ichan] = ctr - chanbw/2.0
