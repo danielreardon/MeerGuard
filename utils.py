@@ -16,6 +16,7 @@ import types
 import inspect
 import datetime
 import argparse
+import string
 
 import numpy as np
 
@@ -97,7 +98,7 @@ def print_info(msg, level=1):
             colour.cprint(msg, 'info')
 
 
-def print_debug(msg, category):
+def print_debug(msg, category, stepsback=1):
     """Print a debugging message if the given debugging category
         is turned on.
 
@@ -106,6 +107,9 @@ def print_debug(msg, category):
         Inputs:
             msg: The message to print.
             category: The debugging category of the message.
+            stepsback: The number of steps back into the call stack
+                to get function calling information from. 
+                (Default: 1).
 
         Outputs:
             None
@@ -113,7 +117,7 @@ def print_debug(msg, category):
     if config.debug.is_on(category):
         if config.helpful_debugging:
             # Get caller info
-            fn, lineno, funcnm = inspect.stack()[1][1:4]
+            fn, lineno, funcnm = inspect.stack()[stepsback][1:4]
             to_print = colour.cstring("DEBUG %s [%s:%d - %s(...)]:\n" % \
                         (category.upper(), os.path.split(fn)[-1], lineno, funcnm), \
                             'debughdr')
@@ -266,7 +270,7 @@ def execute(cmd, stdout=subprocess.PIPE, stderr=sys.stderr, dir=None):
         unless subprocess.PIPE is provided.
     """
     # Log command to stdout
-    print_debug("'%s'" % cmd, 'syscalls')
+    print_debug("'%s'" % cmd, 'syscalls', stepsback=2)
 
     stdoutfile = False
     stderrfile = False
@@ -632,8 +636,18 @@ class ArchiveFile(object):
                                             'rcvr', 'telescop', 'name', 
                                             'nchan', 'asite', 'period', 'dm',
                                             'nsub', 'nbin', 'npol'])
+        if self.hdr['name'].endswith("_R"):
+            # Is a calibration observation
+            tail = "_R"
+            srcname = self.hdr['name'][:-2]
+        else:
+            # Is not a cal obs
+            tail = ""
+            srcname = self.hdr['name']
         try:
-            self.hdr['name'] = get_prefname(self.hdr['name']) # Use preferred name
+            # Normalise names of cal and non-cal observations
+            prefname = get_prefname(srcname) # Use preferred name
+            self.hdr['name'] = prefname+tail # Re-append "_R" if appropriate
         except errors.BadPulsarNameError:
             warnings.warn("No preferred name found in 'psrcat'. " \
                             "Will continue using '%s'" % self.hdr['name'], \
@@ -646,6 +660,13 @@ class ArchiveFile(object):
         self.hdr['inputbasenm'] = os.path.splitext(self.hdr['inputfn'])[0]
 
     def __getitem__(self, key):
+        filterfunc = lambda x: x # A do-nothing filter
+        if (type(key) in (type('str'), type(u'str'))) and key.endswith("_L"):
+            filterfunc = string.lower
+            key = key[:-2]
+        elif (type(key) in (type('str'), type(u'str'))) and key.endswith("_U"):
+            filterfunc = string.upper
+            key = key[:-2]
         if key not in self.hdr:
             if key == 'snr':
                 self.hdr['snr'] = get_archive_snr(self.fn)
@@ -662,7 +683,7 @@ class ArchiveFile(object):
                             (key, "', '".join([str(xx) for xx in self.hdr.keys()])))
         else:
             val = self.hdr[key]
-        return val
+        return filterfunc(val)
     
     def get_archive(self):
         if self.ar is None:
