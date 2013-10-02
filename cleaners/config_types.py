@@ -1,3 +1,5 @@
+import types
+
 class BaseConfigType(object):
     """The base class of ConfigType objects.
 
@@ -233,7 +235,13 @@ class IntOrIntPairList(BaseConfigType):
         return val
 
     def _value_to_string(self, val):
-        raise NotImplementedError
+        strs = []
+        for el in val:
+            if type(el) is types.TupleType:
+                strs.append("%d:%d" % el)
+            else:
+                strs.append("%d" % el)
+        return ";".join(strs)
 
 
 def _str_to_floatlist(paramstr):
@@ -336,4 +344,10 @@ class FloatOrFloatPairList(BaseConfigType):
         return val
 
     def _value_to_string(self, val):
-        raise NotImplementedError
+        strs = []
+        for el in val:
+            if type(el) is types.TupleType:
+                strs.append("%g:%g" % el)
+            else:
+                strs.append("%g" % el)
+        return ";".join(strs)
