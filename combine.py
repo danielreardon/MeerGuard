@@ -10,6 +10,10 @@ import os
 import sys
 import tempfile
 import warnings
+import os.path
+import glob
+import collections
+import datetime
 
 import numpy as np
 
@@ -17,6 +21,193 @@ import utils
 import clean
 import config
 import errors
+
+
+SUBINT_GLOB = '[0-9]'*4+'-'+'[0-9]'*2+'-'+'[0-9]'*2+'-' + \
+                '[0-9]'*2+':'+'[0-9]'*2+':'+'[0-9]'*2 + \
+                    '.ar'
+
+
+def group_subband_dirs(subdirs, maxspan=3600, maxgap=119, \
+            tossfrac=0.7, dryrun=False):
+    """Based on file names group sub-ints from different
+        sub-bands. Each subband is assumed to be in a separate
+        directory.
+
+        Inputs:
+            subdirs: List of sub-band directories
+            maxspan: Maximum span, in seconds, between first and 
+                last sub-int in a combined file. (Default: 3600 s)
+            maxgap: Maximum gap, in seconds, permitted before 
+                starting a new output file. (Default: 119 s)
+            tossfrac: Fraction of sub-ints required for a 
+                sub-band to be combined. If a sub-band has
+                fewer than tossfrac*N_subint sub-ints it
+                will be excluded.
+            dryrun: Don't actually combine any files.
+                (Default: actually combine files.)
+
+        Outputs:
+            usedirs: List of directories to use when combining.
+                (NOTE: This may be different than the input
+                    'subdirs' because some directories may have
+                    too few subints to be worth combining. This
+                    depends on the input value of 'tossfrac'.)
+            groups: List of groups of files to be combined.
+                (NOTE: These are the file name only (i.e. no path)
+                    Each file listed appears in each of 'usedirs'.)
+    """
+    # Ensure paths are absolute
+    subdirs = [os.path.abspath(path) for path in subdirs]
+
+    nsubbands = len(subdirs)
+    nperdir = collections.Counter()
+    noccurs = collections.Counter()
+    for subdir in subdirs:
+        fns = glob.glob(os.path.join(subdir, SUBINT_GLOB))
+        nperdir[subdir] = len(fns)
+        noccurs.update([os.path.basename(fn) for fn in fns])
+    nsubints = len(noccurs)
+
+    # Remove sub-bands that have too few subints
+    for ii, subdir in enumerate(reversed(subdirs)):
+        if nperdir[subdir] < tossfrac*nsubints:
+            subdirs.pop(ii)
+            del nperdir[subdir]
+            fns = glob.glob(os.path.join(subdir, SUBINT_GLOB))
+            noccurs.subtract([os.path.basename(fn) for fn in fns])
+            nsubbands -= 1
+
+    # Now combine subints
+    lastsubint = datetime.datetime.min
+    filestart = datetime.datetime.min
+    to_combine = []
+    for subint in sorted(noccurs):
+        if noccurs[subint] < nsubbands:
+            continue
+        start = datetime.datetime.strptime(subint, "%Y-%m-%d-%H:%M:%S.ar")
+        if (start - filestart).seconds > maxspan or \
+                    (start - lastsubint).seconds > maxgap:
+            # Start a new file
+            to_combine.append([])
+        to_combine[-1].append(subint)
+    return subdirs, to_combine
+
+
+def write_listing(subdirs, subints, outfn):
+    """Write a text file containing a listing of subints
+        that should be combined.
+
+        Inputs:
+            subdirs: List of sub-band directories containing 
+                sub-ints to combine
+            subints: List of subint files to be combined.
+                (NOTE: These are the file name only (i.e. no path)
+                    Each file listed should appear in each of the
+                    subdirs.)
+            outfn: The name of the file to write the listing to.
+
+        Outputs:
+            None
+    """
+    # Ensure paths are absolute
+    subdirs = [os.path.abspath(path) for path in subdirs]
+
+    if os.path.exists(outfn):
+        raise errors.InputError("A file already exists with the requested " \
+                        "output file name (%s)!" % outfn)
+    outfile = open(outfn, 'w')
+    outfile.write("# Listing of sub-int files to combine\n" + \
+                  "# Each file name listed below should appear " + \
+                        "in each of the following directories.\n" + \
+                  "# Each directory contains data from a different " + \
+                        "frequency sub-band.\n")
+    outfile.write("===== Frequency sub-band directories =====\n")
+    for subdir in sorted(subdirs):
+        outfile.write(subdir+"\n")
+    outfile.write("========== Sub-integration files =========\n")
+    for subint in sorted(subints):
+        outfile.write(subint+"\n")
+    outfile.close()
+
+
+def read_listing(infn):
+    """Read a text file containing a listing of sub-ints
+        that should be combined, as was written by 
+        'write_listing'.
+
+        Inputs:
+            infn: The name of the file containing the listing to read.
+
+        Outputs:
+            subdirs: List of sub-band directories containing 
+                sub-ints to combine
+            subints: List of subint files to be combined.
+                (NOTE: These are the file name only (i.e. no path)
+                    Each file listed should appear in each of the
+                    subdirs.)
+    """
+    subdirs = []
+    subints = []
+    collector = None
+    infile = open(infn, 'r')
+    for line in infile:
+        # Strip out comments
+        line = line.partition('#')[0].strip()
+        # Skip empty lines
+        if not line:
+            continue
+        if "Frequency sub-band directories" in line:
+            collector = subdirs
+        elif "Sub-integration files" in line:
+            collector = subints
+        elif collector is None:
+            raise errors.FormatError("Non-comment line preceeds directory " \
+                                    "section of file listing!")
+        else:
+            collector.append(line)
+    infile.close()
+    return subdirs, subints
+
+
+def combine_files_from_listing(subdirs, subints, outdir=None):
+    """Combine a listing of sub-ints as created by
+        'group_subband_dirs' or read-in by 'read_listing'.
+
+        Inputs:
+            subdirs: List of sub-band directories containing 
+                sub-ints to combine
+            subints: List of subint files to be combined.
+                (NOTE: These are the file name only (i.e. no path)
+                    Each file listed should appear in each of the
+                    subdirs.)
+            outdir: Directory to output combined file.
+                (Default: Current working directory)
+        
+        Output:
+            outfn: The name of the combined file.
+    """
+    if outdir is None:
+        outdir = os.getcwd()
+    subints = sorted(subints)
+    tmpdir = tempfile.mkdtmp()
+    try:
+        cmbsubints = []
+        for subint in subints:
+            to_combine = [os.path.join(path, subint) for path in subdirs]
+            outfn = os.path.join(tmpdir, "combined_%s" % subint)
+            cmbsubints.append(outfn)
+            utils.execute(['psradd', '-R', '-o', outfn] + to_combine])
+        outfn = os.path.join(outdir, "combined_%dsubints_%s" % \
+                        (len(subints), subints[0]))
+        utils.execute(['psradd', '-o', outfn] + cmbsubints)
+    except:
+        raise # Re-raise the exception
+    else:
+        return outfn
+    finally:
+        shutil.rmtree(tmpdir)
+
 
 def combine_all(infns, outfn, expected_nsubbands=None):
     """Given a list of ArchiveFile objects group them into sub-bands

@@ -60,6 +60,10 @@ class FitError(CoastGuardError):
     pass
 
 
+class FormatError(CoastGuardError):
+    pass
+
+
 # Custom Warnings
 class CoastGuardWarning(Warning):
     def __str__(self):
