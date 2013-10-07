@@ -27,9 +27,10 @@ SUBINT_GLOB = '[0-9]'*4+'-'+'[0-9]'*2+'-'+'[0-9]'*2+'-' + \
                 '[0-9]'*2+':'+'[0-9]'*2+':'+'[0-9]'*2 + \
                     '.ar'
 
-def combine_subband_dirs(subdirs, maxspan=3600, maxgap=119, \
+
+def group_subband_dirs(subdirs, maxspan=3600, maxgap=119, \
             tossfrac=0.7, dryrun=False):
-    """Based on file names combine sub-ints from different
+    """Based on file names group sub-ints from different
         sub-bands. Each subband is assumed to be in a separate
         directory.
 
@@ -47,8 +48,18 @@ def combine_subband_dirs(subdirs, maxspan=3600, maxgap=119, \
                 (Default: actually combine files.)
 
         Outputs:
-            combinedfns: List of combined files.
+            usedirs: List of directories to use when combining.
+                (NOTE: This may be different than the input
+                    'subdirs' because some directories may have
+                    too few subints to be worth combining. This
+                    depends on the input value of 'tossfrac'.)
+            groups: List of groups of files to be combined.
+                (NOTE: These are the file name only (i.e. no path)
+                    Each file listed appears in each of 'usedirs'.)
     """
+    # Ensure paths are absolute
+    subdirs = [os.path.abspath(path) for path in subdirs]
+
     nsubbands = len(subdirs)
     nperdir = collections.Counter()
     noccurs = collections.Counter()
@@ -79,12 +90,123 @@ def combine_subband_dirs(subdirs, maxspan=3600, maxgap=119, \
                     (start - lastsubint).seconds > maxgap:
             # Start a new file
             to_combine.append([])
-        cmbfn = 'combined_%s' % subint
-        if not dryrun:
-            utils.execute(['psradd', '-R', '-o', cmbsubintfn] + \
-                    [os.path.join(subdir, subint) for subdir in subdirs])
-        to_combine[-1].append(cmbfn)
-    return to_combine
+        to_combine[-1].append(subint)
+    return subdirs, to_combine
+
+
+def write_listing(subdirs, subints, outfn):
+    """Write a text file containing a listing of subints
+        that should be combined.
+
+        Inputs:
+            subdirs: List of sub-band directories containing 
+                sub-ints to combine
+            subints: List of subint files to be combined.
+                (NOTE: These are the file name only (i.e. no path)
+                    Each file listed should appear in each of the
+                    subdirs.)
+            outfn: The name of the file to write the listing to.
+
+        Outputs:
+            None
+    """
+    # Ensure paths are absolute
+    subdirs = [os.path.abspath(path) for path in subdirs]
+
+    if os.path.exists(outfn):
+        raise errors.InputError("A file already exists with the requested " \
+                        "output file name (%s)!" % outfn)
+    outfile = open(outfn, 'w')
+    outfile.write("# Listing of sub-int files to combine\n" + \
+                  "# Each file name listed below should appear " + \
+                        "in each of the following directories.\n" + \
+                  "# Each directory contains data from a different " + \
+                        "frequency sub-band.\n")
+    outfile.write("===== Frequency sub-band directories =====\n")
+    for subdir in sorted(subdirs):
+        outfile.write(subdir+"\n")
+    outfile.write("========== Sub-integration files =========\n")
+    for subint in sorted(subints):
+        outfile.write(subint+"\n")
+    outfile.close()
+
+
+def read_listing(infn):
+    """Read a text file containing a listing of sub-ints
+        that should be combined, as was written by 
+        'write_listing'.
+
+        Inputs:
+            infn: The name of the file containing the listing to read.
+
+        Outputs:
+            subdirs: List of sub-band directories containing 
+                sub-ints to combine
+            subints: List of subint files to be combined.
+                (NOTE: These are the file name only (i.e. no path)
+                    Each file listed should appear in each of the
+                    subdirs.)
+    """
+    subdirs = []
+    subints = []
+    collector = None
+    infile = open(infn, 'r')
+    for line in infile:
+        # Strip out comments
+        line = line.partition('#')[0].strip()
+        # Skip empty lines
+        if not line:
+            continue
+        if "Frequency sub-band directories" in line:
+            collector = subdirs
+        elif "Sub-integration files" in line:
+            collector = subints
+        elif collector is None:
+            raise errors.FormatError("Non-comment line preceeds directory " \
+                                    "section of file listing!")
+        else:
+            collector.append(line)
+    infile.close()
+    return subdirs, subints
+
+
+def combine_files_from_listing(subdirs, subints, outdir=None):
+    """Combine a listing of sub-ints as created by
+        'group_subband_dirs' or read-in by 'read_listing'.
+
+        Inputs:
+            subdirs: List of sub-band directories containing 
+                sub-ints to combine
+            subints: List of subint files to be combined.
+                (NOTE: These are the file name only (i.e. no path)
+                    Each file listed should appear in each of the
+                    subdirs.)
+            outdir: Directory to output combined file.
+                (Default: Current working directory)
+        
+        Output:
+            outfn: The name of the combined file.
+    """
+    if outdir is None:
+        outdir = os.getcwd()
+    subints = sorted(subints)
+    tmpdir = tempfile.mkdtmp()
+    try:
+        cmbsubints = []
+        for subint in subints:
+            to_combine = [os.path.join(path, subint) for path in subdirs]
+            outfn = os.path.join(tmpdir, "combined_%s" % subint)
+            cmbsubints.append(outfn)
+            utils.execute(['psradd', '-R', '-o', outfn] + to_combine])
+        outfn = os.path.join(outdir, "combined_%dsubints_%s" % \
+                        (len(subints), subints[0]))
+        utils.execute(['psradd', '-o', outfn] + cmbsubints)
+    except:
+        raise # Re-raise the exception
+    else:
+        return outfn
+    finally:
+        shutil.rmtree(tmpdir)
 
 
 def combine_all(infns, outfn, expected_nsubbands=None):
