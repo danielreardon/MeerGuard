@@ -14,6 +14,7 @@ import os.path
 import glob
 import collections
 import datetime
+import shutil
 
 import numpy as np
 
@@ -29,7 +30,7 @@ SUBINT_GLOB = '[0-9]'*4+'-'+'[0-9]'*2+'-'+'[0-9]'*2+'-' + \
 
 
 def group_subband_dirs(subdirs, maxspan=3600, maxgap=119, \
-            tossfrac=0.7, dryrun=False):
+            tossfrac=0.7):
     """Based on file names group sub-ints from different
         sub-bands. Each subband is assumed to be in a separate
         directory.
@@ -44,8 +45,6 @@ def group_subband_dirs(subdirs, maxspan=3600, maxgap=119, \
                 sub-band to be combined. If a sub-band has
                 fewer than tossfrac*N_subint sub-ints it
                 will be excluded.
-            dryrun: Don't actually combine any files.
-                (Default: actually combine files.)
 
         Outputs:
             usedirs: List of directories to use when combining.
@@ -60,12 +59,16 @@ def group_subband_dirs(subdirs, maxspan=3600, maxgap=119, \
     # Ensure paths are absolute
     subdirs = [os.path.abspath(path) for path in subdirs]
 
+    nindirs = len(subdirs)
     nsubbands = len(subdirs)
     nperdir = collections.Counter()
     noccurs = collections.Counter()
+    nintotal = 0
     for subdir in subdirs:
         fns = glob.glob(os.path.join(subdir, SUBINT_GLOB))
-        nperdir[subdir] = len(fns)
+        nn = len(fns)
+        nintotal += nn
+        nperdir[subdir] = nn
         noccurs.update([os.path.basename(fn) for fn in fns])
     nsubints = len(noccurs)
 
@@ -81,17 +84,24 @@ def group_subband_dirs(subdirs, maxspan=3600, maxgap=119, \
     # Now combine subints
     lastsubint = datetime.datetime.min
     filestart = datetime.datetime.min
-    to_combine = []
+    groups = []
     for subint in sorted(noccurs):
         if noccurs[subint] < nsubbands:
             continue
         start = datetime.datetime.strptime(subint, "%Y-%m-%d-%H:%M:%S.ar")
         if (start - filestart).seconds > maxspan or \
                     (start - lastsubint).seconds > maxgap:
+            filestart = start
             # Start a new file
-            to_combine.append([])
-        to_combine[-1].append(subint)
-    return subdirs, to_combine
+            groups.append([])
+        groups[-1].append(subint)
+        lastsubint = start
+    nused = sum([len(grp) for grp in groups])
+    utils.print_info("Grouped %d files from %d directories into %d groups.\n" \
+                     "(Threw out %d directories and %d files)" % \
+                     (nintotal, nindirs, len(groups), nindirs-len(subdirs), \
+                        ntotal-nused), 2)
+    return subdirs, groups
 
 
 def write_listing(subdirs, subints, outfn):
@@ -170,8 +180,9 @@ def read_listing(infn):
     return subdirs, subints
 
 
-def combine_files_from_listing(subdirs, subints, outdir=None):
-    """Combine a listing of sub-ints as created by
+def combine_subints(subdirs, subints, outdir=None):
+    """Combine sub-ints from various freq sub-band directories.
+        The input lists are as created by
         'group_subband_dirs' or read-in by 'read_listing'.
 
         Inputs:
@@ -190,17 +201,27 @@ def combine_files_from_listing(subdirs, subints, outdir=None):
     if outdir is None:
         outdir = os.getcwd()
     subints = sorted(subints)
-    tmpdir = tempfile.mkdtmp()
+    nn = len(subints)
+    tmpdir = tempfile.mkdtemp()
+    devnull = open(os.devnull)
     try:
         cmbsubints = []
-        for subint in subints:
+        oldprogress = -1
+        for ii, subint in enumerate(subints):
             to_combine = [os.path.join(path, subint) for path in subdirs]
             outfn = os.path.join(tmpdir, "combined_%s" % subint)
             cmbsubints.append(outfn)
-            utils.execute(['psradd', '-R', '-o', outfn] + to_combine])
+            utils.execute(['psradd', '-q', '-R', '-o', outfn] + to_combine, \
+                        stderr=devnull)
+            progress = int(100.0*(ii+1)/nn)
+            if progress > oldprogress:
+                sys.stdout.write(" %d %%\r" % progress)
+                sys.stdout.flush()
+                oldprogress = progress
+        sys.stdout.write(" Done      \n")
         outfn = os.path.join(outdir, "combined_%dsubints_%s" % \
                         (len(subints), subints[0]))
-        utils.execute(['psradd', '-o', outfn] + cmbsubints)
+        utils.execute(['psradd', '-q', '-o', outfn] + cmbsubints)
     except:
         raise # Re-raise the exception
     else:
