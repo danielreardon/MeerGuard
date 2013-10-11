@@ -4,6 +4,7 @@ import multiprocessing
 import subprocess
 import warnings
 import tempfile
+import datetime
 import fnmatch
 import os.path
 import shutil
@@ -15,12 +16,73 @@ import config
 import utils
 import diagnose
 import cleaners
+import database
 
 BASEOUTFN_TEMPLATE = "%(backend_L)s_%(rcvr_L)s_%(name_U)s_%(yyyymmdd)s_%(secs)05d_reduced"
 SAVE_INTERMEDIATE = True
 BASEOUTDIR = "/media/part1/plazarus/timing/asterix/"
 OUTDIR_TEMPLATE = os.path.join(BASEOUTDIR, "%(name_U)s/%(rcvr_L)s/%(date:%Y)s")
 TMPDIR = "/media/part1/plazarus/timing/asterix/tmp/"
+BASE_RAWDATA_DIR = "/media/part2/TIMING/Asterix/"
+
+def create_directory_entries(db):
+    """Search for directories containing asterix data.
+        For each newly found entry, create a listing in the
+        database.
+
+        Input:
+            db: Database object to use.
+
+        Output:
+            ninserts: Number of new directories inserted.
+    """
+    ninserts = 0
+    dirs = get_rawdata_dirs()
+    for ii, path in utils.show_progress(enumerate(dirs), width=72):
+        try:
+            with db.transaction() as conn:
+                insert = db.directories.insert().\
+                        values(path=path)
+                # 'directories.path' is constrained to be unique, so
+                # trying to insert a directory that already exists
+                # will result in an error, which will be automatically
+                # rolled back by the context manager (i.e. no new
+                # database entry will be inserted)
+                conn.execute(insert)
+        except:
+            pass
+        else:
+            # The following line is only reached if the execution
+            # above doesn't raise an exception
+            ninserts += 1
+    return ninserts
+
+
+def get_rawdata_dirs(basedir=BASE_RAWDATA_DIR):
+    """Get a list of directories likely to contain asterix data.
+        Directories 2 levels deep with a name "YYYYMMDD" are returned.
+
+        Input:
+            basedir: Root of the directory tree to search.
+
+        Output:
+            outdirs: List of likely raw data directories.
+    """
+    outdirs = []
+    indirs = glob.glob(os.path.join(basedir, '*'))
+    for path in indirs:
+        subdirs = glob.glob(os.path.join(path, "*"))
+        for subdir in subdirs:
+            if os.path.isdir(subdir):
+                try:
+                    datetime.datetime.strptime(os.path.basename(subdir), "%Y%m%d")
+                except:
+                    pass
+                else:
+                    # Is a directory whose name has the required format
+                    outdirs.append(subdir)
+    return outdirs
+
 
 def make_summary_plots(arf):
     """Make two summary plots. One with the native time/freq/bin resolution
