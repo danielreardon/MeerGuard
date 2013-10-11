@@ -60,6 +60,20 @@ class FitError(CoastGuardError):
     pass
 
 
+class DatabaseError(CoastGuardError):
+    pass
+
+
+# Fatal class of errors. These should not be caught.
+class FatalCoastGuardError(Exception):
+    def __str__(self):
+        return colour.cstring(super(FatalCoastGuardError, self).__str__(), 'error')
+
+
+class BadColumnError(FatalCoastGuardError):
+    pass
+
+
 # Custom Warnings
 class CoastGuardWarning(Warning):
     def __str__(self):
