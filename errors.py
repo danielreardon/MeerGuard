@@ -60,6 +60,10 @@ class FitError(CoastGuardError):
     pass
 
 
+class FormatError(CoastGuardError):
+    pass
+
+
 class DatabaseError(CoastGuardError):
     pass
 
@@ -72,7 +76,6 @@ class FatalCoastGuardError(Exception):
 
 class BadColumnError(FatalCoastGuardError):
     pass
-
 
 # Custom Warnings
 class CoastGuardWarning(Warning):
