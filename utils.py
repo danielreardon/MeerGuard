@@ -72,6 +72,42 @@ site_to_telescope = {'i': 'WSRT',
 # A cache for pulsar preferred names
 prefname_cache = {}
 
+
+def show_progress(iterator, width=0, tot=None):
+    """Wrap an iterator so that a progress counter is printed
+        as we iterate.
+
+        Inputs:
+            iterator: The object to iterate over.
+            width: The width of the progress bar.
+                (Default: Don't show a progress bar, only the percentage)
+            tot: The total number of iterations.
+                (Default: Use len(iterator) to determine 
+                    total number of iterations)
+
+        Outputs:
+            None
+    """
+    if tot is None:
+        tot = len(iterator)
+    old = -1
+    curr = 1
+    for toreturn in iterator:
+        progfrac = curr/float(tot)
+        progpcnt = int(100*progfrac)
+        if progpcnt > old:
+            bar = "["*bool(width) + \
+                    "="*int(width*progfrac+0.5) + \
+                    " "*int(width*(1-progfrac)+0.5) + \
+                    "]"*bool(width)
+            old = progpcnt
+            sys.stdout.write("     " + bar + " %d %% \r" % progpcnt)
+            sys.stdout.flush()
+        curr += 1
+        yield toreturn
+    print "Done"
+
+
 def print_info(msg, level=1):
     """Print an informative message if the current verbosity is
         higher than the 'level' of this message.
