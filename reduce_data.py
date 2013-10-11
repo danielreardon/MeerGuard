@@ -25,20 +25,23 @@ OUTDIR_TEMPLATE = os.path.join(BASEOUTDIR, "%(name_U)s/%(rcvr_L)s/%(date:%Y)s")
 TMPDIR = "/media/part1/plazarus/timing/asterix/tmp/"
 BASE_RAWDATA_DIR = "/media/part2/TIMING/Asterix/"
 
-def create_directory_entries(db):
+
+def create_directory_entries(db, *args, **kwargs):
     """Search for directories containing asterix data.
         For each newly found entry, create a listing in the
         database.
 
         Input:
             db: Database object to use.
+            ** Additional arguments are passed on to 'get_rawdata_dirs' **
 
         Output:
             ninserts: Number of new directories inserted.
     """
     ninserts = 0
-    dirs = get_rawdata_dirs()
-    for ii, path in utils.show_progress(enumerate(dirs), width=72):
+    dirs = get_rawdata_dirs(*args, **kwargs)
+    nn = len(dirs)
+    for ii, path in utils.show_progress(enumerate(dirs), tot=nn, width=50):
         try:
             with db.transaction() as conn:
                 insert = db.directories.insert().\
