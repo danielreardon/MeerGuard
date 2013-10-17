@@ -87,6 +87,45 @@ def get_rawdata_dirs(basedir=BASE_RAWDATA_DIR):
     return outdirs
 
 
+def make_groups(path):
+    """Given a directory containing asterix subint files
+        return a list of subint groups.
+
+        Input:
+            path: A directory containing frequency sub-band 
+                directories.
+
+        Output:
+            usedirs_list: List of lists of directories to use when combining.
+                (NOTE: This may be different than the input
+                    'subdirs' because some directories may have
+                    too few subints to be worth combining. This
+                    depends on the input value of 'tossfrac'.)
+            groups_list: List of lists of groups of files to be combined.
+                (NOTE: These are the file name only (i.e. no path)
+                    Each file listed appears in each of 'usedirs'.)
+            band_list: List of band names.
+    """
+    usedirs_list = []
+    groups_list = []
+    band_list = []
+    # Try L-band and S-band
+    for band, subdir_pattern in \
+                    (['Lband', 'Sband'], ['1'+'[0-9]'*3, '2'+'[0-9]'*3]):
+        subdirs = glob.glob(os.path.join(path, subdir_pattern))
+        if subdirs:
+            utils.print_info("Found %d freq sub-band dirs for %s in %s. " \
+                        "Will group sub-ints contained" % \
+                        (len(subdirs), band, path), 2)
+            usedirs, groups = combine.group_subband_dirs(subdirs)
+            # Keep track of the groups and directories used
+            for grp in groups:    
+                band_list.append(band)
+                groups_list.append(grp)
+                usedirs_list.append(usedirs)
+    return usedirs_list, groups_list, band_list
+
+
 def make_summary_plots(arf):
     """Make two summary plots. One with the native time/freq/bin resolution
         and nother that is partially scrunched.
