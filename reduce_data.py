@@ -26,9 +26,9 @@ TMPDIR = "/media/part1/plazarus/timing/asterix/tmp/"
 BASE_RAWDATA_DIR = "/media/part2/TIMING/Asterix/"
 
 
-def create_directory_entries(db, *args, **kwargs):
+def load_directories(db, *args, **kwargs):
     """Search for directories containing asterix data.
-        For each newly found entry, create a listing in the
+        For each newly found entry, insert a row in the
         database.
 
         Input:
