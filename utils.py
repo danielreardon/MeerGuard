@@ -187,36 +187,114 @@ def get_md5sum(fn, block_size=16*8192):
     return md5.hexdigest()
 
 
-def get_githash():
-    """Get the Coast Guard project's git hash.
+def get_version_id(db):
+    """Get the version ID number from the database.
+        If the version number isn't in the database, add it.
+
+        Input:
+            db: A database connection object.
+
+        Output:
+            version_id: The version ID for the current pipeline/psrchive
+                combination.
+    """
+    # Check to make sure the repositories are clean
+    is_gitrepo_dirty(config.coastguard_repo)
+    is_gitrepo_dirty(config.psrchive_repo)
+    # Get git hashes
+    coastguard_githash = get_githash(config.coastguard_repo)
+    if is_gitrepo(config.psrchive_repo):
+        psrchive_githash = get_githash(config.psrchive_repo)
+    else:
+        warnings.warn("PSRCHIVE directory (%s) is not a git repository! " \
+                        "Falling back to 'psrchive --version' for version " \
+                        "information." % config.psrchive_dir, \
+                        errors.ToasterWarning)
+        cmd = ["psrchive", "--version"]
+        stdout, stderr = execute(cmd)
+        psrchive_githash = stdout.strip()
+    
+    with db.transaction() as conn:
+        # Check to see if this combination of versions is in the database
+        select = db.select([db.versions.c.version_id]).\
+                    where((db.versions.c.cg_githash==coastguard_githash) & \
+                          (db.versions.c.psrchive_githash==psrchive_githash))
+        result = conn.execute(select)
+        rows = result.fetchall()
+        result.close()
+        if len(rows) > 1:
+            raise errors.DatabaseError("There are too many (%d) matching " \
+                                        "version IDs" % len(rows))
+        elif len(rows) == 1:
+            version_id = rows[0].version_id
+        else:
+            # Insert the current versions
+            ins = db.versions.insert().\
+                        values(cg_githash=coastguard_githash, \
+                                psrchive_githash=psrchive_githash)
+            result = conn.execute(ins)
+            # Get the newly add version ID
+            version_id = result.inserted_primary_key[0]
+            result.close()
+    return version_id
+
+
+def get_githash(repodir=None):
+    """Get the git hash of a repository.
 
         Inputs:
-            None
+            repodir: Directory containing repository to check.
 
         Output:
             githash: The githash
     """
-    if is_gitrepo_dirty():
-        warnings.warn("Git repository has uncommitted changes!", \
-                        errors.CoastGuardWarning)
-    codedir = os.path.split(__file__)[0]
-    stdout, stderr = execute("git rev-parse HEAD", dir=codedir)
+    if repodir is None:
+        # Use directory containing this file
+        repodir = os.path.split(__file__)[0]
+    if is_gitrepo_dirty(repodir):
+        warnings.warn("Git repository (%s) has uncommitted changes!" % \
+                        repodir, errors.CoastGuardWarning)
+    stdout, stderr = execute("git rev-parse HEAD", dir=repodir)
     githash = stdout.strip()
     return githash
 
 
-def is_gitrepo_dirty():
+def is_gitrepo(repodir):
+    """Return True if the given dir is a git repository.
+
+        Input:
+            repodir: The location of the git repository.
+
+        Output:
+            is_git: True if directory is part of a git repository. False otherwise.
+    """
+    print_info("Checking if directory '%s' contains a Git repo..." % repodir, 2)
+    try:
+        cmd = ["git", "rev-parse"]
+        stdout, stderr = execute(cmd, dir=repodir, \
+                                    stderr=open(os.devnull))
+    except errors.SystemCallError:
+        # Exit code is non-zero
+        return False
+    else:
+        # Success error code (i.e. dir is in a git repo)
+        return True
+
+
+def is_gitrepo_dirty(repodir=None):
     """Return True if the git repository has local changes.
 
         Inputs:
-            None
+            repodir: Directory containing repository to check.
 
         Output:
             is_dirty: True if git repository has local changes. False otherwise.
     """
-    codedir = os.path.split(__file__)[0]
+    if repodir is None:
+        # Use directory containing this file
+        repodir = os.path.split(__file__)[0]
     try:
-        stdout, stderr = execute("git diff --quiet", dir=codedir)
+        stdout, stderr = execute("git diff --quiet", dir=repodir)
     except errors.SystemCallError:
         # Exit code is non-zero
         return True
