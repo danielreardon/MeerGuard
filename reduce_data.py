@@ -60,6 +60,50 @@ def load_directories(db, *args, **kwargs):
             ninserts += 1
     return ninserts
 
+def load_groups(db, path):
+    """Given the path to a directory containing asterix data
+        create a group listing and load it into the database.
+
+        Inputs:
+            db: Database object to use.
+            path: A directory containing frequency sub-band 
+                directories.
+
+        Outputs:
+            ninserts: The number of group rows inserted.
+    """
+    for dirs, fns, band in make_groups(path):
+        fns.sort()
+        listfn = os.path.join(path, "%s_%s_%dsubints.txt" % \
+                                (fns[0], band, len(fns)))
+        combine.write_listing(dirs, fns, listfn)
+        listpath, listname = os.path.split(listfn)
+        values.append({'listpath': listpath, \
+                       'listname': listname, \
+                       'md5sum': utils.get_md5sum(listfn)})
+    try:
+        with db.transaction() as conn:
+            dir_id = get_directory_id_from_path(db, path)
+            version_id = utils.get_version_id(db) 
+            insert = db.groupings.insert().\
+                        values(version_id=version_id)
+            conn.execute(insert, values)
+            update = db.directories.update().\
+                        where(db.directories.c.dir_id==dir_id).\
+                        values(status='grouped')
+            conn.execute(update)
+    except:
+        with db.transaction() as conn:
+            update = db.directories.update().\
+                        where(db.directories.c.dir_id==dir_id).\
+                        values(status='failed')
+            conn.execute(update)
+    else:
+        # The following line is only reached if the execution
+        # above doesn't raise an exception
+        ninserts += len(values)
+    return ninserts
+
 
 def get_rawdata_dirs(basedir=BASE_RAWDATA_DIR):
     """Get a list of directories likely to contain asterix data.
