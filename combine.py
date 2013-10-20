@@ -116,7 +116,7 @@ def group_subband_dirs(subdirs, maxspan=None, maxgap=None, \
     utils.print_info("Grouped %d files from %d directories into %d groups.\n" \
                      "(Threw out %d directories and %d files)" % \
                      (nintotal, nindirs, len(groups), nindirs-len(subdirs), \
-                        ntotal-nused), 2)
+                        nintotal-nused), 2)
     return subdirs, groups
 
 
