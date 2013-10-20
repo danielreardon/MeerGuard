@@ -16,14 +16,10 @@ import config
 import utils
 import diagnose
 import cleaners
+import combine
 import database
 
-BASEOUTFN_TEMPLATE = "%(backend_L)s_%(rcvr_L)s_%(name_U)s_%(yyyymmdd)s_%(secs)05d_reduced"
 SAVE_INTERMEDIATE = True
-BASEOUTDIR = "/media/part1/plazarus/timing/asterix/"
-OUTDIR_TEMPLATE = os.path.join(BASEOUTDIR, "%(name_U)s/%(rcvr_L)s/%(date:%Y)s")
-TMPDIR = "/media/part1/plazarus/timing/asterix/tmp/"
-BASE_RAWDATA_DIR = "/media/part2/TIMING/Asterix/"
 
 
 def load_directories(db, *args, **kwargs):
@@ -60,21 +56,28 @@ def load_directories(db, *args, **kwargs):
             ninserts += 1
     return ninserts
 
-def load_groups(db, path):
-    """Given the path to a directory containing asterix data
-        create a group listing and load it into the database.
+
+def load_groups(db, dirrow):
+    """Given a row from the DB's directories table create a group 
+        listing from the asterix data stored in the directories 
+        and load it into the database.
 
         Inputs:
             db: Database object to use.
-            path: A directory containing frequency sub-band 
-                directories.
+            dirrow: A row from the directories table.
 
         Outputs:
             ninserts: The number of group rows inserted.
     """
-    for dirs, fns, band in make_groups(path):
+    path = dirrow['path']
+    dir_id = dirrow['dir_id']
+
+    ninserts = 0
+    values = []
+    for dirs, fns, band in zip(*make_groups(path)):
         fns.sort()
-        listfn = os.path.join(path, "%s_%s_%dsubints.txt" % \
+        listfn = os.path.join(config.output_location, 'groups', \
+                                "%s_%s_%dsubints.txt" % \
                                 (fns[0], band, len(fns)))
         combine.write_listing(dirs, fns, listfn)
         listpath, listname = os.path.split(listfn)
@@ -83,10 +86,10 @@ def load_groups(db, path):
                        'md5sum': utils.get_md5sum(listfn)})
     try:
         with db.transaction() as conn:
-            dir_id = get_directory_id_from_path(db, path)
             version_id = utils.get_version_id(db) 
             insert = db.groupings.insert().\
-                        values(version_id=version_id)
+                        values(version_id = version_id, \
+                               dir_id = dir_id)
             conn.execute(insert, values)
             update = db.directories.update().\
                         where(db.directories.c.dir_id==dir_id).\
@@ -98,6 +101,7 @@ def load_groups(db, path):
                         where(db.directories.c.dir_id==dir_id).\
                         values(status='failed')
             conn.execute(update)
+        raise
     else:
         # The following line is only reached if the execution
         # above doesn't raise an exception
@@ -105,7 +109,7 @@ def load_groups(db, path):
     return ninserts
 
 
-def get_rawdata_dirs(basedir=BASE_RAWDATA_DIR):
+def get_rawdata_dirs(basedir=None):
     """Get a list of directories likely to contain asterix data.
         Directories 2 levels deep with a name "YYYYMMDD" are returned.
 
@@ -115,6 +119,8 @@ def get_rawdata_dirs(basedir=BASE_RAWDATA_DIR):
         Output:
             outdirs: List of likely raw data directories.
     """
+    if basedir is None:
+        basedir = config.base_rawdata_dir
     outdirs = []
     indirs = glob.glob(os.path.join(basedir, '*'))
     for path in indirs:
@@ -153,9 +159,10 @@ def make_groups(path):
     usedirs_list = []
     groups_list = []
     band_list = []
+
     # Try L-band and S-band
     for band, subdir_pattern in \
-                    (['Lband', 'Sband'], ['1'+'[0-9]'*3, '2'+'[0-9]'*3]):
+                    zip(['Lband', 'Sband'], ['1'+'[0-9]'*3, '2'+'[0-9]'*3]):
         subdirs = glob.glob(os.path.join(path, subdir_pattern))
         if subdirs:
             utils.print_info("Found %d freq sub-band dirs for %s in %s. " \
@@ -195,7 +202,8 @@ def make_summary_plots(arf):
 
 def reduce_directory(path):
     # Create temporary working directory
-    basetmpdir = tempfile.mkdtemp(suffix="_reduce", dir=TMPDIR)
+    basetmpdir = tempfile.mkdtemp(suffix="_reduce", \
+                                    dir=config.tmp_directory)
     utils.print_info("Reducing data in %s. Temporary working directory: %s" % \
                 (path, basetmpdir), 2)
     try:
@@ -265,7 +273,7 @@ def reduce_directory(path):
                 config.cfg.load_configs_for_archive(arf)
                 
                 # Base name (ie no extension) of output file
-                baseoutfn = BASEOUTFN_TEMPLATE % arf
+                baseoutfn = config.outfn_template % arf
                 cleanfn = baseoutfn+cleanext
  
                 # Rename combined file
@@ -310,7 +318,8 @@ def reduce_directory(path):
                         to_save.append(cmbfn)
                 
                 # Copy results files
-                outdir = OUTDIR_TEMPLATE % cleanarf 
+                outdir = os.path.join(config.output_location, \
+                                config.output_layout) % cleanarf 
                 # Create output directory, if necessary
                 if not os.path.exists(outdir):
                     os.makedirs(outdir)
