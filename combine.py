@@ -217,24 +217,16 @@ def combine_subints(subdirs, subints, outdir=None):
     if outdir is None:
         outdir = os.getcwd()
     subints = sorted(subints)
-    nn = len(subints)
     tmpdir = tempfile.mkdtemp()
     devnull = open(os.devnull)
     try:
         cmbsubints = []
-        oldprogress = -1
-        for ii, subint in enumerate(subints):
+        for ii, subint in enumerate(utils.show_progress(subints, width=50)):
             to_combine = [os.path.join(path, subint) for path in subdirs]
             outfn = os.path.join(tmpdir, "combined_%s" % subint)
             cmbsubints.append(outfn)
             utils.execute(['psradd', '-q', '-R', '-o', outfn] + to_combine, \
                         stderr=devnull)
-            progress = int(100.0*(ii+1)/nn)
-            if progress > oldprogress:
-                sys.stdout.write(" %d %%\r" % progress)
-                sys.stdout.flush()
-                oldprogress = progress
-        sys.stdout.write(" Done      \n")
         outfn = os.path.join(outdir, "combined_%dsubints_%s" % \
                         (len(subints), subints[0]))
         utils.execute(['psradd', '-q', '-o', outfn] + cmbsubints)
