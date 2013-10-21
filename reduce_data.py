@@ -18,8 +18,14 @@ import diagnose
 import cleaners
 import combine
 import database
+import clean_utils
 
 SAVE_INTERMEDIATE = True
+
+
+RCVR_INFO = {'P217-3': 'rcvr:name=P217-3,rcvr:hand=-1,rcvr:basis=cir', \
+             'S110-1': 'rcvr:name=S110-1,rcvr:hand=-1,rcvr:basis=cir', \
+             'P200-3': 'rcvr:name=P200-3,rcvr:hand=-1,rcvr:basis=cir'}
 
 
 def load_directories(db, *args, **kwargs):
@@ -175,6 +181,119 @@ def make_groups(path):
                 groups_list.append(grp)
                 usedirs_list.append(usedirs)
     return usedirs_list, groups_list, band_list
+
+
+def make_combined_file(subdirs, subints):
+    """Given lists of directories and subints combine them,
+        and correct the resulting file's header.
+
+        Inputs:
+            subdirs: List of sub-band directories containing 
+                sub-ints to combine
+            subints: List of subint files to be combined.
+                (NOTE: These are the file name only (i.e. no path)
+                    Each file listed should appear in each of the
+                    subdirs.)
+        
+        Outputs:
+            outfn: The name of the combined, corrected file.
+    """
+    # Work in a temporary directory
+    tmpdir = tempfile.mkdtemp(suffix="_combine", \
+                                    dir=config.tmp_directory)
+    try:
+        # Prepare subints
+        preppeddirs = prepare_subints(subdirs, subints, \
+                            baseoutdir=os.path.join(tmpdir, 'data'))
+        # Combine the now-prepped subints
+        cmbfn = combine.combine_subints(preppeddirs, subints, outdir=tmpdir)
+        # Correct the header
+        correct_header(cmbfn)
+        # Rename the corrected file
+        raise NotImplementedError
+    except:
+        raise
+    finally:
+        warnings.warn("Not cleaning up temporary directory (%s)" % tmpdir)
+        #utils.print_info("Removing temporary directory (%s)" % tmpdir, 1)
+        #shutil.rmtree(tmpdir)
+
+        
+def prepare_subints(subdirs, subints, baseoutdir):
+    """Prepare subints by
+           - Moving them to the temporary working directory
+           - De-weighting 6.25% from each sub-band edge
+           - Converting archive format to PSRFITS
+
+        Inputs:
+            subdirs: List of sub-band directories containing 
+                sub-ints to combine
+            subints: List of subint files to be combined.
+                (NOTE: These are the file name only (i.e. no path)
+                    Each file listed should appear in each of the
+                    subdirs.)
+            baseoutdir: Directory containing the sub-directories
+                of preprared files.
+
+        Outputs:
+            prepsubdirs: The sub-directories containing prepared files.
+    """
+    tmpsubdirs = []
+    for subdir in subdirs:
+        freqdir = os.path.split(os.path.abspath(subdir))[-1]
+        freqdir = os.path.join(baseoutdir, freqdir)
+        os.makedirs(freqdir)
+        fns = [os.path.join(subdir, fn) for fn in subints]
+        utils.execute(['paz', '-j', 'convert psrfits', \
+                            '-E', '6.25', '-O', freqdir] + fns)
+        tmpsubdirs.append(freqdir)
+    utils.print_info("Prepared %d subint fragments in %d freq sub-dirs" % \
+                    (len(subints), len(subdirs)), 3)
+    return tmpsubdirs
+
+
+def correct_header(arfn):
+    """Correct header of asterix data in place.
+
+        Input:
+            arfn: The name of the input archive file.
+
+        Output:
+            corrstr: The parameter string of corrections used with psredit.
+    """
+    # Load archive
+    arf = utils.ArchiveFile(arfn)
+    if arf['rcvr'].upper() in RCVR_INFO:
+        rcvr = arf['rcvr']
+    elif arf['freq'] > 2000: 
+        # S-band
+        rcvr = 'S110-1'
+    else:
+        ar = arf.get_archive()
+        nchan = ar.get_nchan()
+        # Scrunch
+        ar.pscrunch()
+        ar.tscrunch()
+        # Get the relevant data
+        chnwts = clean_utils.get_chan_weights(ar).astype(bool)
+        stddevs = ar.get_data().squeeze().std(axis=1)
+        bot = stddevs[:nchan/8][chnwts[:nchan/8]].mean()
+        top = stddevs[nchan/8:][chnwts[nchan/8:]].mean()
+        if top/bot > 5:
+            # L-band receiver
+            rcvr = 'P200-3'
+        elif top/bot < 2:
+            # 7-beam receiver
+            rcvr = 'P217-3'
+        else:
+            raise utils.HeaderCorrectionError("Cannot determine receiver.")
+    corrstr = "%s,be:name=asterix" % RCVR_INFO[rcvr]
+    if arf['name'].endswith("_R"):
+        corrstr += ",type=PolnCal"
+    else:
+        corrstr += ",type=Pulsar"
+    utils.execute(['psredit', '-m', '-c', corrstr, arfn])
+    return corrstr
 
 
 def make_summary_plots(arf):
