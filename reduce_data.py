@@ -319,7 +319,7 @@ def correct_header(arfn):
         if decstr[0] not in ('-', '+'):
             decstr = "+" + decstr
         corrstr += ",coord=%s%s" % (rastr, decstr)
-    utils.execute(['psredit', '-m', '-c', corrstr, arfn])
+    utils.execute(['psredit', '-e', 'corr', '-c', corrstr, arfn])
     return corrstr
 
 
