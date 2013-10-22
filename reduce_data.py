@@ -19,8 +19,25 @@ import cleaners
 import combine
 import database
 import clean_utils
+import errors
+
+import pyriseset as rs
 
 SAVE_INTERMEDIATE = True
+
+EFF = rs.sites.load('effelsberg')
+
+# Observing log fields:
+#                  name   from-string converter
+OBSLOG_FIELDS = (('localdate', rs.utils.parse_datestr), \
+                 ('scannum', str), \
+                 ('utcstart', rs.utils.parse_timestr), \
+                 ('lststart', rs.utils.parse_timestr), \
+                 ('name', str), \
+                 ('az', float), \
+                 ('alt', float), \
+                 ('catalog_rastr', str), \
+                 ('datalog_decstr', str))
 
 
 RCVR_INFO = {'P217-3': 'rcvr:name=P217-3,rcvr:hand=-1,rcvr:basis=cir', \
@@ -292,8 +309,72 @@ def correct_header(arfn):
         corrstr += ",type=PolnCal"
     else:
         corrstr += ",type=Pulsar"
+    if arf['name'].endswith('_R') or arf['ra'].startswith('00:00:00'):
+        # Correct coordinates
+        obsinfo = get_obslog_entry(arf)
+        ra_deg, decl_deg = EFF.get_skyposn(obsinfo['alt'], obsinfo['az'], \
+                                            lst=obsinfo['lststart'])
+        rastr = rs.utils.deg_to_hmsstr(ra_deg, decpnts=3)[0]
+        decstr = rs.utils.deg_to_dmsstr(decl_deg, decpnts=2)[0]
+        if decstr[0] not in ('-', '+'):
+            decstr = "+" + decstr
+        corrstr += ",coord=%s%s" % (rastr, decstr)
     utils.execute(['psredit', '-m', '-c', corrstr, arfn])
     return corrstr
+
+
+def get_obslog_entry(arf):
+    """Given an archive file, find the entry in the observing log.
+
+        Input:
+            arf: ArchiveFile object.
+
+        Output:
+            obsinfo: A dictionary of observing information.
+    """
+    # Get date of observation
+    obsdate = rs.utils.mjd_to_datetime(arf['mjd'])
+    obsutc = obsdate.time()
+    obsutc_hours = obsutc.hour+(obsutc.minute+(obsutc.second)/60.0)/60.0
+
+    # Get log file
+    # NOTE: Date in file name is when the obslog was written out
+    obslogfns = glob.glob(os.path.join(config.obslog_dir, "*.prot"))
+    obslogfns.sort()
+    for currfn in obslogfns:
+        currdate = datetime.datetime.strptime(os.path.split(currfn)[-1], \
+                                            '%y%m%d.prot')
+        obslogfn = currfn
+        if currdate > obsdate:
+            break
+    if obslogfn is None:
+        raise errors.HeaderCorrectionError("Could not find a obslog file " \
+                                    "from before the obs date (%s)." % \
+                                    obsdate.strftime("%Y-%b-%d"))
+
+    with open(obslogfn, 'r') as obslog:
+        logentries = []
+        bestoffset = 1e10
+        for line in obslog:
+            valstrs = line.split()
+            if len(valstrs) < len(OBSLOG_FIELDS):
+                continue
+            currinfo = {}
+            for (key, caster), valstr in zip(OBSLOG_FIELDS, valstrs):
+                currinfo[key] = caster(valstr)
+            if utils.get_prefname(currinfo['name']) != arf['name']:
+                continue
+            utc_hours = currinfo['utcstart'][0]
+            offset = obsutc_hours - utc_hours
+            if offset*3600 < 120:
+                logentries.append(currinfo)
+        if len(logentries) != 1:
+            raise errors.HeaderCorrectionError("Bad number (%d) of entries " \
+                                "in obslog (%s) with correct source name " \
+                                "within 120 s of observation (%s) start " \
+                                "time (UTC: %s)" % \
+                                (len(logentries), obslogfn, arf.fn, obsutc))
+        return logentries[0]
 
 
 def make_summary_plots(arf):
