@@ -589,6 +589,8 @@ def get_prefname(name):
     """
     global prefname_cache
         
+    # Strip '_R' tail if present. It is added back on just before
+    # returning the preferred name
     if name.endswith("_R"):
         # Is a calibration observation
         tail = "_R"
@@ -599,7 +601,7 @@ def get_prefname(name):
         srcname = name
 
     if srcname in prefname_cache:
-        prefname = prefname_cache[srcname]+tail
+        prefname = prefname_cache[srcname]
     else:
         search = srcname
         if not srcname[0] in ('J', 'B') and len(srcname)==7:
@@ -628,7 +630,7 @@ def get_prefname(name):
             raise errors.BadPulsarNameError("Pulsar name '%s' has a bad number of " \
                                     "matches (%d) in psrcat" % (srcname, len(names)))
         prefname_cache[srcname] = prefname
-    return prefname
+    return prefname+tail
 
 
 def get_outfn(fmtstr, arf):
