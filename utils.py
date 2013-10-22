@@ -577,23 +577,32 @@ def get_files_from_glob(option, opt_str, value, parser):
     glob_file_list.extend(glob.glob(value))
 
 
-def get_prefname(psrname):
+def get_prefname(name):
     """Use 'psrcat' program to find the preferred name of the given pulsar.
         NOTE: B-names are preferred over J-names.
 
         Input:
-            psrname: Name of the pulsar.
+            name: Name of the pulsar.
 
         Output:
             prefname: Preferred name of the pulsar.
     """
     global prefname_cache
-
-    if psrname in prefname_cache:
-        prefname = prefname_cache[psrname]
+        
+    if name.endswith("_R"):
+        # Is a calibration observation
+        tail = "_R"
+        srcname = name[:-2]
     else:
-        search = psrname
-        if not psrname[0] in ('J', 'B') and len(psrname)==7:
+        # Is not a cal obs
+        tail = ""
+        srcname = name
+
+    if srcname in prefname_cache:
+        prefname = prefname_cache[srcname]+tail
+    else:
+        search = srcname
+        if not srcname[0] in ('J', 'B') and len(srcname)==7:
             # Could be B-name, or truncated J-name. Add wildcard at end just in case.
             search += '*'
         try:   
@@ -604,21 +613,21 @@ def get_prefname(psrname):
                             if line.strip() and not line.startswith("WARNING:")]
         except errors.SystemCallError:
             warnings.warn("Error occurred while trying to run 'psrcat' " \
-                            "to get prefname for '%s'" % psrname, \
+                            "to get prefname for '%s'" % srcname, \
                             errors.CoastGuardWarning)
             names = []
     
         if len(names) == 1:
             prefname = names[0][-1]
         elif len(names) == 0:
-            prefname = psrname
+            prefname = name
             warnings.warn("Pulsar name '%s' cannot be found in psrcat. " \
-                            "No preferred name available." % psrname, \
+                            "No preferred name available." % srcname, \
                             errors.CoastGuardWarning)
         else:
             raise errors.BadPulsarNameError("Pulsar name '%s' has a bad number of " \
-                                    "matches (%d) in psrcat" % (psrname, len(names)))
-        prefname_cache[psrname] = prefname
+                                    "matches (%d) in psrcat" % (srcname, len(names)))
+        prefname_cache[srcname] = prefname
     return prefname
 
 
@@ -750,22 +759,7 @@ class ArchiveFile(object):
                                             'rcvr', 'telescop', 'name', 
                                             'nchan', 'asite', 'period', 'dm',
                                             'nsub', 'nbin', 'npol'])
-        if self.hdr['name'].endswith("_R"):
-            # Is a calibration observation
-            tail = "_R"
-            srcname = self.hdr['name'][:-2]
-        else:
-            # Is not a cal obs
-            tail = ""
-            srcname = self.hdr['name']
-        try:
-            # Normalise names of cal and non-cal observations
-            prefname = get_prefname(srcname) # Use preferred name
-            self.hdr['name'] = prefname+tail # Re-append "_R" if appropriate
-        except errors.BadPulsarNameError:
-            warnings.warn("No preferred name found in 'psrcat'. " \
-                            "Will continue using '%s'" % self.hdr['name'], \
-                            errors.CoastGuardWarning)
+        self.hdr['name'] = get_prefname(self.hdr['name']) # Use preferred name
         self.hdr['secs'] = int(self.hdr['fracmjd']*24*3600+0.5) # Add 0.5 so we actually round
         self.datetime = mjd_to_datetime(self.hdr['mjd'])
         self.hdr['yyyymmdd'] = self.datetime.strftime("%Y%m%d")
