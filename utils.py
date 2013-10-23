@@ -319,7 +319,7 @@ def get_header_vals(fn, hdritems):
     if '=' in hdrstr:
         raise ValueError("'hdritems' passed to 'get_header_vals' " \
                          "should not perform and assignments!")
-    cmd = "vap -n -c '%s' %s" % (hdrstr, fn)
+    cmd = ["vap", "-n", "-c", hdrstr, fn]
     outstr, errstr = execute(cmd)
     outvals = outstr.split()[1:] # First value is filename (we don't need it)
     if errstr:
@@ -750,7 +750,7 @@ def mjd_to_datetime(mjd):
 
 class ArchiveFile(object):
     def __init__(self, fn):
-        self.fn = os.path.abspath(fn)
+        self.fn = str(os.path.abspath(fn)) # Cast to string in case fn is unicode
         self.ar = None
         if not os.path.isfile(self.fn):
             raise errors.BadFile("Archive file could not be found (%s)!" % \
