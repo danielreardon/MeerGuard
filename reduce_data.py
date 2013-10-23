@@ -145,7 +145,7 @@ def load_combined_file(db, grprow):
             grprow: A row from the groupings table.
 
         Outputs:
-            file_id: The ID of newly loaded combined file.
+            file_id: The ID of newly loaded 'combined' file.
     """
     group_id = grprow['group_id']
     if grprow['status'] != 'new':
@@ -200,6 +200,170 @@ def load_combined_file(db, grprow):
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
     return file_id
+
+
+def load_corrected_file(db, filerow):
+    """Given a row from the DB's files table referring to a
+        status='new', stage='combined' file, process the file
+        by correcting its header and load the new file into
+        the database.
+
+        Inputs:
+            db: Database object to use.
+            filerow: A row from the files table.
+
+        Ouputs:
+            file_id: The ID of the newly loaded 'corrected' file.
+    """
+    parent_file_id = filerow['file_id']
+    if (filerow['status'] != 'new') or (filerow['stage'] != 'combined'):
+        return errors.BadStatusError("Corrected files can only be " \
+                        "generated from 'file' entries with " \
+                        "status='new' and stage='combined'. " \
+                        "(For File ID %d: status='%s', stage='%s'.)" % \
+                        (parent_file_id, filerow['status'], filerow['stage']))
+    infn = os.path.join(filerow['filepath'], filerow['filename'])
+    try:
+        corrfn, corrstr = correct_header(infn)
+
+        arf = utils.ArchiveFile(corrfn)
+
+        # Move file to archive directory
+        archivedir = os.path.join(config.output_location, \
+                                config.output_layout) % arf
+        archivefn = (config.outfn_template+".corr") % arf
+        if not os.path.exists(archivedir):
+            os.makedirs(archivedir)
+        shutil.move(corrfn, os.path.join(archivedir, archivefn))
+        # Update 'corrfn' so it still refers to the file
+        corrfn = os.path.join(archivedir, archivefn)
+
+        # Pre-compute values to insert because some might be
+        # slow to generate
+        arf = utils.ArchiveFile(corrfn)
+        values = {'filepath': archivedir, \
+                  'filename': archivefn, \
+                  'sourcename': filerow['sourcename'], \
+                  'obstype': filerow['obstype'], \
+                  'stage': 'corrected', \
+                  'md5sum': utils.get_md5sum(corrfn), \
+                  'filesize': os.path.getsize(corrfn), \
+                  'parent_file_id': parent_file_id}
+    except:
+        with db.transaction() as conn:
+            update = db.files.update(). \
+                        where(db.files.c.file_id==parent_file_id).\
+                        values(status='failed', \
+                                last_modified=datetime.datetime.now())
+            conn.execute(update)
+        raise
+    else:
+        with db.transaction() as conn:
+            version_id = utils.get_version_id(db)
+            # Insert new entry
+            insert = db.files.insert().\
+                    values(version_id = version_id, \
+                            group_id = filerow['group_id'])
+            result = conn.execute(insert, values)
+            file_id = result.inserted_primary_key[0]
+            # Update parent file
+            update = db.files.update(). \
+                        where(db.files.c.file_id==parent_file_id).\
+                        values(status='processed', \
+                                last_modified=datetime.datetime.now())
+            conn.execute(update)
+        move_file(db, parent_file_id, archivedir, 
+                    (config.outfn_template+".cmb") % arf)
+        move_grouping(db, parent_file_id, archivedir, 
+                    (config.outfn_template+".list.txt") % arf)
+    return file_id
+
+
+def move_grouping(db, group_id, destdir, destfn=None):
+    """Given a group ID move the associated listing.
+
+        Inputs:
+            db: Database object to use.
+            group_id: The ID of a row in the groupings table.
+            destdir: The destination directory.
+            destfn: The destination file name.
+                (Default: Keep old file name).
+
+        Outputs:
+            None
+    """
+    with db.transaction() as conn:
+        select = db.select([db.groupings]).\
+                    where(db.groupings.c.group_id==group_id)
+        result = conn.execute(select)
+        rows = result.fetchall()
+        if len(rows) != 1:
+            raise errors.DatabaseError("Bad number of rows (%d) " \
+                                "with group_id=%d!" % \
+                                (len(rows), group_id))
+        grp = rows[0]
+        if destfn is None:
+            destfn = grp['listname']
+        # Copy file
+        src = os.path.join(grp['listpath'], grp['listname'])
+        dest = os.path.join(destdir, destfn)
+        if not os.path.exists(destdir):
+            os.makedirs(destdir)
+        shutil.copy(src, dest)
+        # Update database
+        update = db.groupings.update().\
+                    where(db.groupings.c.group_id==group_id).\
+                    values(listpath=destdir, \
+                            listname=destfn, \
+                            last_modified=datetime.datetime.now())
+        conn.execute(update)
+        # Remove original
+        os.remove(src)
+        utils.print_info("Moved group listing from %s to %s. The database " \
+                        "has been updated accordingly." % (src, dest))
+
+def move_file(db, file_id, destdir, destfn=None):
+    """Given a file ID move the associated archive.
+
+        Inputs:
+            db: Database object to use.
+            file_id: The ID of a row in the files table.
+            destdir: The destination directory.
+            destfn: The destination file name.
+                (Default: Keep old file name).
+
+        Outputs:
+            None
+    """
+    with db.transaction() as conn:
+        select = db.select([db.files]).\
+                    where(db.files.c.file_id==file_id)
+        result = conn.execute(select)
+        rows = result.fetchall()
+        if len(rows) != 1:
+            raise errors.DatabaseError("Bad number of rows (%d) " \
+                                "with file_id=%d!" % \
+                                (len(rows), file_id))
+        ff = rows[0]
+        if destfn is None:
+            destfn = ff['filename']
+        # Copy file
+        src = os.path.join(ff['filepath'], ff['filename'])
+        dest = os.path.join(destdir, destfn)
+        if not os.path.exists(destdir):
+            os.makedirs(destdir)
+        shutil.copy(src, dest)
+        # Update database
+        update = db.files.update().\
+                    where(db.files.c.file_id==file_id).\
+                    values(filepath=destdir, \
+                            filename=destfn, \
+                            last_modified=datetime.datetime.now())
+        conn.execute(update)
+        # Remove original
+        os.remove(src)
+        utils.print_info("Moved archive file from %s to %s. The database " \
+                        "has been updated accordingly." % (src, dest))
 
 
 def get_rawdata_dirs(basedir=None):
@@ -327,7 +491,8 @@ def prepare_subints(subdirs, subints, baseoutdir):
     for subdir in utils.show_progress(subdirs, width=50):
         freqdir = os.path.split(os.path.abspath(subdir))[-1]
         freqdir = os.path.join(baseoutdir, freqdir)
-        os.makedirs(freqdir)
+        if not os.path.exists(freqdir):
+            os.makedirs(freqdir)
         fns = [os.path.join(subdir, fn) for fn in subints]
         utils.execute(['paz', '-j', 'convert psrfits', \
                             '-E', '6.25', '-O', freqdir] + fns, \
@@ -345,6 +510,7 @@ def correct_header(arfn):
             arfn: The name of the input archive file.
 
         Output:
+            corrfn: The name of the corrected file.
             corrstr: The parameter string of corrections used with psredit.
     """
     # Load archive
@@ -388,8 +554,15 @@ def correct_header(arfn):
         if decstr[0] not in ('-', '+'):
             decstr = "+" + decstr
         corrstr += ",coord=%s%s" % (rastr, decstr)
+    # Correct the file using 'psredit'
     utils.execute(['psredit', '-e', 'corr', '-c', corrstr, arfn])
-    return corrstr
+    # Assume the name of the corrected file
+    corrfn = os.path.splitext(arfn)[0]+".corr"
+    # Confirm that our assumed file name is accurate
+    if not os.path.isfile(corrfn):
+        raise errors.HeaderCorrectionError("The corrected file (%s) does not " \
+                                "exist!" % corrfn)
+    return corrfn, corrstr
 
 
 def get_obslog_entry(arf):
