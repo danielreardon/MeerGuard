@@ -94,30 +94,25 @@ def load_groups(db, dirrow):
     """
     path = dirrow['path']
     dir_id = dirrow['dir_id']
-
-    ninserts = 0
-    values = []
-    for dirs, fns, band in zip(*make_groups(path)):
-        fns.sort()
-        listfn = os.path.join(config.output_location, 'groups', \
-                                "%s_%s_%dsubints.txt" % \
-                                (fns[0], band, len(fns)))
-        combine.write_listing(dirs, fns, listfn)
-        listpath, listname = os.path.split(listfn)
-        values.append({'listpath': listpath, \
-                       'listname': listname, \
-                       'md5sum': utils.get_md5sum(listfn)})
+    if dirrow['status'] != 'new':
+        return errors.BadStatusError("Groupings can only be " \
+                                "generated for 'directory' entries " \
+                                "with status 'new'. (The status of " \
+                                "Dir ID %d is '%s'.)" % \
+                                (dir_id, dirrow['status']))
     try:
-        with db.transaction() as conn:
-            version_id = utils.get_version_id(db) 
-            insert = db.groupings.insert().\
-                        values(version_id = version_id, \
-                               dir_id = dir_id)
-            conn.execute(insert, values)
-            update = db.directories.update().\
-                        where(db.directories.c.dir_id==dir_id).\
-                        values(status='grouped')
-            conn.execute(update)
+        ninserts = 0
+        values = []
+        for dirs, fns, band in zip(*make_groups(path)):
+            fns.sort()
+            listfn = os.path.join(config.output_location, 'groups', \
+                                    "%s_%s_%dsubints.txt" % \
+                                    (fns[0], band, len(fns)))
+            combine.write_listing(dirs, fns, listfn)
+            listpath, listname = os.path.split(listfn)
+            values.append({'listpath': listpath, \
+                           'listname': listname, \
+                           'md5sum': utils.get_md5sum(listfn)})
     except:
         with db.transaction() as conn:
             update = db.directories.update().\
@@ -126,10 +121,85 @@ def load_groups(db, dirrow):
             conn.execute(update)
         raise
     else:
-        # The following line is only reached if the execution
-        # above doesn't raise an exception
+        with db.transaction() as conn:
+            version_id = utils.get_version_id(db) 
+            insert = db.groupings.insert().\
+                        values(version_id = version_id, \
+                               dir_id = dir_id)
+            conn.execute(insert, values)
+            update = db.directories.update().\
+                        where(db.directories.c.dir_id==dir_id).\
+                        values(status='grouped', \
+                                last_modified=datetime.datetime.now())
+            conn.execute(update)
         ninserts += len(values)
     return ninserts
+
+
+def load_combined_file(db, grprow):
+    """Given a row from the DB's groups table create a combined
+        archive and load it into the database.
+
+        Input:
+            db: Database object to use.
+            grprow: A row from the groupings table.
+
+        Outputs:
+            file_id: The ID of newly loaded combined file.
+    """
+    group_id = grprow['group_id']
+    if grprow['status'] != 'new':
+        return errors.BadStatusError("Combined files can only be " \
+                                "generated from 'grouping' entries " \
+                                "with status 'new'. (The status of " \
+                                "Group ID %d is '%s'.)" % \
+                                (group_id, grprow['status']))
+    listfn = os.path.join(grprow['listpath'], grprow['listname'])
+    try:
+        subdirs, subints = combine.read_listing(listfn)
+        # Combine the now-prepped subints
+        cmbdir = os.path.join(config.output_location, 'combined')
+        cmbfn = make_combined_file(subdirs, subints, outdir=cmbdir)
+ 
+        # Pre-compute values to insert because some might be
+        # slow to generate
+        arf = utils.ArchiveFile(cmbfn)
+        if arf['name'].endswith("_R"):
+            obstype = 'cal'
+        else:
+            obstype = 'pulsar'
+ 
+        values = {'filepath': cmbdir, \
+                  'filename': os.path.basename(cmbfn), \
+                  'sourcename': arf['name'], \
+                  'obstype': obstype, \
+                  'stage': 'combined', \
+                  'md5sum': utils.get_md5sum(cmbfn), \
+                  'filesize': os.path.getsize(cmbfn)}
+    except:
+        with db.transaction() as conn:
+            update = db.groupings.update(). \
+                        where(db.groupings.c.group_id==group_id).\
+                        values(status='failed', \
+                                last_modified=datetime.datetime.now())
+            conn.execute(update)
+        raise
+    else:
+        with db.transaction() as conn:
+            version_id = utils.get_version_id(db)
+            # Insert new entry
+            insert = db.files.insert().\
+                    values(version_id = version_id, \
+                            group_id = group_id)
+            result = conn.execute(insert, values)
+            file_id = result.inserted_primary_key[0]
+            # Update status of groupings
+            update = db.groupings.update(). \
+                        where(db.groupings.c.group_id==group_id).\
+                        values(status='combined', \
+                                last_modified=datetime.datetime.now())
+            conn.execute(update)
+    return file_id
 
 
 def get_rawdata_dirs(basedir=None):
@@ -200,9 +270,8 @@ def make_groups(path):
     return usedirs_list, groups_list, band_list
 
 
-def make_combined_file(subdirs, subints):
-    """Given lists of directories and subints combine them,
-        and correct the resulting file's header.
+def make_combined_file(subdirs, subints, outdir):
+    """Given lists of directories and subints combine them.
 
         Inputs:
             subdirs: List of sub-band directories containing 
@@ -211,9 +280,10 @@ def make_combined_file(subdirs, subints):
                 (NOTE: These are the file name only (i.e. no path)
                     Each file listed should appear in each of the
                     subdirs.)
-        
+            outdir: Directory to copy combined file to.
+
         Outputs:
-            outfn: The name of the combined, corrected file.
+            outfn: The name of the combined archive.
     """
     # Work in a temporary directory
     tmpdir = tempfile.mkdtemp(suffix="_combine", \
@@ -222,20 +292,16 @@ def make_combined_file(subdirs, subints):
         # Prepare subints
         preppeddirs = prepare_subints(subdirs, subints, \
                             baseoutdir=os.path.join(tmpdir, 'data'))
-        # Combine the now-prepped subints
-        cmbfn = combine.combine_subints(preppeddirs, subints, outdir=tmpdir)
-        # Correct the header
-        correct_header(cmbfn)
-        # Rename the corrected file
-        raise NotImplementedError
+        cmbfn = combine.combine_subints(preppeddirs, subints, outdir=outdir)
     except:
-        raise
+        raise # Re-raise the exception
     finally:
-        warnings.warn("Not cleaning up temporary directory (%s)" % tmpdir)
-        #utils.print_info("Removing temporary directory (%s)" % tmpdir, 1)
-        #shutil.rmtree(tmpdir)
+        #warnings.warn("Not cleaning up temporary directory (%s)" % tmpdir)
+        utils.print_info("Removing temporary directory (%s)" % tmpdir, 2)
+        shutil.rmtree(tmpdir)
+    return cmbfn
 
-        
+
 def prepare_subints(subdirs, subints, baseoutdir):
     """Prepare subints by
            - Moving them to the temporary working directory
@@ -255,14 +321,17 @@ def prepare_subints(subdirs, subints, baseoutdir):
         Outputs:
             prepsubdirs: The sub-directories containing prepared files.
     """
+    devnull = open(os.devnull)
     tmpsubdirs = []
-    for subdir in subdirs:
+    print "Preparing subints..."
+    for subdir in utils.show_progress(subdirs, width=50):
         freqdir = os.path.split(os.path.abspath(subdir))[-1]
         freqdir = os.path.join(baseoutdir, freqdir)
         os.makedirs(freqdir)
         fns = [os.path.join(subdir, fn) for fn in subints]
         utils.execute(['paz', '-j', 'convert psrfits', \
-                            '-E', '6.25', '-O', freqdir] + fns)
+                            '-E', '6.25', '-O', freqdir] + fns, \
+                        stderr=devnull)
         tmpsubdirs.append(freqdir)
     utils.print_info("Prepared %d subint fragments in %d freq sub-dirs" % \
                     (len(subints), len(subdirs)), 3)
