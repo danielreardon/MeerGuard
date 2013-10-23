@@ -70,10 +70,11 @@ sa.Table('files', metadata, \
                     sa.ForeignKey("versions.version_id", name="fk_files_ver")), \
         sa.Column('filepath', sa.String(512), nullable=False), \
         sa.Column('filename', sa.String(512), nullable=False), \
+        sa.Column('sourcename', sa.String(32), nullable=False), \
         sa.Column('status', sa.Enum(*FILE_STATUSES), nullable=False, \
                     default='new'), \
         sa.Column('obstype', sa.Enum(*FILE_OBSTYPES), nullable=False), \
-        sa.Column('stages', sa.Enum(*FILE_STAGES), nullable=False), \
+        sa.Column('stage', sa.Enum(*FILE_STAGES), nullable=False), \
         sa.Column('md5sum', sa.String(64), nullable=False, \
                     unique=True), \
         sa.Column('filesize', sa.Integer, nullable=False), \
