@@ -217,10 +217,12 @@ def combine_subints(subdirs, subints, outdir=None):
     if outdir is None:
         outdir = os.getcwd()
     subints = sorted(subints)
-    tmpdir = tempfile.mkdtemp()
+    tmpdir = tempfile.mkdtemp(suffix="_combine", \
+                                    dir=config.tmp_directory)
     devnull = open(os.devnull)
     try:
         cmbsubints = []
+        utils.print_info("Adding freq sub-bands for each sub-int...", 2)
         for ii, subint in enumerate(utils.show_progress(subints, width=50)):
             to_combine = [os.path.join(path, subint) for path in subdirs]
             outfn = os.path.join(tmpdir, "combined_%s" % subint)
@@ -229,13 +231,15 @@ def combine_subints(subdirs, subints, outdir=None):
                         stderr=devnull)
         outfn = os.path.join(outdir, "combined_%dsubints_%s" % \
                         (len(subints), subints[0]))
-        utils.execute(['psradd', '-q', '-o', outfn] + cmbsubints)
+        utils.print_info("Combining %d sub-ints..." % len(cmbsubints), 1)
+        utils.execute(['psradd', '-q', '-o', outfn] + cmbsubints, \
+                     stderr=devnull)
     except:
         raise # Re-raise the exception
-    else:
-        return outfn
     finally:
+        utils.print_info("Removing temporary directory (%s)" % tmpdir, 2)
         shutil.rmtree(tmpdir)
+    return outfn
 
 
 def combine_all(infns, outfn, expected_nsubbands=None):
