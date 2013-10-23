@@ -74,7 +74,7 @@ class FatalCoastGuardError(Exception):
         return colour.cstring(super(FatalCoastGuardError, self).__str__(), 'error')
 
 
-class BadColumnError(FatalCoastGuardError):
+class BadColumnNameError(FatalCoastGuardError):
     pass
 
 # Custom Warnings
