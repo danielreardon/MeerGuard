@@ -8,6 +8,7 @@ import datetime
 import fnmatch
 import os.path
 import shutil
+import time
 import glob
 import sys
 import os
@@ -20,6 +21,7 @@ import combine
 import database
 import clean_utils
 import errors
+import debug
 
 import pyriseset as rs
 
@@ -43,7 +45,6 @@ OBSLOG_FIELDS = (('localdate', rs.utils.parse_datestr), \
 RCVR_INFO = {'P217-3': 'rcvr:name=P217-3,rcvr:hand=-1,rcvr:basis=cir', \
              'S110-1': 'rcvr:name=S110-1,rcvr:hand=-1,rcvr:basis=cir', \
              'P200-3': 'rcvr:name=P200-3,rcvr:hand=-1,rcvr:basis=cir'}
-
 
 def load_directories(db, *args, **kwargs):
     """Search for directories containing asterix data.
@@ -80,18 +81,18 @@ def load_directories(db, *args, **kwargs):
     return ninserts
 
 
-def load_groups(db, dirrow):
+def load_groups(dirrow):
     """Given a row from the DB's directories table create a group 
         listing from the asterix data stored in the directories 
         and load it into the database.
 
         Inputs:
-            db: Database object to use.
             dirrow: A row from the directories table.
 
         Outputs:
             ninserts: The number of group rows inserted.
     """
+    db = database.Database() 
     path = dirrow['path']
     dir_id = dirrow['dir_id']
     if dirrow['status'] != 'new':
@@ -136,17 +137,17 @@ def load_groups(db, dirrow):
     return ninserts
 
 
-def load_combined_file(db, grprow):
+def load_combined_file(grprow):
     """Given a row from the DB's groups table create a combined
         archive and load it into the database.
 
         Input:
-            db: Database object to use.
             grprow: A row from the groupings table.
 
         Outputs:
             file_id: The ID of newly loaded 'combined' file.
     """
+    db = database.Database() 
     group_id = grprow['group_id']
     if grprow['status'] != 'new':
         return errors.BadStatusError("Combined files can only be " \
@@ -202,19 +203,19 @@ def load_combined_file(db, grprow):
     return file_id
 
 
-def load_corrected_file(db, filerow):
+def load_corrected_file(filerow):
     """Given a row from the DB's files table referring to a
         status='new', stage='combined' file, process the file
         by correcting its header and load the new file into
         the database.
 
         Inputs:
-            db: Database object to use.
             filerow: A row from the files table.
 
         Output:
             file_id: The ID of the newly loaded 'corrected' file.
     """
+    db = database.Database() 
     parent_file_id = filerow['file_id']
     if (filerow['status'] != 'new') or (filerow['stage'] != 'combined'):
         return errors.BadStatusError("Corrected files can only be " \
@@ -279,18 +280,18 @@ def load_corrected_file(db, filerow):
     return file_id
 
 
-def load_cleaned_file(db, filerow):
+def load_cleaned_file(filerow):
     """Given a row from the DB's files table referring to a
         status='new', stage='combined' file, process the file
         by cleaning it and load the new file into the database.
 
         Inputs:
-            db: Database object to use.
             filerow: A row from the files table.
 
         Ouput:
             file_id: The ID of the newly loaded 'cleaned' file.
     """
+    db = database.Database()
     parent_file_id = filerow['file_id']
     if (filerow['status'] != 'new') or (filerow['stage'] != 'corrected'):
         return errors.BadStatusError("Cleaned files can only be " \
@@ -537,9 +538,11 @@ def make_combined_file(subdirs, subints, outdir):
     except:
         raise # Re-raise the exception
     finally:
-        #warnings.warn("Not cleaning up temporary directory (%s)" % tmpdir)
-        utils.print_info("Removing temporary directory (%s)" % tmpdir, 2)
-        shutil.rmtree(tmpdir)
+        if debug.is_on('reduce'):
+            warnings.warn("Not cleaning up temporary directory (%s)" % tmpdir)
+        else:
+            utils.print_info("Removing temporary directory (%s)" % tmpdir, 2)
+            shutil.rmtree(tmpdir)
     return cmbfn
 
 
@@ -845,41 +848,131 @@ def reduce_directory(path):
                 for fn in to_save:
                     shutil.copy(fn, os.path.join(outdir, os.path.split(fn)[-1]))
     finally:
-        #warnings.warn("Not cleaning up temporary directory (%s)" % tmpdir)
-        #utils.print_info("Removing temporary directory (%s)" % tmpdir, 1)
-        shutil.rmtree(tmpdir)
+        if debug.is_on('reduce'):
+            warnings.warn("Not cleaning up temporary directory (%s)" % tmpdir)
+        else:
+            utils.print_info("Removing temporary directory (%s)" % tmpdir, 2)
+            shutil.rmtree(tmpdir)
 
+
+def launch_tasks(pool, db, action):
+    """Launch tasks acting on the relevant files.
+
+        Inputs:
+            pool: A multiprocessing.Pool object to add tasks to.
+            db: A Database object to use.
+            action: The action to perform.
+
+        Outputs:
+            results: A list of multiprocessing.pool.AsyncResult objects 
+                for the tasks submitted to 'pool'.
+    """
+    if action not in ACTIONS:
+        raise errors.UnrecognizedValueError("The file action '%s' is not " \
+                    "recognized. Valid file actions are '%s'." % \
+                    "', '".join(ACTIONS.keys()))
+
+    tablename, idcolumn, target_stage, actfunc = ACTIONS[action]
+    dbtable = db[tablename]
+    whereclause = dbtable.c.status=='new'
+    if target_stage is not None:
+        whereclause &= dbtable.c.stage==target_stage
+    with db.transaction() as conn:
+        select = db.select([dbtable]).where(whereclause)
+        results = conn.execute(select)
+        rows = results.fetchall()
+        results.close()
+    results = []
+    for row in rows:
+        with db.transaction() as conn:
+            update = dbtable.update().\
+                        where(dbtable.c[idcolumn]==row[idcolumn]).\
+                        values(status='running', \
+                                last_modified=datetime.datetime.now())
+            conn.execute(update)
+        results.append(pool.apply_async(actfunc, args=(row,)))
+    return results
+
+
+# Actions are defined by a 4-tuple: (table name, ID column name, target stage, function)
+ACTIONS = {'group': ('directories', 'dir_id', None, load_groups), \
+           'combine': ('groupings', 'group_id', None, load_combined_file), \
+           'correct': ('files', 'file_id', 'combined', load_corrected_file), \
+           'clean': ('files', 'file_id', 'corrected', load_cleaned_file)}
+
+
+class DummyResult(object):
+    def ready(self):
+        warnings.warn("This is a dummy version of " \
+                    "multiprocessing.Pool.AsyncResult.ready()!", \
+        return True
+
+    def get(self):
+        warnings.warn("This is a dummy version of " \
+                    "multiprocessing.Pool.AsyncResult.get()!", \
+        return None
+
+
+class DummyPool(object):
+    def apply_async(self, func, args=[], kwds={}, callback=None):
+        warnings.warn("This is a dummy version of " \
+                    "multiprocessing.Pool.apply_async()!", \
+                    errors.CoastGuardWarning)
+        func(*args, **kwds)
+
+    def join(self):
+        warnings.warn("This is a dummy version of " \
+                    "multiprocessing.Pool.join()!", \
+                    errors.CoastGuardWarning)
+
+    def close(self):
+        warnings.warn("This is a dummy version of " \
+                    "multiprocessing.Pool.close()!", \
+                    errors.CoastGuardWarning)
 
 def main():
-    if args.numproc > 1:
-        pool = multiprocessing.Pool(processes=args.numproc)
-        results = []
-        paths = []
-        for path in args.path:
-            paths.append(path)
-            results.append(pool.apply_async(reduce_directory, args=(path,)))
-        pool.close()
-        pool.join()
- 
-        # Check results
-        for path, result in zip(paths, results):
-            result.get()
+    if debug.is_on('reduce'):
+        warnings.warn("Using a dummy version of multiprocessing.Pool()!", \
+                    errors.CoastGuardWarning)
+        pool = DummyPool()
     else:
-        for path in args.path:
-            reduce_directory(path)
-
+        pool = multiprocessing.Pool(processes=args.numproc)
+    try:
+        db = database.Database()
+        inprogress = []
+        while True:
+            load_directories(db)
+            for action in ('group', 'combine', 'correct', 'clean'):
+                tasks = launch_tasks(pool, db, action)
+                inprogress.extend(tasks)
+                if tasks:
+                    utils.print_info("Launched %d '%s' tasks" % (len(tasks), action), 0)
+            # Sleep for 5 minutes
+            time.sleep(args.sleep_time)
+            # Check for completed tasks
+            for ii in xrange(len(inprogress)-1, -1, -1):
+                result = inprogress[ii]
+                if result.ready():
+                    result.get()
+                    # No exception was raised
+                    inprogress.pop(ii)
+    except:
+        # Close the pool
+        pool.close()
+        # Wait for worker processes to finish
+        pool.join()
+        # Re-raise the error
+        raise
 
 if __name__ == '__main__':
     parser = utils.DefaultArguments(description="Automated reduction " \
                                     "of Asterix data.")
-    parser.add_argument("path", nargs='+', type=str,
-                        help="Directories containing Asterix data " \
-                            "to reduce. Each directory listed is " \
-                            "assumed to contain one subdirectory " \
-                            "for each frequency sub-band. Each " \
-                            "directory listed is reduced independently.")
     parser.add_argument("-P", "--num-procs", dest='numproc', type=int, \
                         default=1, \
                         help="Number of processes to run simultaneously.")
+    parser.add_argument("-t", "--sleep-time", dest='sleep_time', type=int, \
+                        default=300, \
+                        help="Number of seconds to sleep between iterations " \
+                            "of the main loop.")
     args = parser.parse_args()
     main()
