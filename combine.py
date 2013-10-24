@@ -22,6 +22,7 @@ import utils
 import clean
 import config
 import errors
+import debug
 
 
 SUBINT_GLOB = '[0-9]'*4+'-'+'[0-9]'*2+'-'+'[0-9]'*2+'-' + \
@@ -237,8 +238,12 @@ def combine_subints(subdirs, subints, outdir=None):
     except:
         raise # Re-raise the exception
     finally:
-        utils.print_info("Removing temporary directory (%s)" % tmpdir, 2)
-        shutil.rmtree(tmpdir)
+        if debug.is_on('reduce'):
+            warnings.warn("Not cleaning up temporary directory (%s)" % tmpdir, \
+                        errors.CoastGuardWarning)
+        else:
+            utils.print_info("Removing temporary directory (%s)" % tmpdir, 2)
+            shutil.rmtree(tmpdir)
     return outfn
 
 
