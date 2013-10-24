@@ -37,7 +37,7 @@ OBSLOG_FIELDS = (('localdate', rs.utils.parse_datestr), \
                  ('az', float), \
                  ('alt', float), \
                  ('catalog_rastr', str), \
-                 ('datalog_decstr', str))
+                 ('catalog_decstr', str))
 
 
 RCVR_INFO = {'P217-3': 'rcvr:name=P217-3,rcvr:hand=-1,rcvr:basis=cir', \
