@@ -102,13 +102,8 @@ def on_sqlite_connect(dbapi_conn, conn_rec):
     cursor.close()
 
 
-# Cache of database engines
-__engines = {}
-
 def get_engine(url=None):
     """Given a DB URL string return the corresponding DB engine.
-        Create the Engine object if necessary. If the engine 
-        already exists return it rather than creating a new one.
 
         Input:
             url: A DB URL string.
@@ -116,10 +111,8 @@ def get_engine(url=None):
         Output:
             engine: The corresponding DB engine.
     """
-    global __engines
     if url is None:
         url = config.dburl
-    if url not in __engines:
         # Create the database engine
         engine = sa.create_engine(url)
         if engine.name == 'sqlite':
@@ -130,8 +123,7 @@ def get_engine(url=None):
             sa.event.listen(engine, "commit", on_commit)
             sa.event.listen(engine, "rollback", on_rollback)
             sa.event.listen(engine, "begin", on_begin)
-        __engines[url] = engine
-    return __engines[url]
+    return engine
 
 
 class Database(object):
