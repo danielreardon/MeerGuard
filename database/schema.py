@@ -1,7 +1,7 @@
 import sqlalchemy as sa
 
-DIRECTORY_STATUSES = ['new', 'failed', 'grouped', 'archived']
-GROUPING_STATUSES = ['new', 'failed', 'combined', 'running']
+DIRECTORY_STATUSES = ['new', 'failed', 'running', 'grouped', 'archived']
+GROUPING_STATUSES = ['new', 'failed', 'running', 'combined']
 FILE_STATUSES = ['new', 'failed', 'running', 'processed', 'done', 'diagnosed']
 FILE_OBSTYPES = ['pulsar', 'cal']
 FILE_STAGES = ['combined', 'corrected', 'cleaned', 'calibrated']
