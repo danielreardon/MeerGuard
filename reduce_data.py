@@ -212,7 +212,7 @@ def load_corrected_file(db, filerow):
             db: Database object to use.
             filerow: A row from the files table.
 
-        Ouputs:
+        Output:
             file_id: The ID of the newly loaded 'corrected' file.
     """
     parent_file_id = filerow['file_id']
@@ -276,6 +276,83 @@ def load_corrected_file(db, filerow):
                     (config.outfn_template+".cmb") % arf)
         move_grouping(db, parent_file_id, archivedir, 
                     (config.outfn_template+".list.txt") % arf)
+    return file_id
+
+
+def load_cleaned_file(db, filerow):
+    """Given a row from the DB's files table referring to a
+        status='new', stage='combined' file, process the file
+        by cleaning it and load the new file into the database.
+
+        Inputs:
+            db: Database object to use.
+            filerow: A row from the files table.
+
+        Ouput:
+            file_id: The ID of the newly loaded 'cleaned' file.
+    """
+    parent_file_id = filerow['file_id']
+    if (filerow['status'] != 'new') or (filerow['stage'] != 'corrected'):
+        return errors.BadStatusError("Cleaned files can only be " \
+                        "generated from 'file' entries with " \
+                        "status='new' and stage='corrected'. " \
+                        "(For File ID %d: status='%s', stage='%s'.)" % \
+                        (parent_file_id, filerow['status'], filerow['stage']))
+    infn = os.path.join(filerow['filepath'], filerow['filename'])
+    try:
+        arf = utils.ArchiveFile(infn)
+        # Clean the data file
+        config.cfg.load_configs_for_archive(arf)
+        cleaner_queue = [cleaners.load_cleaner('rcvrstd'), \
+                         cleaners.load_cleaner('surgical')]
+        for cleaner in cleaner_queue:
+            cleaner.run(arf.get_archive())
+
+        # Write out the cleaned data file
+        archivedir = os.path.join(config.output_location, \
+                                config.output_layout) % arf
+        archivefn = (config.outfn_template+".clean") % arf
+        cleanfn = os.path.join(archivedir, archivefn)
+
+        # Make sure output directory exists
+        if not os.path.exists(archivedir):
+            os.makedirs(archivedir)
+
+        arf.get_archive().unload(cleanfn)
+       
+        # Pre-compute values to insert because some might be
+        # slow to generate
+        values = {'filepath': archivedir, \
+                  'filename': archivefn, \
+                  'sourcename': filerow['sourcename'], \
+                  'obstype': filerow['obstype'], \
+                  'stage': 'cleaned', \
+                  'md5sum': utils.get_md5sum(cleanfn), \
+                  'filesize': os.path.getsize(cleanfn), \
+                  'parent_file_id': parent_file_id}
+    except:
+        with db.transaction() as conn:
+            update = db.files.update(). \
+                        where(db.files.c.file_id==parent_file_id).\
+                        values(status='failed', \
+                                last_modified=datetime.datetime.now())
+            conn.execute(update)
+        raise
+    else:
+        with db.transaction() as conn:
+            version_id = utils.get_version_id(db)
+            # Insert new entry
+            insert = db.files.insert().\
+                    values(version_id = version_id, \
+                            group_id = filerow['group_id'])
+            result = conn.execute(insert, values)
+            file_id = result.inserted_primary_key[0]
+            # Update parent file
+            update = db.files.update(). \
+                        where(db.files.c.file_id==parent_file_id).\
+                        values(status='processed', \
+                                last_modified=datetime.datetime.now())
+            conn.execute(update)
     return file_id
 
 
