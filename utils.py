@@ -71,7 +71,8 @@ site_to_telescope = {'i': 'WSRT',
 
 # A cache for pulsar preferred names
 prefname_cache = {}
-
+# A cache for version IDs
+versionid_cache = {}
 
 def show_progress(iterator, width=0, tot=None):
     """Wrap an iterator so that a progress counter is printed
@@ -208,34 +209,51 @@ def get_version_id(db):
     else:
         warnings.warn("PSRCHIVE directory (%s) is not a git repository! " \
                         "Falling back to 'psrchive --version' for version " \
-                        "information." % config.psrchive_dir, \
-                        errors.ToasterWarning)
+                        "information." % config.psrchive_repo, \
+                        errors.CoastGuardWarning)
         cmd = ["psrchive", "--version"]
         stdout, stderr = execute(cmd)
         psrchive_githash = stdout.strip()
-    
-    with db.transaction() as conn:
-        # Check to see if this combination of versions is in the database
-        select = db.select([db.versions.c.version_id]).\
-                    where((db.versions.c.cg_githash==coastguard_githash) & \
-                          (db.versions.c.psrchive_githash==psrchive_githash))
-        result = conn.execute(select)
-        rows = result.fetchall()
-        result.close()
-        if len(rows) > 1:
-            raise errors.DatabaseError("There are too many (%d) matching " \
-                                        "version IDs" % len(rows))
-        elif len(rows) == 1:
-            version_id = rows[0].version_id
-        else:
-            # Insert the current versions
-            ins = db.versions.insert().\
-                        values(cg_githash=coastguard_githash, \
-                                psrchive_githash=psrchive_githash)
-            result = conn.execute(ins)
-            # Get the newly add version ID
-            version_id = result.inserted_primary_key[0]
-            result.close()
+  
+    if (coastguard_githash, psrchive_githash) in versionid_cache:
+        version_id = versionid_cache[(coastguard_githash, psrchive_githash)]
+    else:
+        import sqlalchemy as sa
+        try:
+            # Take a 'shoot-first-ask-questions-later' approach.
+            # Try to insert a new version entry into the database
+            # if the combination of Coast Guard githas and PSRCHIVE
+            # githash already exist the UNIQUE constraint won't be 
+            # satisfied and a sa.exc.IntegrityError will be thrown
+            # catch it and select the appropriate version_id from
+            # the database
+            with db.transaction() as conn:
+                # Insert the current versions
+                ins = db.versions.insert().\
+                            values(cg_githash=coastguard_githash, \
+                                    psrchive_githash=psrchive_githash)
+                result = conn.execute(ins)
+                # Get the newly add version ID
+                version_id = result.inserted_primary_key[0]
+                result.close()
+        except sa.exc.IntegrityError:
+            with db.transaction() as conn:
+                # Get the version_id from the DB
+                select = db.select([db.versions.c.version_id]).\
+                            where((db.versions.c.cg_githash==coastguard_githash) & \
+                                  (db.versions.c.psrchive_githash==psrchive_githash))
+                result = conn.execute(select)
+                rows = result.fetchall()
+                result.close()
+            if len(rows) == 1:
+                version_id = rows[0].version_id
+            else:
+                raise errors.DatabaseError("Bad number of rows (%d) in versions " \
+                                "table with CoastGuard githash='%s' and " \
+                                "PSRCHIVE githash='%s'!" % \
+                                (len(rows), coastguard_githash, psrchive_githash))
+        # Add version ID to cache
+        versionid_cache[(coastguard_githash, psrchive_githash)] = version_id
     return version_id
 
 
