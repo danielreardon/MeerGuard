@@ -384,7 +384,6 @@ def remove_profile(data, nsubs, nchans, template, nthreads=None):
     if nthreads is None:
         nthreads = config.cfg.nthreads
     if nthreads == 1:
-        print "Single threaded..."
         for isub, ichan in np.ndindex(nsubs, nchans):
             data[isub, ichan] = remove_profile1d(data[isub, ichan], \
                                             isub, ichan, template)[1]
@@ -424,7 +423,6 @@ def remove_profile_inplace(ar, template, nthreads=1):
     if nthreads is None:
         nthreads = config.cfg.nthreads
     if nthreads == 1:
-        print "Single threaded (inplace)..."
         for isub, ichan in np.ndindex(ar.get_nsubint(), ar.get_nchan()):
             amps = remove_profile1d(data[isub, ichan], isub, ichan, template)[1]
             prof = ar.get_Profile(isub, 0, ichan)
