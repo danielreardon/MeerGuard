@@ -937,6 +937,8 @@ class DefaultArguments(argparse.ArgumentParser):
             self.add_standard_group()
             self.add_debug_group()
         args = argparse.ArgumentParser.parse_args(self, *args, **kwargs)
+        if not self._subparsers:
+            set_warning_mode(args.warnmode)
         return args
 
     def add_file_selection_group(self):
@@ -994,6 +996,15 @@ class DefaultArguments(argparse.ArgumentParser):
                           help="Toggle excessive verbosity. " \
                                 "(Default: excessive verbosity is %s)" % \
                                 ((config.excessive_verbosity and "on") or "off"))
+        group.add_argument('-W', '--warning-mode', dest='warnmode', type=str, \
+                            help="Set a filter that applies to all warnings. " \
+                                "The behaviour of the filter is determined " \
+                                "by the action provided. 'error' turns " \
+                                "warnings into errors, 'ignore' causes " \
+                                "warnings to be not printed. 'always' " \
+                                "ensures all warnings are printed. " \
+                                "(Default: print the first occurence of " \
+                                "each warning.)")
         self.added_std_group = True
 
     def add_debug_group(self):
