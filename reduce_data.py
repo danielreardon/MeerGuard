@@ -659,7 +659,8 @@ def correct_header(arfn):
             decstr = "+" + decstr
         corrstr += ",coord=%s%s" % (rastr, decstr)
     # Correct the file using 'psredit'
-    utils.execute(['psredit', '-e', 'corr', '-c', corrstr, arfn])
+    utils.execute(['psredit', '-e', 'corr', '-c', corrstr, arfn], \
+                    stderr=open(os.devnull))
     # Assume the name of the corrected file
     corrfn = os.path.splitext(arfn)[0]+".corr"
     # Confirm that our assumed file name is accurate
