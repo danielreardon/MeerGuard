@@ -25,8 +25,6 @@ import debug
 
 import pyriseset as rs
 
-SAVE_INTERMEDIATE = True
-
 EFF = rs.sites.load('effelsberg')
 
 # Observing log fields:
@@ -275,7 +273,7 @@ def load_corrected_file(filerow):
             conn.execute(update)
         move_file(db, parent_file_id, archivedir, 
                     (config.outfn_template+".cmb") % arf)
-        move_grouping(db, parent_file_id, archivedir, 
+        move_grouping(db, filerow['group_id'], archivedir, 
                     (config.outfn_template+".list.txt") % arf)
     return file_id
 
