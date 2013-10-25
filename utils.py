@@ -640,7 +640,7 @@ def get_prefname(name):
         if len(names) == 1:
             prefname = names[0][-1]
         elif len(names) == 0:
-            prefname = name
+            prefname = srcname
             warnings.warn("Pulsar name '%s' cannot be found in psrcat. " \
                             "No preferred name available." % srcname, \
                             errors.CoastGuardWarning)
