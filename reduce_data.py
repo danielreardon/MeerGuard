@@ -331,7 +331,7 @@ def load_cleaned_file(filerow):
             os.makedirs(archivedir)
 
         arf.get_archive().unload(cleanfn)
-        arf.fn = cleanfn
+        arf = utils.ArchiveFile(cleanfn)
       
         # Make diagnostic plots
         fullresfn, lowresfn = make_summary_plots(arf)
