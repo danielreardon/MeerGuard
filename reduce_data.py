@@ -903,11 +903,13 @@ class DummyResult(object):
     def ready(self):
         warnings.warn("This is a dummy version of " \
                     "multiprocessing.Pool.AsyncResult.ready()!", \
+                    errors.CoastGuardWarning)
         return True
 
     def get(self):
         warnings.warn("This is a dummy version of " \
                     "multiprocessing.Pool.AsyncResult.get()!", \
+                    errors.CoastGuardWarning)
         return None
 
 
