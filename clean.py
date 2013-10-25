@@ -580,7 +580,11 @@ def main():
         ar = outarf.get_archive()
         
         try:
-            for cleaner in args.cleaner_queue:
+            for name, cfgstrs in args.cleaner_queue:
+                # Set up the cleaner
+                cleaner = cleaners.load_cleaner(name)
+                for cfgstr in cfgstrs:
+                    cleaner.parse_config_string(cfgstr)
                 cleaner.run(ar)
         except:
             # An error prevented cleaning from being successful
@@ -624,11 +628,15 @@ class CleanerArguments(utils.DefaultArguments):
 
     class AppendCleanerAction(argparse.Action):
         def __call__(self, parser, namespace, values, option_string):
-            getattr(namespace, self.dest).append(cleaners.load_cleaner(values))
+            # Append the name of the cleaner and an empty list for
+            # configuration strings
+            getattr(namespace, self.dest).append((values, []))
 
     class ConfigureCleanerAction(argparse.Action):
         def __call__(self, parser, namespace, values, option_string):
-            getattr(namespace, 'cleaner_queue')[-1].parse_config_string(values)
+            # Append configuration string to most recently added
+            # cleaner
+            getattr(namespace, 'cleaner_queue')[-1][1].append(values)
 
 
 if __name__=="__main__":
