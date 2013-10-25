@@ -28,7 +28,7 @@ import pyriseset as rs
 EFF = rs.sites.load('effelsberg')
 
 # Observing log fields:
-#                  name   from-string converter
+#                (name,   from-string converter)
 OBSLOG_FIELDS = (('localdate', rs.utils.parse_datestr), \
                  ('scannum', str), \
                  ('utcstart', rs.utils.parse_timestr), \
@@ -236,6 +236,10 @@ def load_corrected_file(filerow):
         shutil.move(corrfn, os.path.join(archivedir, archivefn))
         # Update 'corrfn' so it still refers to the file
         corrfn = os.path.join(archivedir, archivefn)
+        arf.fn = corrfn
+
+        # Make diagnostic plots
+        fullresfn, lowresfn = make_summary_plots(arf)
 
         # Pre-compute values to insert because some might be
         # slow to generate
@@ -248,6 +252,11 @@ def load_corrected_file(filerow):
                   'md5sum': utils.get_md5sum(corrfn), \
                   'filesize': os.path.getsize(corrfn), \
                   'parent_file_id': parent_file_id}
+        diagvals = [{'diagnosticpath': os.path.dirname(fullresfn), \
+                     'diagnosticname': os.path.basename(fullresfn)}, \
+                    {'diagnosticpath': os.path.dirname(lowresfn), \
+                     'diagnosticname': os.path.basename(lowresfn)}
+                   ]
     except:
         with db.transaction() as conn:
             update = db.files.update(). \
@@ -265,6 +274,10 @@ def load_corrected_file(filerow):
                             group_id = filerow['group_id'])
             result = conn.execute(insert, values)
             file_id = result.inserted_primary_key[0]
+            # Insert diagnostic entries
+            insert = db.diagnostics.insert().\
+                    values(file_id=file_id)
+            result = conn.execute(insert, diagvals)
             # Update parent file
             update = db.files.update(). \
                         where(db.files.c.file_id==parent_file_id).\
@@ -318,7 +331,11 @@ def load_cleaned_file(filerow):
             os.makedirs(archivedir)
 
         arf.get_archive().unload(cleanfn)
-       
+        arf.fn = cleanfn
+      
+        # Make diagnostic plots
+        fullresfn, lowresfn = make_summary_plots(arf)
+
         # Pre-compute values to insert because some might be
         # slow to generate
         values = {'filepath': archivedir, \
@@ -329,6 +346,11 @@ def load_cleaned_file(filerow):
                   'md5sum': utils.get_md5sum(cleanfn), \
                   'filesize': os.path.getsize(cleanfn), \
                   'parent_file_id': parent_file_id}
+        diagvals = [{'diagnosticpath': os.path.dirname(fullresfn), \
+                     'diagnosticname': os.path.basename(fullresfn)}, \
+                    {'diagnosticpath': os.path.dirname(lowresfn), \
+                     'diagnosticname': os.path.basename(lowresfn)}
+                   ]
     except:
         with db.transaction() as conn:
             update = db.files.update(). \
@@ -346,6 +368,10 @@ def load_cleaned_file(filerow):
                             group_id = filerow['group_id'])
             result = conn.execute(insert, values)
             file_id = result.inserted_primary_key[0]
+            # Insert diagnostic entries
+            insert = db.diagnostics.insert().\
+                    values(file_id=file_id)
+            result = conn.execute(insert, diagvals)
             # Update parent file
             update = db.files.update(). \
                         where(db.files.c.file_id==parent_file_id).\
