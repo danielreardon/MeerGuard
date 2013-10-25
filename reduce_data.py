@@ -661,40 +661,44 @@ def get_obslog_entry(arf):
     # NOTE: Date in file name is when the obslog was written out
     obslogfns = glob.glob(os.path.join(config.obslog_dir, "*.prot"))
     obslogfns.sort()
+    
+    tosearch = []
     for currfn in obslogfns:
-        currdate = datetime.datetime.strptime(os.path.split(currfn)[-1], \
+        fndate = datetime.datetime.strptime(os.path.split(currfn)[-1], \
                                             '%y%m%d.prot')
-        obslogfn = currfn
-        if currdate > obsdate:
+        if fndate == obsdate:
+            tosearch.append(currfn)
+        elif fndate > obsdate:
+            tosearch.append(currfn)
             break
-    if obslogfn is None:
+    if not tosearch:
         raise errors.HeaderCorrectionError("Could not find a obslog file " \
                                     "from before the obs date (%s)." % \
                                     obsdate.strftime("%Y-%b-%d"))
 
-    with open(obslogfn, 'r') as obslog:
-        logentries = []
-        bestoffset = 1e10
-        for line in obslog:
-            valstrs = line.split()
-            if len(valstrs) < len(OBSLOG_FIELDS):
-                continue
-            currinfo = {}
-            for (key, caster), valstr in zip(OBSLOG_FIELDS, valstrs):
-                currinfo[key] = caster(valstr)
-            if utils.get_prefname(currinfo['name']) != arf['name']:
-                continue
-            utc_hours = currinfo['utcstart'][0]
-            offset = obsutc_hours - utc_hours
-            if offset*3600 < 120:
-                logentries.append(currinfo)
-        if len(logentries) != 1:
-            raise errors.HeaderCorrectionError("Bad number (%d) of entries " \
-                                "in obslog (%s) with correct source name " \
-                                "within 120 s of observation (%s) start " \
-                                "time (UTC: %s)" % \
-                                (len(logentries), obslogfn, arf.fn, obsutc))
-        return logentries[0]
+    
+    logentries = []
+    for obslogfn in tosearch:
+        with open(obslogfn, 'r') as obslog:
+            for line in obslog:
+                valstrs = line.split()
+                if len(valstrs) < len(OBSLOG_FIELDS):
+                    continue
+                currinfo = {}
+                for (key, caster), valstr in zip(OBSLOG_FIELDS, valstrs):
+                    currinfo[key] = caster(valstr)
+                if utils.get_prefname(currinfo['name']) != arf['name']:
+                    continue
+                utc_hours = currinfo['utcstart'][0]
+                offset = obsutc_hours - utc_hours
+                if offset*3600 < 60:
+                    logentries.append(currinfo)
+    if len(logentries) != 1:
+        raise errors.HeaderCorrectionError("Bad number (%d) of entries " \
+                    "in obslogs (%s) with correct source name " \
+                    "within 60 s of observation (%s) start time (UTC: %s)" % \
+                    (len(logentries), ", ".join(tosearch), arf.fn, obsutc))
+    return logentries[0]
 
 
 def make_summary_plots(arf):
