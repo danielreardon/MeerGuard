@@ -109,6 +109,24 @@ def show_progress(iterator, width=0, tot=None):
     print "Done"
 
 
+def set_warning_mode(mode=None, reset=True):
+    """Add a simple warning filter.
+        
+        Inputs:
+            mode: The action to use for warnings.
+                (Default: take value of 'warnmode' configuration.
+            reset: Remove warning filters previously set.
+
+        Outputs:
+            None
+    """
+    if mode is None:
+        mode = config.warnmode
+    if reset:
+        warnings.resetwarnings()
+    warnings.simplefilter(mode)
+
+
 def print_info(msg, level=1):
     """Print an informative message if the current verbosity is
         higher than the 'level' of this message.
