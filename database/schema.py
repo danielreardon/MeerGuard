@@ -54,6 +54,7 @@ sa.Table('groupings', metadata, \
                     default=sa.func.now()), \
         sa.Column('last_modified', sa.DateTime, nullable=False, \
                     default=sa.func.now()), \
+        sa.UniqueConstraint('listpath', 'listname'), \
         mysql_engine='InnoDB', mysql_charset='ascii')
 
 
@@ -69,6 +70,7 @@ sa.Table('diagnostics', metadata, \
                     default=sa.func.now()), \
         sa.Column('last_modified', sa.DateTime, nullable=False, \
                     default=sa.func.now()), \
+        sa.UniqueConstraint('diagnosticpath', 'diagnosticname'), \
         mysql_engine='InnoDB', mysql_charset='ascii')
 
 
@@ -84,6 +86,7 @@ sa.Table('logs', metadata, \
                     default=sa.func.now()), \
         sa.Column('last_modified', sa.DateTime, nullable=False, \
                     default=sa.func.now()), \
+        sa.UniqueConstraint('logpath', 'logname'), \
         mysql_engine='InnoDB', mysql_charset='ascii')
 
 
@@ -111,4 +114,5 @@ sa.Table('files', metadata, \
                     default=sa.func.now()), \
         sa.Column('last_modified', sa.DateTime, nullable=False, \
                     default=sa.func.now()), \
+        sa.UniqueConstraint('filepath', 'filename'), \
         mysql_engine='InnoDB', mysql_charset='ascii')
