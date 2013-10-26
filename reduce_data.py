@@ -317,6 +317,7 @@ def load_cleaned_file(filerow):
         config.cfg.load_configs_for_archive(arf)
         cleaner_queue = [cleaners.load_cleaner('rcvrstd'), \
                          cleaners.load_cleaner('surgical')]
+        
         for cleaner in cleaner_queue:
             cleaner.run(arf.get_archive())
 
@@ -591,7 +592,6 @@ def prepare_subints(subdirs, subints, baseoutdir):
     """
     devnull = open(os.devnull)
     tmpsubdirs = []
-    print "Preparing subints..."
     for subdir in utils.show_progress(subdirs, width=50):
         freqdir = os.path.split(os.path.abspath(subdir))[-1]
         freqdir = os.path.join(baseoutdir, freqdir)
@@ -962,6 +962,9 @@ class DummyPool(object):
                     errors.CoastGuardWarning)
 
 def main():
+    # Turn off progress counters when running as a 
+    # indefinite loop
+    config.show_progress = False
     if debug.is_on('reduce'):
         warnings.warn("Using a dummy version of multiprocessing.Pool()!", \
                     errors.CoastGuardWarning)
@@ -977,8 +980,9 @@ def main():
                 tasks = launch_tasks(pool, db, action)
                 inprogress.extend(tasks)
                 if tasks:
-                    utils.print_info("Launched %d '%s' tasks" % (len(tasks), action), 0)
-            # Sleep for 5 minutes
+                    utils.print_info("Launched %d '%s' tasks" % \
+                                        (len(tasks), action), 0)
+            # Sleep between iterations
             time.sleep(args.sleep_time)
             # Check for completed tasks
             for ii in xrange(len(inprogress)-1, -1, -1):
