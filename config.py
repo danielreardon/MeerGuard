@@ -121,13 +121,13 @@ class CoastGuardConfigs(object):
         config_files.append(os.path.join(self.base_config_dir, 'observations', \
                                 "%s.cfg" % os.path.split(arfn.fn)[-1]))
  
-        msg = "\n    ".join(["Checking for the following configurations:"] + \
-                                config_files)
-        utils.print_debug(msg, 'config')
+        #msg = "\n    ".join(["Checking for the following configurations:"] + \
+        #                        config_files)
+        #utils.print_debug(msg, 'config')
         
         for fn in config_files:
             self.obsconfigs += read_file(fn)
-        utils.print_debug("Current configurations:\n%s" % self, 'config')
+        #utils.print_debug("Current configurations:\n%s" % self, 'config')
 
 
 class ConfigManager(object):
@@ -148,13 +148,17 @@ class ConfigManager(object):
         name = os.getpid()
         if name not in self:
             self.configs[name] = CoastGuardConfigs()
+        utils.print_debug("Getting configs for process %s" % name, 'config')
         return self.configs[name]
    
     def load_configs_for_archive(self, arf):
+        utils.print_debug("Loading configs for %s" % arf.fn, 'config')
         self.get().load_configs_for_archive(arf)
 
     def __getattr__(self, key):
-        return self.get()[key]
+        val = self.get()[key]
+        utils.print_debug("Getting config %s = %s" % (key, val), 'config')
+        return val 
 
 cfg = ConfigManager()
 
