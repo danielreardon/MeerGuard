@@ -142,7 +142,11 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                     lochan, hichan = tozap
                     for xx in xrange(lochan, hichan):
                         clean_utils.zero_weight_chan(ar, tozap)
+            utils.print_debug("Removed %d channels due to bad chans " \
+                            "(%s) in %s" % (nremoved, self.configs.badfreqs, \
+                            ar.get_filename()), 'clean')
         if self.configs.badfreqs:
+            nremoved = 0
             # Get a list of frequencies
             nchan = ar.get_nchan()
             lofreqs = np.empty(nchan)
@@ -152,7 +156,7 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                 prof = ar.get_Profile(0, 0, ichan)
                 ctr = prof.get_centre_frequency()
                 lofreqs[ichan] = ctr - chanbw/2.0
-                lofreqs[ichan] = ctr + chanbw/2.0
+                hifreqs[ichan] = ctr + chanbw/2.0
             
             for tozap in self.configs.badfreqs:
                 if type(tozap) is types.FloatType:
@@ -160,12 +164,17 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                     for ichan in np.argwhere((lofreqs<=tozap) & (hifreqs>tozap)):
                         ichan = ichan.squeeze()
                         clean_utils.zero_weight_chan(ar, ichan)
+                        nremoved += 1
                 else:
                     # An (inclusive) interval of bad freqs to zap
                     flo, fhi = tozap
                     for ichan in np.argwhere((hifreqs>=flo) & (lofreqs<=fhi)):
                         ichan = ichan.squeeze()
                         clean_utils.zero_weight_chan(ar, ichan)
+                        nremoved += 1
+            utils.print_debug("Removed %d channels due to bad freqs " \
+                            "(%s) in %s" % (nremoved, self.configs.badfreqs, \
+                            ar.get_filename()), 'clean')
 
 
 Cleaner = ReceiverBandCleaner
