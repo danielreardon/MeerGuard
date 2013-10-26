@@ -94,19 +94,21 @@ def show_progress(iterator, width=0, tot=None):
     old = -1
     curr = 1
     for toreturn in iterator:
-        progfrac = curr/float(tot)
-        progpcnt = int(100*progfrac)
-        if progpcnt > old:
-            bar = "["*bool(width) + \
-                    "="*int(width*progfrac+0.5) + \
-                    " "*int(width*(1-progfrac)+0.5) + \
-                    "]"*bool(width)
-            old = progpcnt
-            sys.stdout.write("     " + bar + " %d %% \r" % progpcnt)
-            sys.stdout.flush()
-        curr += 1
+        if config.show_progress:
+            progfrac = curr/float(tot)
+            progpcnt = int(100*progfrac)
+            if progpcnt > old:
+                bar = "["*bool(width) + \
+                        "="*int(width*progfrac+0.5) + \
+                        " "*int(width*(1-progfrac)+0.5) + \
+                        "]"*bool(width)
+                old = progpcnt
+                sys.stdout.write("     " + bar + " %d %% \r" % progpcnt)
+                sys.stdout.flush()
+            curr += 1
         yield toreturn
-    print "Done"
+    if config.show_progress:
+        print "Done"
 
 
 def set_warning_mode(mode=None, reset=True):
