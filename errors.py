@@ -6,10 +6,16 @@ Patrick Lazarus, Nov. 10, 2011
 """
 
 import colour
+import log
 
 class CoastGuardError(Exception):
+    def __init__(self, msg):
+        logger = log.get_logger()
+        logger.error(msg)
+        super(CoastGuardError, self).__init__(msg)
+
     def __str__(self):
-       return colour.cstring(super(CoastGuardError, self).__str__(), 'error')
+        return colour.cstring(super(CoastGuardError, self).__str__(), 'error')
 
 
 class SystemCallError(CoastGuardError):
@@ -70,6 +76,11 @@ class DatabaseError(CoastGuardError):
 
 # Fatal class of errors. These should not be caught.
 class FatalCoastGuardError(Exception):
+    def __init__(self, msg):
+        logger = log.get_logger()
+        logger.critical(msg)
+        super(FatalCoastGuardError, self).__init__(msg)
+
     def __str__(self):
         return colour.cstring(super(FatalCoastGuardError, self).__str__(), 'error')
 
@@ -79,5 +90,10 @@ class BadColumnNameError(FatalCoastGuardError):
 
 # Custom Warnings
 class CoastGuardWarning(Warning):
+    def __init__(self, msg):
+        logger = log.get_logger()
+        logger.warning(msg)
+        super(CoastGuardWarning, self).__init__(msg)
+
     def __str__(self):
         return colour.cstring(super(CoastGuardWarning, self).__str__(), 'warning')

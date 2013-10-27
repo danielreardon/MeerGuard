@@ -23,6 +23,7 @@ import numpy as np
 import config
 import errors
 import colour
+import log
 
 header_param_types = {'freq': float, \
                       'length': float, \
@@ -144,9 +145,11 @@ def print_info(msg, level=1):
             None
     """
     if config.verbosity >= level:
+        fn, lineno, funcnm = inspect.stack()[1][1:4]
+        log.log("verbosity: %d [%s:%d - %s(...)]\n%s" % \
+                (level, os.path.split(fn)[-1], lineno, funcnm, msg), 'info')
         if config.excessive_verbosity:
             # Get caller info
-            fn, lineno, funcnm = inspect.stack()[1][1:4]
             colour.cprint("INFO (level: %d) [%s:%d - %s(...)]:" % 
                     (level, os.path.split(fn)[-1], lineno, funcnm), 'infohdr')
             msg = msg.replace('\n', '\n    ')
@@ -172,9 +175,12 @@ def print_debug(msg, category, stepsback=1):
             None
     """
     if config.debug.is_on(category):
+        fn, lineno, funcnm = inspect.stack()[stepsback][1:4]
+        log.log("mode: %s [%s:%d - %s(...)]\n%s" % \
+                (category.upper(), os.path.split(fn)[-1], lineno, 
+                    funcnm, msg), 'debug')
         if config.helpful_debugging:
             # Get caller info
-            fn, lineno, funcnm = inspect.stack()[stepsback][1:4]
             to_print = colour.cstring("DEBUG %s [%s:%d - %s(...)]:\n" % \
                         (category.upper(), os.path.split(fn)[-1], lineno, funcnm), \
                             'debughdr')
