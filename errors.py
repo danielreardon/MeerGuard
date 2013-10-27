@@ -10,8 +10,7 @@ import log
 
 class CoastGuardError(Exception):
     def __init__(self, msg):
-        logger = log.get_logger()
-        logger.error(msg)
+        log.log(msg, 'error')
         super(CoastGuardError, self).__init__(msg)
 
     def __str__(self):
@@ -77,8 +76,7 @@ class DatabaseError(CoastGuardError):
 # Fatal class of errors. These should not be caught.
 class FatalCoastGuardError(Exception):
     def __init__(self, msg):
-        logger = log.get_logger()
-        logger.critical(msg)
+        log.log(msg, 'critical')
         super(FatalCoastGuardError, self).__init__(msg)
 
     def __str__(self):
@@ -91,8 +89,7 @@ class BadColumnNameError(FatalCoastGuardError):
 # Custom Warnings
 class CoastGuardWarning(Warning):
     def __init__(self, msg):
-        logger = log.get_logger()
-        logger.warning(msg)
+        log.log(msg, 'warning')
         super(CoastGuardWarning, self).__init__(msg)
 
     def __str__(self):

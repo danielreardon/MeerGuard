@@ -65,4 +65,4 @@ def disconnect_logger():
 
 def log(msg, level):
     logger = get_logger()
-    logger.log(level, message)
+    logger.log(level, msg)
