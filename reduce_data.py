@@ -22,6 +22,7 @@ import database
 import clean_utils
 import errors
 import debug
+import log
 
 import pyriseset as rs
 
@@ -90,6 +91,11 @@ def load_groups(dirrow):
         Outputs:
             ninserts: The number of group rows inserted.
     """
+    tmplogfile, tmplogfn = tempfile.mkstemp(suffix='.log', \
+                                dir=config.tmp_directory)
+    os.close(tmplogfile)
+    log.setup_logger(tmplogfn)
+
     db = database.Database() 
     path = dirrow['path']
     dir_id = dirrow['dir_id']
@@ -102,11 +108,15 @@ def load_groups(dirrow):
     try:
         ninserts = 0
         values = []
+        logfns = []
         for dirs, fns, band in zip(*make_groups(path)):
             fns.sort()
             listfn = os.path.join(config.output_location, 'groups', \
                                     "%s_%s_%dsubints.txt" % \
                                     (fns[0], band, len(fns)))
+            logfns.append(os.path.join(config.output_location, 'logs', \
+                                    "%s_%s_%dsubints.txt" % \
+                                    (fns[0], band, len(fns))))
             combine.write_listing(dirs, fns, listfn)
             listpath, listname = os.path.split(listfn)
             values.append({'listpath': listpath, \
@@ -122,16 +132,28 @@ def load_groups(dirrow):
     else:
         with db.transaction() as conn:
             version_id = utils.get_version_id(db) 
-            insert = db.groupings.insert().\
-                        values(version_id = version_id, \
-                               dir_id = dir_id)
-            conn.execute(insert, values)
+            for vals, logfn in zip(values, logfns):
+                insert = db.groupings.insert().\
+                            values(version_id = version_id, \
+                                   dir_id = dir_id)
+                result = conn.execute(insert, vals)
+                group_id = result.inserted_primary_key[0]
+                # Insert log
+                shutil.copy(tmplogfn, logfn)
+                insert = db.logs.insert().\
+                            values(group_id = group_id, \
+                                   logpath = os.path.dirname(logfn), \
+                                   logname = os.path.basename(logfn))
+                conn.execute(insert)
             update = db.directories.update().\
                         where(db.directories.c.dir_id==dir_id).\
                         values(status='grouped', \
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
         ninserts += len(values)
+    finally:
+        if os.path.isfile(tmplogfn):
+            os.remove(tmplogfn)
     return ninserts
 
 
@@ -147,6 +169,10 @@ def load_combined_file(grprow):
     """
     db = database.Database() 
     group_id = grprow['group_id']
+    logrow = get_log(db, group_id)
+    log_id = logrow['log_id']
+    logfn = os.path.join(logrow['logpath'], logrow['logname'])
+    log.setup_logger(logfn)
     if grprow['status'] != 'new':
         return errors.BadStatusError("Combined files can only be " \
                                 "generated from 'grouping' entries " \
@@ -215,6 +241,11 @@ def load_corrected_file(filerow):
     """
     db = database.Database() 
     parent_file_id = filerow['file_id']
+    group_id = filerow['group_id']
+    logrow = get_log(db, group_id)
+    log_id = logrow['log_id']
+    logfn = os.path.join(logrow['logpath'], logrow['logname'])
+    log.setup_logger(logfn)
     if (filerow['status'] != 'new') or (filerow['stage'] != 'combined'):
         return errors.BadStatusError("Corrected files can only be " \
                         "generated from 'file' entries with " \
@@ -288,6 +319,8 @@ def load_corrected_file(filerow):
                     (config.outfn_template+".cmb") % arf)
         move_grouping(db, filerow['group_id'], archivedir, 
                     (config.outfn_template+".list.txt") % arf)
+        move_log(db, log_id, archivedir, \
+                    (config.outfn_template+".log") % arf)
     return file_id
 
 
@@ -304,6 +337,11 @@ def load_cleaned_file(filerow):
     """
     db = database.Database()
     parent_file_id = filerow['file_id']
+    group_id = filerow['group_id']
+    logrow = get_log(db, group_id)
+    log_id = logrow['log_id']
+    logfn = os.path.join(logrow['logpath'], logrow['logname'])
+    log.setup_logger(logfn)
     if (filerow['status'] != 'new') or (filerow['stage'] != 'corrected'):
         return errors.BadStatusError("Cleaned files can only be " \
                         "generated from 'file' entries with " \
@@ -382,6 +420,29 @@ def load_cleaned_file(filerow):
     return file_id
 
 
+def get_log(db, group_id):
+    """Given a group_id retrive the corresponding entry
+        in the logs table.
+
+        Inputs:
+            db: A Database object.
+            group_id: The ID of the group to get the log for.
+
+        Output:
+            logrow: The log's DB row.
+    """
+    with db.transaction() as conn:
+        select = db.select([db.logs]).\
+                    where(db.logs.c.group_id==group_id)
+        result = conn.execute(select)
+        rows = result.fetchall()
+        if len(rows) != 1:
+            raise errors.DatabaseError("Bad number of rows (%d) " \
+                                "with group_id=%d!" % \
+                                (len(rows), group_id))
+        return rows[0]
+
+
 def move_grouping(db, group_id, destdir, destfn=None):
     """Given a group ID move the associated listing.
 
@@ -424,6 +485,50 @@ def move_grouping(db, group_id, destdir, destfn=None):
         os.remove(src)
         utils.print_info("Moved group listing from %s to %s. The database " \
                         "has been updated accordingly." % (src, dest))
+
+def move_log(db, log_id, destdir, destfn=None):
+    """Given a group ID move the associated listing.
+
+        Inputs:
+            db: Database object to use.
+            log_id: The ID of a row in the logs table.
+            destdir: The destination directory.
+            destfn: The destination file name.
+                (Default: Keep old file name).
+
+        Outputs:
+            None
+    """
+    with db.transaction() as conn:
+        select = db.select([db.logs]).\
+                    where(db.logs.c.log_id==log_id)
+        result = conn.execute(select)
+        rows = result.fetchall()
+        if len(rows) != 1:
+            raise errors.DatabaseError("Bad number of rows (%d) " \
+                                "with log_id=%d!" % \
+                                (len(rows), log_id))
+        lg = rows[0]
+        if destfn is None:
+            destfn = lg['logname']
+        # Copy file
+        src = os.path.join(lg['logpath'], lg['logname'])
+        dest = os.path.join(destdir, destfn)
+        if not os.path.exists(destdir):
+            os.makedirs(destdir)
+        shutil.copy(src, dest)
+        # Update database
+        update = db.logs.update().\
+                    where(db.logs.c.log_id==log_id).\
+                    values(logpath=destdir, \
+                            logname=destfn, \
+                            last_modified=datetime.datetime.now())
+        conn.execute(update)
+        # Remove original
+        os.remove(src)
+        utils.print_info("Moved log from %s to %s. The database " \
+                        "has been updated accordingly." % (src, dest))
+
 
 def move_file(db, file_id, destdir, destfn=None):
     """Given a file ID move the associated archive.
