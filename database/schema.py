@@ -87,6 +87,7 @@ sa.Table('logs', metadata, \
         sa.Column('last_modified', sa.DateTime, nullable=False, \
                     default=sa.func.now()), \
         sa.UniqueConstraint('logpath', 'logname'), \
+        sa.UniqueConstraint('group_id'), \
         mysql_engine='InnoDB', mysql_charset='ascii')
 
 
