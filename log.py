@@ -41,11 +41,11 @@ def setup_logger(logfn):
     # What gets logged is determined by if-clauses that 
     # check the current verbosity level and debugging state, 
     # not logging's level, so let everything be logged. 
-    logger.setlevel(logging.DEBUG) 
+    logger.setLevel(logging.DEBUG) 
     logfile = logging.FileHandler(filename=logfn)
     formatter = logging.Formatter(datefmt="%Y-%m-%d %H:%M:%S", \
                 fmt="%(levelname)s - %(asctime)s\n%(message)s\n")
-    logfile.SetFormatter(formatter)
+    logfile.setFormatter(formatter)
     logger.addHandler(logfile)
 
 
@@ -63,6 +63,6 @@ def disconnect_logger():
         logger.removeHandler(handler)
 
 
-def log(msg, level):
+def log(msg, levelname):
     logger = get_logger()
-    logger.log(level, msg)
+    logger.log(levels[levelname], msg)
