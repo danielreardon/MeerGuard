@@ -144,10 +144,12 @@ def print_info(msg, level=1):
         Outputs:
             None
     """
-    if config.verbosity >= level:
-        fn, lineno, funcnm = inspect.stack()[1][1:4]
+    fn, lineno, funcnm = inspect.stack()[1][1:4]
+    if config.log_verbosity >= level:
         log.log("verbosity: %d [%s:%d - %s(...)]\n%s" % \
                 (level, os.path.split(fn)[-1], lineno, funcnm, msg), 'info')
+
+    if config.verbosity >= level:
         if config.excessive_verbosity:
             # Get caller info
             colour.cprint("INFO (level: %d) [%s:%d - %s(...)]:" % 
@@ -1012,6 +1014,10 @@ class DefaultArguments(argparse.ArgumentParser):
                             action=self.SetVerbosity, type=int, \
                             help="Set verbosity level. (Default: " \
                                  "verbosity level = %d)." % config.verbosity)
+        group.add_argument('--set-log-verbosity', nargs=1, dest='loglevel', \
+                            action=self.SetLogVerbosity, type=int, \
+                            help="Set verbosity level for logging. (Default: " \
+                                 "verbosity level = %d)." % config.log_verbosity)
         group.add_argument('--toggle-colour', action=self.ToggleConfigAction, \
                           dest='colour', nargs=0, \
                           help="Toggle colourised output. " \
@@ -1075,6 +1081,10 @@ class DefaultArguments(argparse.ArgumentParser):
     class SetVerbosity(argparse.Action):
         def __call__(self, parser, namespace, values, option_string):
             config.verbosity = values[0]
+
+    class SetLogVerbosity(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string):
+            config.log_verbosity = values[0]
 
     class SetDebugMode(argparse.Action): 
         def __call__(self, parser, namespace, values, option_string):
