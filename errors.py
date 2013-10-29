@@ -9,8 +9,9 @@ import colour
 import log
 
 class CoastGuardError(Exception):
-    def __init__(self, msg):
-        log.log(msg, 'error')
+    def __init__(self, msg, logit=True):
+        if logit:
+            log.log(msg, 'error')
         super(CoastGuardError, self).__init__(msg)
 
     def __str__(self):
