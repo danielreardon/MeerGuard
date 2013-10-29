@@ -93,7 +93,7 @@ class CoastGuardWarning(Warning):
         return colour.cstring(super(CoastGuardWarning, self).__str__(), 'warning')
 
 
-class LoggedCoastGuardWarning(CoastGuardWarning)
+class LoggedCoastGuardWarning(CoastGuardWarning):
     def __init__(self, msg):
         log.log(msg, 'warning')
         super(CoastGuardWarning, self).__init__(msg)
