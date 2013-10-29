@@ -88,9 +88,12 @@ class BadColumnNameError(FatalCoastGuardError):
 
 # Custom Warnings
 class CoastGuardWarning(Warning):
+    def __str__(self):
+        return colour.cstring(super(CoastGuardWarning, self).__str__(), 'warning')
+
+
+class LoggedCoastGuardWarning(CoastGuardWarning)
     def __init__(self, msg):
         log.log(msg, 'warning')
         super(CoastGuardWarning, self).__init__(msg)
 
-    def __str__(self):
-        return colour.cstring(super(CoastGuardWarning, self).__str__(), 'warning')
