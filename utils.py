@@ -297,7 +297,7 @@ def get_githash(repodir=None):
         repodir = os.path.split(__file__)[0]
     if is_gitrepo_dirty(repodir):
         warnings.warn("Git repository (%s) has uncommitted changes!" % \
-                        repodir, errors.CoastGuardWarning)
+                        repodir, errors.LoggedCoastGuardWarning)
     stdout, stderr = execute("git rev-parse HEAD", dir=repodir)
     githash = stdout.strip()
     return githash
@@ -381,7 +381,7 @@ def get_header_vals(fn, hdritems):
         elif val == "*" or val == "UNDEF":
             warnings.warn("The vap header key '%s' is not " \
                             "defined in this file (%s)" % (key, fn), \
-                            errors.CoastGuardWarning)
+                            errors.LoggedCoastGuardWarning)
             params[key] = None
         elif val == '*error*':
             raise errors.SystemCallError("The vap header key '%s' returned " \
