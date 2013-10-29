@@ -2,11 +2,13 @@
 
 import multiprocessing
 import subprocess
+import traceback
 import warnings
 import tempfile
 import datetime
 import fnmatch
 import os.path
+import pprint
 import shutil
 import time
 import glob
@@ -99,6 +101,13 @@ def load_groups(dirrow):
     db = database.Database() 
     path = dirrow['path']
     dir_id = dirrow['dir_id']
+    # Mark as running
+    with db.transaction() as conn:
+        update = db.directories.update().\
+                    where(db.directories.c.dir_id==dir_id).\
+                    values(status='running', \
+                            last_modified=datetime.datetime.now())
+        conn.execute(update)
     if dirrow['status'] != 'new':
         return errors.BadStatusError("Groupings can only be " \
                                 "generated for 'directory' entries " \
@@ -173,6 +182,13 @@ def load_combined_file(grprow):
     log_id = logrow['log_id']
     logfn = os.path.join(logrow['logpath'], logrow['logname'])
     log.setup_logger(logfn)
+    # Mark as running
+    with db.transaction() as conn:
+        update = db.groupings.update().\
+                    where(db.groupings.c.group_id==group_id).\
+                    values(status='running', \
+                            last_modified=datetime.datetime.now())
+        conn.execute(update)
     if grprow['status'] != 'new':
         return errors.BadStatusError("Combined files can only be " \
                                 "generated from 'grouping' entries " \
@@ -246,6 +262,13 @@ def load_corrected_file(filerow):
     log_id = logrow['log_id']
     logfn = os.path.join(logrow['logpath'], logrow['logname'])
     log.setup_logger(logfn)
+    # Mark as running
+    with db.transaction() as conn:
+        update = db.files.update().\
+                    where(db.files.c.file_id==parent_file_id).\
+                    values(status='running', \
+                            last_modified=datetime.datetime.now())
+        conn.execute(update)
     if (filerow['status'] != 'new') or (filerow['stage'] != 'combined'):
         return errors.BadStatusError("Corrected files can only be " \
                         "generated from 'file' entries with " \
@@ -342,6 +365,12 @@ def load_cleaned_file(filerow):
     log_id = logrow['log_id']
     logfn = os.path.join(logrow['logpath'], logrow['logname'])
     log.setup_logger(logfn)
+    with db.transaction() as conn:
+        update = db.files.update().\
+                    where(db.files.c.file_id==parent_file_id).\
+                    values(status='running', \
+                            last_modified=datetime.datetime.now())
+        conn.execute(update)
     if (filerow['status'] != 'new') or (filerow['stage'] != 'corrected'):
         return errors.BadStatusError("Cleaned files can only be " \
                         "generated from 'file' entries with " \
@@ -574,12 +603,14 @@ def move_file(db, file_id, destdir, destfn=None):
                         "has been updated accordingly." % (src, dest))
 
 
-def get_rawdata_dirs(basedir=None):
+def get_rawdata_dirs(basedir=None, priority=[]):
     """Get a list of directories likely to contain asterix data.
         Directories 2 levels deep with a name "YYYYMMDD" are returned.
 
         Input:
             basedir: Root of the directory tree to search.
+            priority: List of directories to prioritize.
+                (Default: No priorities)
 
         Output:
             outdirs: List of likely raw data directories.
@@ -587,7 +618,12 @@ def get_rawdata_dirs(basedir=None):
     if basedir is None:
         basedir = config.base_rawdata_dir
     outdirs = []
-    indirs = glob.glob(os.path.join(basedir, '*'))
+    if priority:
+        indirs = []
+        for name in priority:
+            indirs.extend(glob.glob(os.path.join(basedir, name)))
+    else:
+        indirs = glob.glob(os.path.join(basedir, "*"))
     for path in indirs:
         subdirs = glob.glob(os.path.join(path, "*"))
         for subdir in subdirs:
@@ -785,8 +821,9 @@ def get_obslog_entry(arf):
             obsinfo: A dictionary of observing information.
     """
     # Get date of observation
-    obsdate = rs.utils.mjd_to_datetime(arf['mjd'])
-    obsutc = obsdate.time()
+    obsdatetime = rs.utils.mjd_to_datetime(arf['mjd'])
+    obsutc = obsdatetime.time()
+    obsdate = obsdatetime.date()
     obsutc_hours = obsutc.hour+(obsutc.minute+(obsutc.second)/60.0)/60.0
 
     # Get log file
@@ -796,8 +833,10 @@ def get_obslog_entry(arf):
     
     tosearch = []
     for currfn in obslogfns:
-        fndate = datetime.datetime.strptime(os.path.split(currfn)[-1], \
+        fndatetime = datetime.datetime.strptime(os.path.split(currfn)[-1], \
                                             '%y%m%d.prot')
+        fndate = fndatetime.date()
+
         if fndate == obsdate:
             tosearch.append(currfn)
         elif fndate > obsdate:
@@ -807,7 +846,6 @@ def get_obslog_entry(arf):
         raise errors.HeaderCorrectionError("Could not find a obslog file " \
                                     "from before the obs date (%s)." % \
                                     obsdate.strftime("%Y-%b-%d"))
-
     
     logentries = []
     for obslogfn in tosearch:
@@ -823,13 +861,14 @@ def get_obslog_entry(arf):
                     continue
                 utc_hours = currinfo['utcstart'][0]
                 offset = obsutc_hours - utc_hours
-                if offset*3600 < 60:
+                if abs(offset*3600) < 120:
                     logentries.append(currinfo)
     if len(logentries) != 1:
         raise errors.HeaderCorrectionError("Bad number (%d) of entries " \
                     "in obslogs (%s) with correct source name " \
-                    "within 60 s of observation (%s) start time (UTC: %s)" % \
-                    (len(logentries), ", ".join(tosearch), arf.fn, obsutc))
+                    "within 120 s of observation (%s) start time (UTC: %s):\n%s" % \
+                    (len(logentries), ", ".join(tosearch), arf.fn, obsutc, \
+                        "\n".join([pprint.pformat(entry) for entry in logentries])))
     return logentries[0]
 
 
@@ -989,17 +1028,15 @@ def reduce_directory(path):
             shutil.rmtree(tmpdir)
 
 
-def launch_tasks(pool, db, action):
-    """Launch tasks acting on the relevant files.
-
+def get_todo(db, action):
+    """Get a list of rows to reduce.
+        
         Inputs:
-            pool: A multiprocessing.Pool object to add tasks to.
             db: A Database object to use.
             action: The action to perform.
 
         Outputs:
-            results: A list of multiprocessing.pool.AsyncResult objects 
-                for the tasks submitted to 'pool'.
+            rows: A list database rows to be reduced.
     """
     if action not in ACTIONS:
         raise errors.UnrecognizedValueError("The file action '%s' is not " \
@@ -1016,12 +1053,35 @@ def launch_tasks(pool, db, action):
         results = conn.execute(select)
         rows = results.fetchall()
         results.close()
+    return rows
+
+
+def launch_tasks(pool, db, action, rows):
+    """Launch tasks acting on the relevant files.
+
+        Inputs:
+            pool: A multiprocessing.Pool object to add tasks to.
+            db: A Database object to use.
+            action: The action to perform.
+            rows: List of rows to launch
+
+        Outputs:
+            results: A list of multiprocessing.pool.AsyncResult objects 
+                for the tasks submitted to 'pool'.
+    """
+    if action not in ACTIONS:
+        raise errors.UnrecognizedValueError("The file action '%s' is not " \
+                    "recognized. Valid file actions are '%s'." % \
+                    "', '".join(ACTIONS.keys()))
+
+    tablename, idcolumn, target_stage, actfunc = ACTIONS[action]
+    dbtable = db[tablename]
     results = []
     for row in rows:
         with db.transaction() as conn:
             update = dbtable.update().\
                         where(dbtable.c[idcolumn]==row[idcolumn]).\
-                        values(status='running', \
+                        values(status='submitted', \
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
         results.append(pool.apply_async(actfunc, args=(row,)))
@@ -1070,6 +1130,7 @@ def main():
     # Turn off progress counters when running as a 
     # indefinite loop
     config.show_progress = False
+    
     if debug.is_on('reduce'):
         warnings.warn("Using a dummy version of multiprocessing.Pool()!", \
                     errors.CoastGuardWarning)
@@ -1077,25 +1138,40 @@ def main():
     else:
         pool = multiprocessing.Pool(processes=args.numproc)
     try:
+        utils.print_info("Prioritizing %s" % ", ".join(args.priority), 0)
         db = database.Database()
         inprogress = []
         while True:
-            load_directories(db)
-            for action in ('group', 'combine', 'correct', 'clean'):
-                tasks = launch_tasks(pool, db, action)
+            ndirs = load_directories(db, priority=args.priority)
+            nfree = args.numproc - len(inprogress)
+            for action in ('clean', 'correct', 'combine', 'group'):
+                rows = get_todo(db, action)[:nfree]
+                tasks = launch_tasks(pool, db, action, rows)
                 inprogress.extend(tasks)
-                if tasks:
+                nsubmit = len(rows)
+                nfree -= nsubmit
+                if nsubmit:
                     utils.print_info("Launched %d '%s' tasks" % \
-                                        (len(tasks), action), 0)
+                                        (nsubmit, action), 0)
+            if args.priority and not nfree:
+                # No need to prioritize any more
+                utils.print_info("No longer prioritizing %s" % \
+                                    ", ".join(args.priority))
+                args.priority=[]
+            utils.print_info("[%s] - Num running: %d; Num submitted: %d" % \
+                        (datetime.datetime.now(), len(inprogress), nsubmit), 0)
             # Sleep between iterations
             time.sleep(args.sleep_time)
             # Check for completed tasks
             for ii in xrange(len(inprogress)-1, -1, -1):
                 result = inprogress[ii]
                 if result.ready():
-                    result.get()
-                    # No exception was raised
-                    inprogress.pop(ii)
+                    try:
+                        result.get()
+                    except errors.CoastGuardError:
+                        sys.stderr.write("".join(traceback.format_exception(*sys.exc_info())))
+                    finally:
+                        inprogress.pop(ii)
     except:
         # Close the pool
         pool.close()
@@ -1114,5 +1190,8 @@ if __name__ == '__main__':
                         default=300, \
                         help="Number of seconds to sleep between iterations " \
                             "of the main loop.")
+    parser.add_argument("-n", "--prioritize", action='append', default=[], \
+                        dest='priority', \
+                        help="Name of source to prioritize.")
     args = parser.parse_args()
     main()
