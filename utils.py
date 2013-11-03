@@ -447,24 +447,28 @@ def execute(cmd, stdout=subprocess.PIPE, stderr=sys.stderr, dir=None):
     else:
         shell=False
     pipe = subprocess.Popen(cmd, shell=shell, cwd=dir, \
-                            stdout=stdout, stderr=stderr)
+                            stdout=stdout, stderr=subprocess.PIPE)
     (stdoutdata, stderrdata) = pipe.communicate()
-    retcode = pipe.returncode 
-    if retcode < 0:
-        raise errors.SystemCallError("Execution of command (%s) terminated by signal (%s)!" % \
-                                (cmd, -retcode))
-    elif retcode > 0:
-        raise errors.SystemCallError("Execution of command (%s) failed with status (%s)!" % \
-                                (cmd, retcode))
-    else:
-        # Exit code is 0, which is "Success". Do nothing.
-        pass
     
     # Close file objects, if any
     if stdoutfile:
         stdout.close()
     if stderrfile:
+        stderr.write(stderrdata)
         stderr.close()
+    
+    retcode = pipe.returncode 
+    if retcode < 0:
+        raise errors.SystemCallError("Execution of command (%s) " \
+                                    "terminated by signal (%s)!" % \
+                                (cmd, -retcode))
+    elif retcode > 0:
+        raise errors.SystemCallError("Execution of command (%s) failed " \
+                                "with status (%s)!\nError output:\n%s" % \
+                                (cmd, retcode, stderrdata))
+    else:
+        # Exit code is 0, which is "Success". Do nothing.
+        pass
 
     return (stdoutdata, stderrdata)
 
