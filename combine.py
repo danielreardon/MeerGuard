@@ -224,13 +224,14 @@ def combine_subints(subdirs, subints, outdir=None):
     devnull = open(os.devnull)
     try:
         cmbsubints = []
+        parfn = utils.get_norm_parfile(os.path.join(subdirs[0], subints[0]))
         utils.print_info("Adding freq sub-bands for each sub-int...", 2)
         for ii, subint in enumerate(utils.show_progress(subints, width=50)):
             to_combine = [os.path.join(path, subint) for path in subdirs]
             outfn = os.path.join(tmpdir, "combined_%s" % subint)
             cmbsubints.append(outfn)
-            utils.execute(['psradd', '-q', '-R', '-o', outfn] + to_combine, \
-                        stderr=devnull)
+            utils.execute(['psradd', '-q', '-R', '-E', parfn, '-o', outfn] + \
+                        to_combine, stderr=devnull)
         outfn = os.path.join(outdir, "combined_%dsubints_%s" % \
                         (len(subints), subints[0]))
         utils.print_info("Combining %d sub-ints..." % len(cmbsubints), 1)

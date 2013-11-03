@@ -17,6 +17,7 @@ import inspect
 import datetime
 import argparse
 import string
+import tempfile
 
 import numpy as np
 
@@ -192,6 +193,32 @@ def print_debug(msg, category, stepsback=1):
             to_print = colour.cstring(msg, 'debug')
         sys.stderr.write(to_print + '\n')
         sys.stderr.flush()
+
+
+def get_norm_parfile(arfn):
+    """Given an archive file extract its ephemeris and normalise it.
+
+        Input:
+            arfn: Name of archive file.
+
+        Output:
+            parfn: Name of (temporary) parfile.
+    """
+    cmd = ['vap', '-E', arfn]
+    stdoutstr, stderrstr = execute(cmd)
+    parlines = ["% -15s%s" % tuple(line.split()[:2]) for line \
+                    in stdoutstr.split("\n") \
+                    if line.strip()]
+    
+    # Make a temporary file for the parfile
+    tmpfd, tmpfn = tempfile.mkstemp(suffix='.par', dir=config.tmp_directory)
+    tmpfile = os.fdopen(tmpfd, 'w')
+    tmpfile.write("\n".join(parlines)+"\n")
+    tmpfile.close()
+    print_info("Extracted parfile from %s. " \
+                "Normalised parfile output to %s." % \
+                (arfn, tmpfn), 3)
+    return tmpfn
 
 
 def get_md5sum(fn, block_size=16*8192):
