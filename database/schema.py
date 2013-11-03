@@ -6,6 +6,8 @@ FILE_STATUSES = ['new', 'submitted', 'failed', 'running', 'processed', 'done', '
 FILE_OBSTYPES = ['pulsar', 'cal']
 FILE_STAGES = ['combined', 'corrected', 'cleaned', 'calibrated']
 
+NOTELEN = 1024 # Number of characters for the note field
+
 # Create metadata object
 metadata = sa.MetaData()
 
@@ -29,6 +31,7 @@ sa.Table('directories', metadata, \
                     unique=True), \
         sa.Column('status', sa.Enum(*DIRECTORY_STATUSES), nullable=False, \
                     default='new'), \
+        sa.Column('note', sa.String(NOTELEN), nullable=True), \
         sa.Column('added', sa.DateTime, nullable=False, \
                     default=sa.func.now()), \
         sa.Column('last_modified', sa.DateTime, nullable=False, \
@@ -48,6 +51,7 @@ sa.Table('groupings', metadata, \
         sa.Column('listname', sa.String(512), nullable=False), \
         sa.Column('status', sa.Enum(*GROUPING_STATUSES), nullable=False, \
                     default='new'), \
+        sa.Column('note', sa.String(NOTELEN), nullable=True), \
         sa.Column('md5sum', sa.String(64), nullable=False, \
                     unique=True), \
         sa.Column('added', sa.DateTime, nullable=False, \
@@ -106,6 +110,7 @@ sa.Table('files', metadata, \
         sa.Column('sourcename', sa.String(32), nullable=False), \
         sa.Column('status', sa.Enum(*FILE_STATUSES), nullable=False, \
                     default='new'), \
+        sa.Column('note', sa.String(NOTELEN), nullable=True), \
         sa.Column('obstype', sa.Enum(*FILE_OBSTYPES), nullable=False), \
         sa.Column('stage', sa.Enum(*FILE_STAGES), nullable=False), \
         sa.Column('md5sum', sa.String(64), nullable=False, \

@@ -17,6 +17,9 @@ class CoastGuardError(Exception):
     def __str__(self):
         return colour.cstring(super(CoastGuardError, self).__str__(), 'error')
 
+    def get_message(self):
+        return super(CoastGuardError, self).__str__()
+
 
 class SystemCallError(CoastGuardError):
     pass
@@ -82,6 +85,9 @@ class FatalCoastGuardError(Exception):
 
     def __str__(self):
         return colour.cstring(super(FatalCoastGuardError, self).__str__(), 'error')
+
+    def get_message(self):
+        return super(CoastGuardError, self).__str__()
 
 
 class BadColumnNameError(FatalCoastGuardError):

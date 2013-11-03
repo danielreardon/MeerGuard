@@ -131,11 +131,19 @@ def load_groups(dirrow):
             values.append({'listpath': listpath, \
                            'listname': listname, \
                            'md5sum': utils.get_md5sum(listfn)})
-    except:
+    except Exception as exc:
+        if isinstance(exc, (errors.CoastGuardError, \
+                            errors.FatalCoastGuardError)):
+            msg = exc.get_message()
+        else:
+            msg = str(exc)
         with db.transaction() as conn:
             update = db.directories.update().\
                         where(db.directories.c.dir_id==dir_id).\
-                        values(status='failed')
+                        values(status='failed', \
+                                note='Grouping failed! %s: %s' % \
+                                            (type(exc).__name__, msg), \
+                                last_modified=datetime.datetime.now())
             conn.execute(update)
         raise
     else:
@@ -217,11 +225,18 @@ def load_combined_file(grprow):
                   'stage': 'combined', \
                   'md5sum': utils.get_md5sum(cmbfn), \
                   'filesize': os.path.getsize(cmbfn)}
-    except:
+    except Exception as exc:
+        if isinstance(exc, (errors.CoastGuardError, \
+                            errors.FatalCoastGuardError)):
+            msg = exc.get_message()
+        else:
+            msg = str(exc)
         with db.transaction() as conn:
             update = db.groupings.update(). \
                         where(db.groupings.c.group_id==group_id).\
                         values(status='failed', \
+                                note='Combining failed! %s: %s' % \
+                                            (type(exc).__name__, msg), \
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
         raise
@@ -311,11 +326,18 @@ def load_corrected_file(filerow):
                     {'diagnosticpath': os.path.dirname(lowresfn), \
                      'diagnosticname': os.path.basename(lowresfn)}
                    ]
-    except:
+    except Exception as exc:
+        if isinstance(exc, (errors.CoastGuardError, \
+                            errors.FatalCoastGuardError)):
+            msg = exc.get_message()
+        else:
+            msg = str(exc)
         with db.transaction() as conn:
             update = db.files.update(). \
                         where(db.files.c.file_id==parent_file_id).\
                         values(status='failed', \
+                                note='Correction failed! %s: %s' % \
+                                            (type(exc).__name__, msg), \
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
         raise
@@ -419,11 +441,18 @@ def load_cleaned_file(filerow):
                     {'diagnosticpath': os.path.dirname(lowresfn), \
                      'diagnosticname': os.path.basename(lowresfn)}
                    ]
-    except:
+    except Exception as exc:
+        if isinstance(exc, (errors.CoastGuardError, \
+                            errors.FatalCoastGuardError)):
+            msg = exc.get_message()
+        else:
+            msg = str(exc)
         with db.transaction() as conn:
             update = db.files.update(). \
                         where(db.files.c.file_id==parent_file_id).\
                         values(status='failed', \
+                                note='Cleaning failed! %s: %s' % \
+                                            (type(exc).__name__, msg), \
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
         raise
@@ -843,8 +872,8 @@ def get_obslog_entry(arf):
             tosearch.append(currfn)
             break
     if not tosearch:
-        raise errors.HeaderCorrectionError("Could not find a obslog file " \
-                                    "from before the obs date (%s)." % \
+        raise errors.HeaderCorrectionError("Could not find an obslog file " \
+                                    "for the obs date (%s)." % \
                                     obsdate.strftime("%Y-%b-%d"))
     
     logentries = []
@@ -864,11 +893,14 @@ def get_obslog_entry(arf):
                 if abs(offset*3600) < 120:
                     logentries.append(currinfo)
     if len(logentries) != 1:
-        raise errors.HeaderCorrectionError("Bad number (%d) of entries " \
-                    "in obslogs (%s) with correct source name " \
-                    "within 120 s of observation (%s) start time (UTC: %s):\n%s" % \
-                    (len(logentries), ", ".join(tosearch), arf.fn, obsutc, \
-                        "\n".join([pprint.pformat(entry) for entry in logentries])))
+        msg = "Bad number (%d) of entries " \
+              "in obslogs (%s) with correct source name " \
+              "within 120 s of observation (%s) start time (UTC: %s)" % \
+                    (len(logentries), ", ".join(tosearch), arf.fn, obsutc)
+        if len(logentries) > 1:
+            msg += ":\n%s" % \
+                    "\n".join([pprint.pformat(entry) for entry in logentries])
+        raise errors.HeaderCorrectionError(msg)
     return logentries[0]
 
 
@@ -1179,6 +1211,7 @@ def main():
         pool.join()
         # Re-raise the error
         raise
+
 
 if __name__ == '__main__':
     parser = utils.DefaultArguments(description="Automated reduction " \
