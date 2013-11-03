@@ -132,6 +132,8 @@ def load_groups(dirrow):
                            'listname': listname, \
                            'md5sum': utils.get_md5sum(listfn)})
     except Exception as exc:
+        # Add ID number to exception arguments
+        exc.args = (exc.args[0] + "\n(Dir ID: %d)" % dir_id)
         if isinstance(exc, (errors.CoastGuardError, \
                             errors.FatalCoastGuardError)):
             msg = exc.get_message()
@@ -226,6 +228,8 @@ def load_combined_file(grprow):
                   'md5sum': utils.get_md5sum(cmbfn), \
                   'filesize': os.path.getsize(cmbfn)}
     except Exception as exc:
+        # Add ID number to exception arguments
+        exc.args = (exc.args[0] + "\n(Group ID: %d)" % group_id)
         if isinstance(exc, (errors.CoastGuardError, \
                             errors.FatalCoastGuardError)):
             msg = exc.get_message()
@@ -327,6 +331,8 @@ def load_corrected_file(filerow):
                      'diagnosticname': os.path.basename(lowresfn)}
                    ]
     except Exception as exc:
+        # Add ID number to exception arguments
+        exc.args = (exc.args[0] + "\n(File ID: %d)" % file_id)
         if isinstance(exc, (errors.CoastGuardError, \
                             errors.FatalCoastGuardError)):
             msg = exc.get_message()
@@ -442,6 +448,8 @@ def load_cleaned_file(filerow):
                      'diagnosticname': os.path.basename(lowresfn)}
                    ]
     except Exception as exc:
+        # Add ID number to exception arguments
+        exc.args = (exc.args[0] + "\n(File ID: %d)" % file_id)
         if isinstance(exc, (errors.CoastGuardError, \
                             errors.FatalCoastGuardError)):
             msg = exc.get_message()
