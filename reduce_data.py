@@ -1147,6 +1147,7 @@ class DummyPool(object):
                     "multiprocessing.Pool.apply_async()!", \
                     errors.CoastGuardWarning)
         func(*args, **kwds)
+        return DummyResult()
 
     def join(self):
         warnings.warn("This is a dummy version of " \
@@ -1163,7 +1164,7 @@ def main():
     # indefinite loop
     config.show_progress = False
     
-    if debug.is_on('reduce'):
+    if args.numproc == 1:
         warnings.warn("Using a dummy version of multiprocessing.Pool()!", \
                     errors.CoastGuardWarning)
         pool = DummyPool()
@@ -1172,24 +1173,27 @@ def main():
     try:
         utils.print_info("Prioritizing %s" % ", ".join(args.priority), 0)
         db = database.Database()
+        ndirs = load_directories(db, priority=args.priority)
         inprogress = []
         while True:
-            ndirs = load_directories(db, priority=args.priority)
             nfree = args.numproc - len(inprogress)
+            nsubmit = 0
             for action in ('clean', 'correct', 'combine', 'group'):
                 rows = get_todo(db, action)[:nfree]
                 tasks = launch_tasks(pool, db, action, rows)
                 inprogress.extend(tasks)
-                nsubmit = len(rows)
-                nfree -= nsubmit
-                if nsubmit:
+                nnew = len(rows)
+                nfree -= nnew
+                nsubmit += nnew
+                if nnew:
                     utils.print_info("Launched %d '%s' tasks" % \
-                                        (nsubmit, action), 0)
+                                        (nnew, action), 0)
             if args.priority and not nfree:
                 # No need to prioritize any more
                 utils.print_info("No longer prioritizing %s" % \
                                     ", ".join(args.priority))
                 args.priority=[]
+                ndirs = load_directories(db, priority=args.priority)
             utils.print_info("[%s] - Num running: %d; Num submitted: %d" % \
                         (datetime.datetime.now(), len(inprogress), nsubmit), 0)
             # Sleep between iterations
