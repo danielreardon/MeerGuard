@@ -84,11 +84,12 @@ def group_subband_dirs(subdirs, maxspan=None, maxgap=None, \
 
     # Remove sub-bands that have too few subints
     thresh = tossfrac*nsubints
-    for ii, subdir in enumerate(reversed(subdirs)):
+    for ii in xrange(len(subdirs)-1, -1, -1):
+        subdir = subdirs[ii]
         if nperdir[subdir] < thresh:
-            utils.print_debug("Ignoring sub-ints from %s. " \
+            utils.print_info("Ignoring sub-ints from %s. " \
                     "It has too few sub-ints (%d < %d; tossfrac: %f)" % \
-                    (subdir, nperdir[subdir], thresh, tossfrac), 'combine')
+                    (subdir, nperdir[subdir], thresh, tossfrac), 2)
             subdirs.pop(ii)
             del nperdir[subdir]
 
