@@ -108,8 +108,8 @@ def group_subband_dirs(subdirs, maxspan=None, maxgap=None, \
                             (subint, noccurs[subint], nsubbands), 2)
             continue
         start = datetime.datetime.strptime(subint, "%Y-%m-%d-%H:%M:%S.ar")
-        if (start - filestart).seconds > maxspan or \
-                    (start - lastsubint).seconds > maxgap:
+        if ((start - filestart).total_seconds() > maxspan) or \
+                    ((start - lastsubint).total_seconds() > maxgap):
             filestart = start
             utils.print_debug("Starting a new file at %s" % \
                     filestart, 'combine')
