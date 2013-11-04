@@ -219,6 +219,15 @@ def load_combined_file(grprow):
         # Pre-compute values to insert because some might be
         # slow to generate
         arf = utils.ArchiveFile(cmbfn)
+        if arf['nchan'] > 512:
+            note = "Scrunched from %d to 512 channels" % arf['nchan']
+            utils.print_info("Reducing %s from %d to 512 channels" % \
+                                (cmbfn, arf['nchan']), 2)
+            # Scrunch to 512 channels
+            utils.execute(['pam', '-m', '--setnchn', '512', cmbfn])
+        else:
+            note = None
+
         if arf['name'].endswith("_R"):
             obstype = 'cal'
         else:
@@ -230,7 +239,8 @@ def load_combined_file(grprow):
                   'obstype': obstype, \
                   'stage': 'combined', \
                   'md5sum': utils.get_md5sum(cmbfn), \
-                  'filesize': os.path.getsize(cmbfn)}
+                  'filesize': os.path.getsize(cmbfn), \
+                  'note': note}
     except Exception as exc:
         utils.print_info("Exception caught while working on Group ID %d" % \
                             group_id, 0)
