@@ -103,6 +103,9 @@ def group_subband_dirs(subdirs, maxspan=None, maxgap=None, \
     groups = []
     for subint in sorted(noccurs):
         if noccurs[subint] < nsubbands:
+            utils.print_info("Ignoring sub-int (%s). It doesn't apear in all " \
+                            "subbands (only %d of %d)" % \
+                            (subint, noccurs[subint], nsubbands), 2)
             continue
         start = datetime.datetime.strptime(subint, "%Y-%m-%d-%H:%M:%S.ar")
         if (start - filestart).seconds > maxspan or \
