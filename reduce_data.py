@@ -854,7 +854,7 @@ def correct_header(arfn):
             # 7-beam receiver
             rcvr = 'P217-3'
         else:
-            raise utils.HeaderCorrectionError("Cannot determine receiver.")
+            raise errors.HeaderCorrectionError("Cannot determine receiver.")
     corrstr = "%s,be:name=asterix" % RCVR_INFO[rcvr]
     if arf['name'].endswith("_R"):
         corrstr += ",type=PolnCal"
@@ -864,7 +864,7 @@ def correct_header(arfn):
         # Correct coordinates
         try:
             obsinfo = get_obslog_entry(arf)
-        except HeaderCorrectionError as exc:
+        except errors.HeaderCorrectionError as exc:
             note = exc.get_message() + "\n(Could not correct coordinates)" 
         else:
             ra_deg, decl_deg = EFF.get_skyposn(obsinfo['alt'], obsinfo['az'], \
