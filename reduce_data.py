@@ -118,14 +118,20 @@ def load_groups(dirrow):
         ninserts = 0
         values = []
         logfns = []
-        for dirs, fns, band in zip(*make_groups(path)):
+        for dirs, fns in zip(*make_groups(path)):
             fns.sort()
-            listfn = os.path.join(config.output_location, 'groups', \
-                                    "%s_%s_%dsubints.txt" % \
-                                    (fns[0], band, len(fns)))
-            logfns.append(os.path.join(config.output_location, 'logs', \
-                                    "%s_%s_%dsubints.txt" % \
-                                    (fns[0], band, len(fns))))
+            arf = utils.ArchiveFile(os.path.join(dirs[0], fns[0]))
+            listoutdir = os.path.join(config.output_location, 'groups', arf['name'])
+            if not os.path.exists(listoutdir):
+                os.mkdir(listoutdir)
+            logoutdir = os.path.join(config.output_location, 'logs', arf['name']) 
+            if not os.path.exists(logoutdir):
+                os.mkdir(logoutdir)
+            baseoutname = "%s_%s_%s_%05d_%dsubints" % (arf['name'], arf['band'], \
+                                            arf['yyyymmdd'], arf['secs'], len(fns))
+            listfn = os.path.join(listoutdir, baseoutname+'.txt')
+            logfn = os.path.join(logoutdir, baseoutname+'.log')
+            logfns.append(logfn)
             combine.write_listing(dirs, fns, listfn)
             listpath, listname = os.path.split(listfn)
             values.append({'listpath': listpath, \
@@ -212,8 +218,11 @@ def load_combined_file(grprow):
     listfn = os.path.join(grprow['listpath'], grprow['listname'])
     try:
         subdirs, subints = combine.read_listing(listfn)
+        arf = utils.ArchiveFile(os.path.join(subdirs[0], subints[0]))
         # Combine the now-prepped subints
-        cmbdir = os.path.join(config.output_location, 'combined')
+        cmbdir = os.path.join(config.output_location, arf['name'], 'combined')
+        if not os.path.exists(cmbdir):
+            os.mkdir(cmbdir)
         cmbfn = make_combined_file(subdirs, subints, outdir=cmbdir)
  
         # Pre-compute values to insert because some might be
@@ -712,11 +721,9 @@ def make_groups(path):
             groups_list: List of lists of groups of files to be combined.
                 (NOTE: These are the file name only (i.e. no path)
                     Each file listed appears in each of 'usedirs'.)
-            band_list: List of band names.
     """
     usedirs_list = []
     groups_list = []
-    band_list = []
 
     # Try L-band and S-band
     for band, subdir_pattern in \
@@ -729,10 +736,9 @@ def make_groups(path):
             usedirs, groups = combine.group_subband_dirs(subdirs)
             # Keep track of the groups and directories used
             for grp in groups:    
-                band_list.append(band)
                 groups_list.append(grp)
                 usedirs_list.append(usedirs)
-    return usedirs_list, groups_list, band_list
+    return usedirs_list, groups_list
 
 
 def make_combined_file(subdirs, subints, outdir):

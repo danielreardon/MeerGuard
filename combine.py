@@ -235,8 +235,10 @@ def combine_subints(subdirs, subints, outdir=None):
             cmbsubints.append(outfn)
             utils.execute(['psradd', '-q', '-R', '-E', parfn, '-o', outfn] + \
                         to_combine, stderr=devnull)
-        outfn = os.path.join(outdir, "combined_%dsubints_%s" % \
-                        (len(subints), subints[0]))
+        arf = utils.ArchiveFile(os.path.join(tmpdir, "combined_%s" % subints[0]))
+        outfn = os.path.join(outdir, "%s_%s_%s_%05d_%dsubints.cmb" % \
+                        (arf['name'], arf['band'], arf['yyyymmdd'], \
+                            arf['secs'], len(subints)))
         utils.print_info("Combining %d sub-ints..." % len(cmbsubints), 1)
         utils.execute(['psradd', '-q', '-o', outfn] + cmbsubints, \
                      stderr=devnull)
