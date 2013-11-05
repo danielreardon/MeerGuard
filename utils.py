@@ -845,6 +845,18 @@ class ArchiveFile(object):
         self.hdr['pms'] = self.hdr['period']*1000.0
         self.hdr['inputfn'] = os.path.split(self.fn)[-1]
         self.hdr['inputbasenm'] = os.path.splitext(self.hdr['inputfn'])[0]
+        if self.hdr['freq'] < 1000:
+            self.hdr['band'] = 'Pband'
+        elif self.hdr['freq'] < 2000:
+            self.hdr['band'] = 'Lband'
+        elif self.hdr['freq'] < 4000:
+            self.hdr['band'] = 'Sband'
+        elif self.hdr['freq'] < 8000:
+            self.hdr['band'] = 'Cband'
+        elif self.hdr['freq'] < 12000:
+            self.hdr['band'] = 'Xband'
+        else:
+            self.hdr['band'] = 'Kband'
 
     def __getitem__(self, key):
         filterfunc = lambda x: x # A do-nothing filter
