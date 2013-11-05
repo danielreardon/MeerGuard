@@ -874,6 +874,8 @@ def correct_header(arfn):
             if decstr[0] not in ('-', '+'):
                 decstr = "+" + decstr
             corrstr += ",coord=%s%s" % (rastr, decstr)
+    else:
+        note = "No reason to correct coords."
     # Correct the file using 'psredit'
     utils.execute(['psredit', '-e', 'corr', '-c', corrstr, arfn], \
                     stderr=open(os.devnull))
