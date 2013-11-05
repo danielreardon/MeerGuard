@@ -10,6 +10,7 @@ import fnmatch
 import os.path
 import pprint
 import shutil
+import pytz
 import time
 import glob
 import sys
@@ -29,6 +30,10 @@ import log
 import pyriseset as rs
 
 EFF = rs.sites.load('effelsberg')
+UTC_TZ = pytz.utc
+BERLIN_TZ = pytz.timezone("Europe/Berlin")
+
+HOURS_PER_MIN = 1/60.0
 
 # Observing log fields:
 #                (name,   from-string converter)
@@ -321,7 +326,7 @@ def load_corrected_file(filerow):
                         (parent_file_id, filerow['status'], filerow['stage']))
     infn = os.path.join(filerow['filepath'], filerow['filename'])
     try:
-        corrfn, corrstr = correct_header(infn)
+        corrfn, corrstr, note = correct_header(infn)
 
         arf = utils.ArchiveFile(corrfn)
 
@@ -347,6 +352,7 @@ def load_corrected_file(filerow):
                   'sourcename': filerow['sourcename'], \
                   'obstype': filerow['obstype'], \
                   'stage': 'corrected', \
+                  'note': note, \
                   'md5sum': utils.get_md5sum(corrfn), \
                   'filesize': os.path.getsize(corrfn), \
                   'parent_file_id': parent_file_id}
@@ -820,7 +826,9 @@ def correct_header(arfn):
         Output:
             corrfn: The name of the corrected file.
             corrstr: The parameter string of corrections used with psredit.
+            note: A note about header correction
     """
+    note = None
     # Load archive
     arf = utils.ArchiveFile(arfn)
     if arf['rcvr'].upper() in RCVR_INFO:
@@ -854,14 +862,18 @@ def correct_header(arfn):
         corrstr += ",type=Pulsar"
     if arf['name'].endswith('_R') or arf['ra'].startswith('00:00:00'):
         # Correct coordinates
-        obsinfo = get_obslog_entry(arf)
-        ra_deg, decl_deg = EFF.get_skyposn(obsinfo['alt'], obsinfo['az'], \
-                                            lst=obsinfo['lststart'])
-        rastr = rs.utils.deg_to_hmsstr(ra_deg, decpnts=3)[0]
-        decstr = rs.utils.deg_to_dmsstr(decl_deg, decpnts=2)[0]
-        if decstr[0] not in ('-', '+'):
-            decstr = "+" + decstr
-        corrstr += ",coord=%s%s" % (rastr, decstr)
+        try:
+            obsinfo = get_obslog_entry(arf)
+        except HeaderCorrectionError as exc:
+            note = exc.get_message() + "\n(Could not correct coordinates)" 
+        else:
+            ra_deg, decl_deg = EFF.get_skyposn(obsinfo['alt'], obsinfo['az'], \
+                                                lst=obsinfo['lststart'])
+            rastr = rs.utils.deg_to_hmsstr(ra_deg, decpnts=3)[0]
+            decstr = rs.utils.deg_to_dmsstr(decl_deg, decpnts=2)[0]
+            if decstr[0] not in ('-', '+'):
+                decstr = "+" + decstr
+            corrstr += ",coord=%s%s" % (rastr, decstr)
     # Correct the file using 'psredit'
     utils.execute(['psredit', '-e', 'corr', '-c', corrstr, arfn], \
                     stderr=open(os.devnull))
@@ -871,7 +883,7 @@ def correct_header(arfn):
     if not os.path.isfile(corrfn):
         raise errors.HeaderCorrectionError("The corrected file (%s) does not " \
                                 "exist!" % corrfn)
-    return corrfn, corrstr
+    return corrfn, corrstr, note
 
 
 def get_obslog_entry(arf):
@@ -884,9 +896,13 @@ def get_obslog_entry(arf):
             obsinfo: A dictionary of observing information.
     """
     # Get date of observation
-    obsdatetime = rs.utils.mjd_to_datetime(arf['mjd'])
-    obsutc = obsdatetime.time()
-    obsdate = obsdatetime.date()
+    obsdt_utc = rs.utils.mjd_to_datetime(arf['mjd'])
+    obsdt_utc = UTC_TZ.localize(obsdt_utc)
+    obsdt_local = obsdt_utc.astimezone(BERLIN_TZ)
+    obsutc = obsdt_utc.time()
+    obsdate = obsdt_local.date() # NOTE: discrepancy between timezones for time and date
+                                 # This is a bad idea, but is done to be consistent with
+                                 # what is used in the observation log files.
     obsutc_hours = obsutc.hour+(obsutc.minute+(obsutc.second)/60.0)/60.0
 
     # Get log file
@@ -911,21 +927,27 @@ def get_obslog_entry(arf):
                                     obsdate.strftime("%Y-%b-%d"))
     
     logentries = []
+    check = False
     for obslogfn in tosearch:
         with open(obslogfn, 'r') as obslog:
             for line in obslog:
                 valstrs = line.split()
                 if len(valstrs) < len(OBSLOG_FIELDS):
+                    # Not a valid observation log entry
                     continue
                 currinfo = {}
                 for (key, caster), valstr in zip(OBSLOG_FIELDS, valstrs):
                     currinfo[key] = caster(valstr)
-                if utils.get_prefname(currinfo['name']) != arf['name']:
-                    continue
-                utc_hours = currinfo['utcstart'][0]
-                offset = obsutc_hours - utc_hours
-                if abs(offset*3600) < 120:
-                    logentries.append(currinfo)
+                if check:
+                    if (obsdate >= previnfo['localdate']) and \
+                            (obsdate <= currinfo['localdate']) and \
+                            (obsutc_hours >= (previnfo['utcstart']-HOURS_PER_MIN)) and \
+                            (obsutc_hours <= (currinfo['utcstart']+HOURS_PER_MIN)):
+                        logentries.append(previnfo)
+                # Check in next iteration if observation's source name matches
+                # that of the current obslog entry
+                check = (utils.get_prefname(currinfo['name']) == arf['name'])
+                previnfo = currinfo
     if len(logentries) != 1:
         msg = "Bad number (%d) of entries " \
               "in obslogs (%s) with correct source name " \
