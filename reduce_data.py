@@ -128,10 +128,10 @@ def load_groups(dirrow):
             arf = utils.ArchiveFile(os.path.join(dirs[0], fns[0]))
             listoutdir = os.path.join(config.output_location, 'groups', arf['name'])
             if not os.path.exists(listoutdir):
-                os.mkdir(listoutdir)
+                os.makedirs(listoutdir)
             logoutdir = os.path.join(config.output_location, 'logs', arf['name']) 
             if not os.path.exists(logoutdir):
-                os.mkdir(logoutdir)
+                os.makedirs(logoutdir)
             baseoutname = "%s_%s_%s_%05d_%dsubints" % (arf['name'], arf['band'], \
                                             arf['yyyymmdd'], arf['secs'], len(fns))
             listfn = os.path.join(listoutdir, baseoutname+'.txt')
@@ -227,7 +227,7 @@ def load_combined_file(grprow):
         # Combine the now-prepped subints
         cmbdir = os.path.join(config.output_location, arf['name'], 'combined')
         if not os.path.exists(cmbdir):
-            os.mkdir(cmbdir)
+            os.makedirs(cmbdir)
         cmbfn = make_combined_file(subdirs, subints, outdir=cmbdir)
  
         # Pre-compute values to insert because some might be
