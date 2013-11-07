@@ -67,7 +67,8 @@ site_to_telescope = {'i': 'WSRT',
                      'arecibo':'Arecibo', 
                      'ao':'Arecibo',
                      'ao 305m':'Arecibo', 
-                     '3':'Arecibo'}
+                     '3':'Arecibo',
+                     'lofar':'LOFAR'}
 
 # A cache for pulsar preferred names
 prefname_cache = {}
