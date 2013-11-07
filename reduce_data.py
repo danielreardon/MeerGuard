@@ -258,10 +258,9 @@ def load_combined_file(grprow):
     except Exception as exc:
         utils.print_info("Exception caught while working on Group ID %d" % \
                             group_id, 0)
-        # Add ID number to exception arguments
-        exc.args = (exc.args[0] + "\n(Group ID: %d)" % group_id,)
         if isinstance(exc, (errors.CoastGuardError, \
                             errors.FatalCoastGuardError)):
+            # Get error message without colours mark-up
             msg = exc.get_message()
         else:
             msg = str(exc)
