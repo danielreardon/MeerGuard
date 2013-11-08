@@ -196,7 +196,9 @@ def print_debug(msg, category, stepsback=1):
 
 
 def get_norm_parfile(arfn):
-    """Given an archive file extract its ephemeris and normalise it.
+    """Given an archive file extract its ephemeris and normalise it
+        by removing empty lines, fit-flags, uncertainties, and
+        polyco-creation related lines (ie "TZ*")
 
         Input:
             arfn: Name of archive file.
@@ -208,7 +210,7 @@ def get_norm_parfile(arfn):
     stdoutstr, stderrstr = execute(cmd)
     parlines = ["% -15s%s" % tuple(line.split()[:2]) for line \
                     in stdoutstr.split("\n") \
-                    if line.strip()]
+                    if line.strip() and ("TZ" not in line)]
     
     # Make a temporary file for the parfile
     tmpfd, tmpfn = tempfile.mkstemp(suffix='.par', dir=config.tmp_directory)
