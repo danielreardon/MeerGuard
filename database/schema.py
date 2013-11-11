@@ -35,8 +35,6 @@ sa.Table('sources', metadata, \
 sa.Table('directories', metadata, \
         sa.Column('dir_id', sa.Integer, primary_key=True, \
                     autoincrement=True, nullable=False), \
-        sa.Column('source_id', sa.Integer, \
-                    sa.ForeignKey("sources.source_id", name="fk_dirs_source")
         sa.Column('path', sa.String(512), nullable=False, \
                     unique=True), \
         sa.Column('status', sa.Enum(*DIRECTORY_STATUSES), nullable=False, \
