@@ -23,10 +23,20 @@ sa.Table('versions', metadata, \
         mysql_engine='InnoDB', mysql_charset='ascii')
 
 
+# Define sources table
+sa.Table('sources', metadata, \
+        sa.Column('source_id', sa.Integer, primary_key=True, \
+                    autoincrement=True, nullable=False), \
+        sa.Column('sourcename', sa.String(32), nullable=False), \
+        mysql_engine='InnoDB', mysql_charset='ascii')
+
+
 # Define directoies table
 sa.Table('directories', metadata, \
         sa.Column('dir_id', sa.Integer, primary_key=True, \
                     autoincrement=True, nullable=False), \
+        sa.Column('source_id', sa.Integer, \
+                    sa.ForeignKey("sources.source_id", name="fk_dirs_source")
         sa.Column('path', sa.String(512), nullable=False, \
                     unique=True), \
         sa.Column('status', sa.Enum(*DIRECTORY_STATUSES), nullable=False, \
@@ -47,6 +57,8 @@ sa.Table('groupings', metadata, \
                     sa.ForeignKey("directories.dir_id", name="fk_group_dir")), \
         sa.Column('version_id', sa.Integer, \
                     sa.ForeignKey("versions.version_id", name="fk_group_ver")), \
+        sa.Column('source_id', sa.Integer, \
+                    sa.ForeignKey("sources.source_id", name="fk_group_source")
         sa.Column('listpath', sa.String(512), nullable=False), \
         sa.Column('listname', sa.String(512), nullable=False), \
         sa.Column('status', sa.Enum(*GROUPING_STATUSES), nullable=False, \
@@ -107,7 +119,8 @@ sa.Table('files', metadata, \
                     sa.ForeignKey("versions.version_id", name="fk_files_ver")), \
         sa.Column('filepath', sa.String(512), nullable=False), \
         sa.Column('filename', sa.String(512), nullable=False), \
-        sa.Column('sourcename', sa.String(32), nullable=False), \
+        sa.Column('source_id', sa.Integer, \
+                    sa.ForeignKey("sources.source_id", name="fk_files_source")
         sa.Column('status', sa.Enum(*FILE_STATUSES), nullable=False, \
                     default='new'), \
         sa.Column('note', sa.String(NOTELEN), nullable=True), \
