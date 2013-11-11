@@ -303,11 +303,11 @@ if __name__ == "__main__":
             "over previous options. (Default: Sort by MJD, receiver, " \
             "then source name.)")
     parser.add_option('--numcols', dest='numcols', \
-        default=1, type='int', \
+        default=2, type='int', \
         help="Number of columns to arrange plots into. (Default: use " \
             "a one-column format.)")
     parser.add_option('--numrows', dest='numrows', \
-        default=None, type='int', \
+        default=10, type='int', \
         help="Number of rows to arrange plots into. (Default: use " \
             "as many rows as necessary to fit onto one page.)")
     parser.add_option('-t', '--show-template', dest='show_template', \
@@ -315,7 +315,11 @@ if __name__ == "__main__":
         help="Overlay the template of each pulsar (if available). " \
             "(Default: Don't bother with the template.)")
     parser.add_option('-i', '--info-text', dest='info_text', \
-        default="MJD: %(mjd).2f\n%(rcvr)s  (%(length)d s)", \
+        default="(DM=%(dm).2f pc$\,$cm$^{-3}$, P=%(pms).2f ms)\n" \
+                "MJD: %(mjd).2f (%(date:%b %d, %Y)s)\n" \
+                "%(rcvr)s\n" \
+                "f=%(freq).1f MHz, BW=%(bw)d MHz\n" \
+                "T$_{obs}$=%(length)d s\nSNR=%(snr).1f", \
         help="Text to display next to each panel. (Default: " \
             "display MJD, receiver, and observation length.)")
     options, args = parser.parse_args()
