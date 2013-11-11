@@ -116,6 +116,8 @@ sa.Table('files', metadata, \
         sa.Column('md5sum', sa.String(64), nullable=False, \
                     unique=True), \
         sa.Column('filesize', sa.Integer, nullable=False), \
+        sa.Column('is_deleted', sa.Boolean, nullable=False, \
+                    default=False), \
         sa.Column('added', sa.DateTime, nullable=False, \
                     default=sa.func.now()), \
         sa.Column('last_modified', sa.DateTime, nullable=False, \
