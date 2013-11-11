@@ -52,6 +52,7 @@ RCVR_INFO = {'P217-3': 'rcvr:name=P217-3,rcvr:hand=-1,rcvr:basis=cir', \
              'S110-1': 'rcvr:name=S110-1,rcvr:hand=-1,rcvr:basis=cir', \
              'P200-3': 'rcvr:name=P200-3,rcvr:hand=-1,rcvr:basis=cir'}
 
+
 def load_directories(db, *args, **kwargs):
     """Search for directories containing asterix data.
         For each newly found entry, insert a row in the
@@ -169,7 +170,8 @@ def load_groups(dirrow):
             for vals, logfn in zip(values, logfns):
                 insert = db.groupings.insert().\
                             values(version_id = version_id, \
-                                   dir_id = dir_id)
+                                   dir_id = dir_id, \
+                                   sourcename = arf['name'])
                 result = conn.execute(insert, vals)
                 group_id = result.inserted_primary_key[0]
                 # Insert log
