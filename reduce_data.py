@@ -1119,12 +1119,15 @@ def reduce_directory(path):
             shutil.rmtree(tmpdir)
 
 
-def get_todo(db, action):
+def get_todo(db, action, priorities=None):
     """Get a list of rows to reduce.
         
         Inputs:
             db: A Database object to use.
             action: The action to perform.
+            priorities: A list of source names to reduce.
+                NOTE: sources not listed in priorities will never be reduced
+                (Default: Reduce all sources).
 
         Outputs:
             rows: A list database rows to be reduced.
@@ -1139,6 +1142,11 @@ def get_todo(db, action):
     whereclause = dbtable.c.status=='new'
     if target_stage is not None:
         whereclause &= dbtable.c.stage==target_stage
+    if priorities is not None:
+        tmp = dbtable.c.sourcename.like(priorities[0])
+        for priority in priorities[1:]:
+            tmp |= dbtable.c.sourcename.like(priority)
+        whereclause &= tmp
     with db.transaction() as conn:
         select = db.select([dbtable]).where(whereclause)
         results = conn.execute(select)
@@ -1205,7 +1213,10 @@ class DummyPool(object):
         warnings.warn("This is a dummy version of " \
                     "multiprocessing.Pool.apply_async()!", \
                     errors.CoastGuardWarning)
-        func(*args, **kwds)
+        try:
+            func(*args, **kwds)
+        except errors.CoastGuardError:
+            sys.stderr.write("".join(traceback.format_exception(*sys.exc_info())))
         return DummyResult()
 
     def join(self):
@@ -1219,10 +1230,6 @@ class DummyPool(object):
                     errors.CoastGuardWarning)
 
 def main():
-    # Turn off progress counters when running as a 
-    # indefinite loop
-    config.show_progress = False
-    
     if args.numproc == 1:
         warnings.warn("Using a dummy version of multiprocessing.Pool()!", \
                     errors.CoastGuardWarning)
@@ -1232,13 +1239,29 @@ def main():
     try:
         utils.print_info("Prioritizing %s" % ", ".join(args.priority), 0)
         db = database.Database()
-        ndirs = load_directories(db, priority=args.priority)
+        
+        # Load raw data directories
+        print "Loading directories..."
+        ndirs = load_directories(db)
+        # Group data immediately
+        dirrows = get_todo(db, 'group')
+        print "Grouping subints..."
+        for dirrow in utils.show_progress(dirrows, width=50):
+            try:
+                load_groups(dirrow)
+            except errors.CoastGuardError:
+                sys.stderr.write("".join(traceback.format_exception(*sys.exc_info())))
+
+        # Turn off progress counters before we enter the main loop
+        config.show_progress = False
+    
         inprogress = []
+        print "Entering main loop..."
         while True:
             nfree = args.numproc - len(inprogress)
             nsubmit = 0
-            for action in ('clean', 'correct', 'combine', 'group'):
-                rows = get_todo(db, action)[:nfree]
+            for action in ('clean', 'correct', 'combine'):
+                rows = get_todo(db, action, priorities=args.priority)[:nfree]
                 tasks = launch_tasks(pool, db, action, rows)
                 inprogress.extend(tasks)
                 nnew = len(rows)
@@ -1247,12 +1270,6 @@ def main():
                 if nnew:
                     utils.print_info("Launched %d '%s' tasks" % \
                                         (nnew, action), 0)
-            if args.priority and not nfree:
-                # No need to prioritize any more
-                utils.print_info("No longer prioritizing %s" % \
-                                    ", ".join(args.priority))
-                args.priority=[]
-                ndirs = load_directories(db, priority=args.priority)
             utils.print_info("[%s] - Num running: %d; Num submitted: %d" % \
                         (datetime.datetime.now(), len(inprogress), nsubmit), 0)
             # Sleep between iterations
