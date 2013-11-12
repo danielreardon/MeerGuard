@@ -97,26 +97,35 @@ def group_subband_dirs(subdirs, maxspan=None, maxgap=None, \
             noccurs.subtract([os.path.basename(fn) for fn in fns])
             nsubbands -= 1
 
+    # Remove subints that are no longer included in any subbands
+    to_del = []
+    for fn in noccurs:
+        if not noccurs[fn]:
+            to_del.append(fn)
+    for fn in to_del:
+        del noccurs[fn]
+    
     # Now combine subints
     lastsubint = datetime.datetime.min
     filestart = datetime.datetime.min
     groups = []
-    for subint in sorted(noccurs):
-        if noccurs[subint] < nsubbands:
-            utils.print_info("Ignoring sub-int (%s). It doesn't apear in all " \
-                            "subbands (only %d of %d)" % \
-                            (subint, noccurs[subint], nsubbands), 2)
-            continue
-        start = datetime.datetime.strptime(subint, "%Y-%m-%d-%H:%M:%S.ar")
-        if ((start - filestart).total_seconds() > maxspan) or \
-                    ((start - lastsubint).total_seconds() > maxgap):
-            filestart = start
-            utils.print_debug("Starting a new file at %s" % \
-                    filestart, 'combine')
-            # Start a new file
-            groups.append([])
-        groups[-1].append(subint)
-        lastsubint = start
+    if nsubbands:
+        for subint in sorted(noccurs):
+            if noccurs[subint] < nsubbands:
+                utils.print_info("Ignoring sub-int (%s). It doesn't apear in all " \
+                                "subbands (only %d of %d)" % \
+                                (subint, noccurs[subint], nsubbands), 2)
+                continue
+            start = datetime.datetime.strptime(subint, "%Y-%m-%d-%H:%M:%S.ar")
+            if ((start - filestart).total_seconds() > maxspan) or \
+                        ((start - lastsubint).total_seconds() > maxgap):
+                filestart = start
+                utils.print_debug("Starting a new file at %s" % \
+                        filestart, 'combine')
+                # Start a new file
+                groups.append([])
+            groups[-1].append(subint)
+            lastsubint = start
     nused = sum([len(grp) for grp in groups])
     utils.print_info("Grouped %d files from %d directories into %d groups.\n" \
                      "(Threw out %d directories and %d files)" % \
