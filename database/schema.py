@@ -134,3 +134,18 @@ sa.Table('files', metadata, \
                     default=sa.func.now()), \
         sa.UniqueConstraint('filepath', 'filename'), \
         mysql_engine='InnoDB', mysql_charset='ascii')
+
+
+# Define calibrator database table
+sa.Table('caldbs', metadata, \
+        sa.Column('caldb_id', sa.Integer, primary_key=True, \
+                    autoincrement=True, nullable=False), \
+        sa.Column('caldbpath', a.String(512), nullable=False), \
+        sa.Column('caldbname', sa.String(512), nullable=False), \
+        sa.Column('added', sa.DateTime, nullable=False, \
+                    default=sa.func.now()), \
+        sa.Column('last_modified', sa.DateTime, nullable=False, \
+                    default=sa.func.now()), \
+        sa.UniqueConstraint('filepath', 'filename'), \
+        mysql_engine='InnoDB', mysql_charset='ascii')
+
