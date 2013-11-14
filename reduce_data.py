@@ -1315,7 +1315,7 @@ if __name__ == '__main__':
                         default=300, \
                         help="Number of seconds to sleep between iterations " \
                             "of the main loop.")
-    parser.add_argument("-n", "--prioritize", action='append', default=[], \
+    parser.add_argument("-n", "--prioritize", action='append', default=None, \
                         dest='priority', \
                         help="Name of source to prioritize.")
     args = parser.parse_args()
