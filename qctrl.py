@@ -1,0 +1,381 @@
+#!/usr/bin/env python
+
+"""
+An interactive graphical user interface to check the quality
+of automatically reduced data files.
+
+Patrick Lazarus, Nov 12, 2013
+"""
+
+import sys
+import os
+import os.path
+import subprocess
+import datetime
+import tempfile
+import shutil
+
+import PyQt4 as qt
+from PyQt4 import QtGui as qtgui
+from PyQt4 import QtCore as qtcore
+
+import config
+import database
+import utils
+
+class QualityControl(qtgui.QWidget):
+    """Quality control window.
+    """
+
+    def __init__(self):
+        super(QualityControl, self).__init__()
+        # Set up the window
+        self.__setup()
+        self.__add_widgets()
+        self.__set_keyboard_shortcuts()
+
+        # Establish a database object
+        self.db = database.Database()
+        self.file_id = None
+        self.diagplots = []
+        self.idiag = 0
+
+    def __setup(self):
+        # Geometry arguments: x, y, width, height (all in px)
+        #self.setGeometry(0, 0, 900, 700)
+        self.setWindowTitle("Coast Guard Quality Control")
+
+    def __set_keyboard_shortcuts(self):
+        qtgui.QShortcut(qtcore.Qt.Key_Space, self, self.cycle_diag_fwd)
+        qtgui.QShortcut(qtgui.QKeySequence(qtcore.Qt.SHIFT+qtcore.Qt.Key_Space), \
+                            self, self.cycle_diag_rev)
+        qtgui.QShortcut(qtcore.Qt.Key_G, self, self.set_file_as_good)
+        qtgui.QShortcut(qtcore.Qt.Key_B, self, self.set_file_as_bad)
+        qtgui.QShortcut(qtcore.Qt.Key_Z, self, self.zap_file_manually)
+        qtgui.QShortcut(qtcore.Qt.Key_S, self, self.advance_file)
+        qtgui.QShortcut(qtcore.Qt.Key_Q, self, self.close)
+
+    def __add_widgets(self):
+        self.image_holder = qtgui.QLabel()
+        self.plot_lbl = qtgui.QLabel()
+        
+        prev_button = qtgui.QPushButton("Prev. Diagnostic Plot")
+        prev_button.clicked.connect(self.cycle_diag_rev)
+        next_button = qtgui.QPushButton("Next Diagnostic Plot")
+        next_button.clicked.connect(self.cycle_diag_fwd)
+
+        good_button = qtgui.QPushButton("&Good")
+        good_button.clicked.connect(self.set_file_as_good)
+        bad_button = qtgui.QPushButton("&Bad")
+        bad_button.clicked.connect(self.set_file_as_bad)
+        zap_button = qtgui.QPushButton("&Zap")
+        zap_button.clicked.connect(self.zap_file_manually)
+        skip_button = qtgui.QPushButton("&Skip")
+        skip_button.clicked.connect(self.advance_file)
+
+        # Counter for the number of plots left
+        self.lcd = qtgui.QLCDNumber(4)
+        self.lcd.setSegmentStyle(2) # Flat style
+
+        plotctrl_box = qtgui.QHBoxLayout()
+        plotctrl_box.addWidget(prev_button)
+        plotctrl_box.addStretch(1)
+        plotctrl_box.addWidget(self.plot_lbl)
+        plotctrl_box.addStretch(1)
+        plotctrl_box.addWidget(next_button)
+
+        left_box = qtgui.QVBoxLayout()
+        left_box.addWidget(self.image_holder)
+        left_box.addStretch(1)
+        left_box.addLayout(plotctrl_box)
+      
+        right_box = qtgui.QVBoxLayout()
+        right_box.addWidget(good_button)
+        right_box.addWidget(bad_button)
+        right_box.addWidget(zap_button)
+        right_box.addWidget(skip_button)
+        right_box.addStretch(1)
+        right_box.addWidget(qtgui.QLabel("Num left:"))
+        right_box.addWidget(self.lcd)
+
+        main_box = qtgui.QHBoxLayout()
+        main_box.addLayout(left_box)
+        main_box.addLayout(right_box)
+
+        self.setLayout(main_box)
+
+    def set_file_as_good(self):
+        if self.file_id:
+            with self.db.transaction() as conn:
+                update = self.db.files.update().\
+                            where(self.db.files.c.file_id==self.file_id).\
+                            values(is_checked=True, \
+                                    status='checked', \
+                                    last_modified=datetime.datetime.now())
+                conn.execute(update)
+            self.advance_file()
+
+    def set_file_as_bad(self):
+        if self.file_id:
+            with self.db.transaction() as conn:
+                update = self.db.files.update().\
+                            where(self.db.files.c.file_id==self.file_id).\
+                            values(is_checked=True, \
+                                    status='failed', \
+                                    note='File failed quality control. " \
+                                        "Observation is unsalvageable!', \
+                                    last_modified=datetime.datetime.now())
+                conn.execute(update)
+            self.advance_file()
+
+    def advance_file(self):
+        if self.files_to_check:
+            file_id = self.files_to_check.pop()
+            self.set_file(file_id)
+            # Decrement number of files left
+            self.lcd.display(len(self.files_to_check)+1)
+        else:
+            self.image_holder.setText("No files on stack...")
+            self.lcd.display(0)
+
+    def cycle_diag_fwd(self):
+        self.idiag = (self.idiag + 1) % len(self.diagplots)
+        self.display_file()
+
+    def cycle_diag_rev(self):
+        self.idiag = (self.idiag - 1) % len(self.diagplots)
+        self.display_file()
+
+    def display_file(self):
+        # Display diagnostic
+        diagfn = self.diagplots[self.idiag]
+        image = qtgui.QPixmap(diagfn)
+        self.image_holder.setPixmap(image)
+        # Display text information
+        self.plot_lbl.setText(os.path.basename(diagfn))
+
+    def set_file(self, file_id):
+        if self.file_id != file_id:
+            with self.db.transaction() as conn:
+                # Get file information from DB
+                select = self.db.select([self.db.files]).\
+                        where(self.db.files.c.file_id==file_id)
+                result = conn.execute(select)
+                rows = result.fetchall()
+                if len(rows) != 1:
+                    raise errors.DatabaseError("Bad number of rows (%d) " \
+                                        "with file_id=%d!" % \
+                                        (len(rows), file_id))
+                ff = rows[0]
+                # Get diagnostics from DB
+                select = self.db.select([self.db.diagnostics]).\
+                        where(self.db.diagnostics.c.file_id==file_id)
+                result = conn.execute(select)
+                rows = result.fetchall()
+                if len(rows) == 0:
+                    raise errors.DiagnosticError("No diagnostics for " \
+                                "file (ID: %d) '%s'!" % \
+                                (file_id, os.path.join(ff['filepath'], \
+                                                    ff['filename'])))
+                self.diagplots = [os.path.join(row['diagnosticpath'], \
+                                    row['diagnosticname']) for row in rows]
+                self.idiag = 0
+            self.file_id = file_id
+            self.fileinfo = ff
+            self.display_file()
+        
+    def get_files_to_check(self, priorities=None):
+        whereclause = (self.db.files.c.is_checked==False) & \
+                                (self.db.files.c.stage=='cleaned') & \
+                                (self.db.files.c.status=='new')
+        if priorities is not None:
+            tmp = self.db.files.c.sourcename.like(priorities[0])
+            for priority in priorities[1:]:
+                tmp |= self.db.files.c.sourcename.like(priority)
+            whereclause &= tmp
+        with self.db.transaction() as conn:
+            select = self.db.select([self.db.files.c.file_id]).\
+                        where(whereclause)
+            result = conn.execute(select)
+            rows = result.fetchall()
+            result.close()
+        self.files_to_check = [row['file_id'] for row in rows]
+        self.files_to_check.sort()
+        self.files_to_check.reverse()
+        self.advance_file()
+
+    def zap_file_manually(self):
+        arfn = os.path.join(self.fileinfo['filepath'], \
+                            self.fileinfo['filename'])
+       
+        zapdialog = ZappingDialog()
+        zapdialog.show()
+        # This blocks input to the main quality control window
+        out = zapdialog.zap(arfn)
+        if out is not None and os.path.isfile(out):
+            # Successful! Insert entry into DB.
+            outdir, outfn = os.path.split(out)
+            values = {'filepath': outdir, \
+                      'filename': outfn, \
+                      'sourcename': self.fileinfo['sourcename'], \
+                      'obstype': self.fileinfo['obstype'], \
+                      'stage': 'manual', \
+                      'note': "Manually zapped", \
+                      'is_checked': True, \
+                      'md5sum': utils.get_md5sum(out), \
+                      'filesize': os.path.getsize(out), \
+                      'parent_file_id': self.file_id}
+
+            with self.db.transaction() as conn:
+                version_id = utils.get_version_id(self.db)
+                # Insert new entry
+                insert = self.db.files.insert().\
+                        values(version_id = version_id, \
+                                group_id = self.fileinfo['group_id'])
+                result = conn.execute(insert, values)
+                file_id = result.inserted_primary_key[0]
+                # Update parent file's entry
+                update = self.db.files.update().\
+                        where(self.db.files.c.file_id==self.file_id).\
+                        values(is_checked=True, \
+                                status='checked', \
+                                note="File had to be cleaned by hand.", \
+                                last_modified=datetime.datetime.now())
+                result = conn.execute(update)
+            self.advance_file()       
+
+
+class ZappingDialog(qtgui.QDialog):
+    def __init__(self):
+        super(ZappingDialog, self).__init__()
+        # Set up with dialog
+        self.__setup()
+        self.__add_widgets()
+        self.activateWindow()
+        self.raise_()
+
+    def __setup(self):
+        self.setWindowTitle("Zapping...")
+        self.setModal(True)
+        self.setVisible(True)
+
+    def __add_widgets(self):
+        lbl = qtgui.QLabel()
+        lbl.setText("<b>Running pzrzap...</b>")
+        self.textedit = qtgui.QPlainTextEdit()
+        self.textedit.setReadOnly(True)
+        self.textedit.setFont(qtgui.QFont("Courier"))
+
+        main_layout = qtgui.QVBoxLayout()
+        main_layout.addWidget(lbl)
+        main_layout.addWidget(self.textedit)
+        self.setLayout(main_layout)
+
+    def __on_finish(self, exitcode):
+        msg_dialog = qtgui.QMessageBox()
+        insize = os.path.getsize(self.infn)
+        outsize = os.path.getsize(self.outfn)
+        if exitcode != 0:
+            success = False
+            msg_dialog.setText("Zapping failed!")
+        elif not outsize:
+            success = False
+            msg_dialog.setText("Output zapped file is empty.")
+            msg_dialog.setInformativeText("Did you forget to save?")
+            msg_dialog.setStandardButtons(qtgui.QMessageBox.Yes | \
+                                            qtgui.QMessageBox.No)
+            msg_dialog.setDefaultButton(qtgui.QMessageBox.Yes)
+        elif outsize != insize:
+            success = False
+            msg_dialog.setText("Output zapped file's size (%d) is " \
+                    "different than input file's size (%s: %d bytes)" % \
+                    (outsize, self.infn, insize))
+        else:
+            success = True
+            msg_dialog.setText("The archive has been zapped.")
+            msg_dialog.setInformativeText("Save zapped file?")
+            msg_dialog.setStandardButtons(qtgui.QMessageBox.Save | \
+                                            qtgui.QMessageBox.Discard)
+            msg_dialog.setDefaultButton(qtgui.QMessageBox.Save)
+        ret = msg_dialog.exec_()
+        if not success:
+            pass
+        elif ret == qtgui.QMessageBox.Save:
+            pass
+        elif ret == qtgui.QMessageBox.Discard:
+            success = False
+        else:
+            raise ValueError("Value returned by message dialog (%d) " \
+                            "does not match the Save or Discard " \
+                            "buttons!" % ret)
+        self.done(success)
+
+    def __on_stderr(self):
+        stderr_data = self.proc.readAllStandardError()
+        text = qtcore.QString(stdout_data)
+        self.textedit.appendPlainText(text)
+
+    def __on_stdout(self):
+        stdout_data = self.proc.readAllStandardOutput()
+        text = qtcore.QString(stdout_data)
+        self.textedit.appendPlainText(text)
+
+    def zap(self, arfn):
+        self.setWindowTitle("Zapping %s..." % os.path.basename(arfn))
+        # Create temporary file for output
+        tmpdir = os.path.join(config.tmp_directory, 'qctrl')
+        if not os.path.exists(tmpdir):
+            os.makedirs(tmpdir)
+        tmpfile, tmpoutfn = tempfile.mkstemp(suffix=".ar", dir=tmpdir)
+        os.close(tmpfile) # Close open file handle
+        try:
+            success = self.__launch_zapping(arfn, tmpoutfn)
+            if success:
+                arf = utils.ArchiveFile(arfn)
+                archivedir = os.path.join(config.output_location, \
+                                config.output_layout) % arf
+                archivefn = (config.outfn_template+".zap") % arf
+                outfn = os.path.join(archivedir, archivefn)
+                shutil.move(tmpoutfn, outfn)
+                return outfn
+            else:
+                return None
+        finally:
+            if os.path.exists(self.outfn):
+                os.remove(self.outfn)
+    
+    def __launch_zapping(self, infn, outfn):
+        self.infn = infn
+        self.outfn = outfn
+        self.proc = qtcore.QProcess()
+        self.connect(self.proc, qtcore.SIGNAL('readyReadStandardOutput()'), \
+                        self.__on_stdout)
+        self.connect(self.proc, qtcore.SIGNAL('readyReadStandardError()'), \
+                        self.__on_stderr)
+        self.connect(self.proc, qtcore.SIGNAL('finished(int)'), \
+                        self.__on_finish)
+        self.proc.start('pzrzap', [infn, '-o', outfn])
+        success = self.exec_()
+        return success
+
+def main():
+    app = qtgui.QApplication(sys.argv)
+    
+    qctrl_win = QualityControl()
+    qctrl_win.get_files_to_check(priorities=args.priority)
+    # Display the window
+    qctrl_win.show()
+
+    exitcode = app.exec_()
+    sys.exit(exitcode)
+
+
+if __name__ == "__main__":
+    parser = utils.DefaultArguments(description="Quality control interface " \
+                                    "for Asterix data.")
+    parser.add_argument("-n", "--prioritize", action='append', default=None, \
+                        dest='priority', \
+                        help="Name of source to prioritize.")
+    args = parser.parse_args()
+    main()
+
