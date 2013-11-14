@@ -5,12 +5,12 @@ GROUPING_STATUSES = ['new', 'submitted', 'failed', 'running', 'combined']
 FILE_STATUSES = ['new', 'submitted', 'failed', 'running', 'processed', 'done', 'diagnosed', 'checked']
 FILE_OBSTYPES = ['pulsar', 'cal']
 FILE_STAGES = ['combined', 'corrected', 'cleaned', 'calibrated', 'manual']
+CALDB_STATUSES = ['ready', 'submitted', 'updating', 'failed']
 
 NOTELEN = 1024 # Number of characters for the note field
 
 # Create metadata object
 metadata = sa.MetaData()
-
 
 # Define the metadata object
 # Define versions table
@@ -140,12 +140,18 @@ sa.Table('files', metadata, \
 sa.Table('caldbs', metadata, \
         sa.Column('caldb_id', sa.Integer, primary_key=True, \
                     autoincrement=True, nullable=False), \
-        sa.Column('caldbpath', a.String(512), nullable=False), \
+        sa.Column('caldbpath', sa.String(512), nullable=False), \
         sa.Column('caldbname', sa.String(512), nullable=False), \
+        sa.Column('sourcename', sa.String(32), nullable=False), \
+        sa.Column('status', sa.Enum(*CALDB_STATUSES), nullable=False, \
+                    default='ready'), \
+        sa.Column('numentries', sa.Integer, nullable=False, \
+                    default=0), \
+        sa.Column('note', sa.String(NOTELEN), nullable=True), \
         sa.Column('added', sa.DateTime, nullable=False, \
                     default=sa.func.now()), \
         sa.Column('last_modified', sa.DateTime, nullable=False, \
                     default=sa.func.now()), \
-        sa.UniqueConstraint('filepath', 'filename'), \
+        sa.UniqueConstraint('caldbpath', 'caldbname'), \
         mysql_engine='InnoDB', mysql_charset='ascii')
 
