@@ -209,6 +209,9 @@ def get_norm_parfile(arfn):
     """
     cmd = ['vap', '-E', arfn]
     stdoutstr, stderrstr = execute(cmd)
+    if "has no ephemeris" in stdoutstr:
+        raise errors.InputError("Input archive (%s) has no parfile. " \
+                        "Cannot return normalised parfile." % arfn)
     parlines = ["% -15s%s" % tuple(line.split()[:2]) for line \
                     in stdoutstr.split("\n") \
                     if line.strip() and ("TZ" not in line)]

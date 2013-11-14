@@ -236,13 +236,22 @@ def combine_subints(subdirs, subints, outdir=None):
     devnull = open(os.devnull)
     try:
         cmbsubints = []
-        parfn = utils.get_norm_parfile(os.path.join(subdirs[0], subints[0]))
+        
+        # Try to normalise the archive's parfile
+        try:
+            parfn = utils.get_norm_parfile(os.path.join(subdirs[0], subints[0]))
+        except errors.InputError:
+            # No parfile present
+            parargs = []
+        else:
+            parargs = ['-E', parfn]
+
         utils.print_info("Adding freq sub-bands for each sub-int...", 2)
         for ii, subint in enumerate(utils.show_progress(subints, width=50)):
             to_combine = [os.path.join(path, subint) for path in subdirs]
             outfn = os.path.join(tmpdir, "combined_%s" % subint)
             cmbsubints.append(outfn)
-            utils.execute(['psradd', '-q', '-R', '-E', parfn, '-o', outfn] + \
+            utils.execute(['psradd', '-q', '-R', '-o', outfn] + parargs + \
                         to_combine, stderr=devnull)
         arf = utils.ArchiveFile(os.path.join(tmpdir, "combined_%s" % subints[0]))
         outfn = os.path.join(outdir, "%s_%s_%s_%05d_%dsubints.cmb" % \
