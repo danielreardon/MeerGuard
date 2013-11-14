@@ -65,26 +65,38 @@ def load_directories(db, *args, **kwargs):
         Output:
             ninserts: Number of new directories inserted.
     """
+    # Get add-time of most recently added directory DB entry
+    with db.transaction() as conn:
+        select = db.select([db.directories.c.added]).\
+                    order_by(db.directories.c.added.desc()).\
+                    limit(1)
+        results = conn.execute(select)
+        row = results.fetchone()
+        results.close()
+    most_recent_addtime = time.mktime(row['added'].timetuple())
+    
     ninserts = 0
     dirs = get_rawdata_dirs(*args, **kwargs)
     nn = len(dirs)
     for ii, path in utils.show_progress(enumerate(dirs), tot=nn, width=50):
-        try:
-            with db.transaction() as conn:
-                insert = db.directories.insert().\
-                        values(path=path)
-                # 'directories.path' is constrained to be unique, so
-                # trying to insert a directory that already exists
-                # will result in an error, which will be automatically
-                # rolled back by the context manager (i.e. no new
-                # database entry will be inserted)
-                conn.execute(insert)
-        except:
-            pass
-        else:
-            # The following line is only reached if the execution
-            # above doesn't raise an exception
-            ninserts += 1
+        if os.path.getmtime(path) > most_recent_addtime:
+            # Only try to add new entries
+            try:
+                with db.transaction() as conn:
+                    insert = db.directories.insert().\
+                            values(path=path)
+                    # 'directories.path' is constrained to be unique, so
+                    # trying to insert a directory that already exists
+                    # will result in an error, which will be automatically
+                    # rolled back by the context manager (i.e. no new
+                    # database entry will be inserted)
+                    conn.execute(insert)
+            except:
+                pass
+            else:
+                # The following line is only reached if the execution
+                # above doesn't raise an exception
+                ninserts += 1
     return ninserts
 
 
