@@ -2,9 +2,9 @@ import sqlalchemy as sa
 
 DIRECTORY_STATUSES = ['new', 'submitted', 'failed', 'running', 'grouped', 'archived']
 GROUPING_STATUSES = ['new', 'submitted', 'failed', 'running', 'combined']
-FILE_STATUSES = ['new', 'submitted', 'failed', 'running', 'processed', 'done', 'diagnosed']
+FILE_STATUSES = ['new', 'submitted', 'failed', 'running', 'processed', 'done', 'diagnosed', 'checked']
 FILE_OBSTYPES = ['pulsar', 'cal']
-FILE_STAGES = ['combined', 'corrected', 'cleaned', 'calibrated']
+FILE_STAGES = ['combined', 'corrected', 'cleaned', 'calibrated', 'manual']
 
 NOTELEN = 1024 # Number of characters for the note field
 
