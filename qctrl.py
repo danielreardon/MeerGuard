@@ -27,7 +27,7 @@ class QualityControl(qtgui.QWidget):
     """Quality control window.
     """
 
-    def __init__(self):
+    def __init__(self, priorities=None):
         super(QualityControl, self).__init__()
         # Set up the window
         self.__setup()
@@ -36,9 +36,12 @@ class QualityControl(qtgui.QWidget):
 
         # Establish a database object
         self.db = database.Database()
+        
+        # Initialize
+        self.priorities = priorities
+        self.idiag = 0
         self.file_id = None
         self.diagplots = []
-        self.idiag = 0
 
     def __setup(self):
         # Geometry arguments: x, y, width, height (all in px)
@@ -53,7 +56,9 @@ class QualityControl(qtgui.QWidget):
         qtgui.QShortcut(qtcore.Qt.Key_B, self, self.set_file_as_bad)
         qtgui.QShortcut(qtcore.Qt.Key_Z, self, self.zap_file_manually)
         qtgui.QShortcut(qtcore.Qt.Key_S, self, self.advance_file)
+        qtgui.QShortcut(qtcore.Qt.Key_R, self, self.get_files_to_check)
         qtgui.QShortcut(qtcore.Qt.Key_Q, self, self.close)
+        qtgui.QShortcut(qtcore.Qt.Key_P, self, self.set_priorities)
 
     def __add_widgets(self):
         self.image_holder = qtgui.QLabel()
@@ -72,6 +77,10 @@ class QualityControl(qtgui.QWidget):
         zap_button.clicked.connect(self.zap_file_manually)
         skip_button = qtgui.QPushButton("&Skip")
         skip_button.clicked.connect(self.advance_file)
+        reload_button = qtgui.QPushButton("&Reload")
+        reload_button.clicked.connect(self.get_files_to_check)
+        priority_button = qtgui.QPushButton("&Prioritize")
+        priority_button.clicked.connect(self.set_priorities)
 
         # Counter for the number of plots left
         self.lcd = qtgui.QLCDNumber(4)
@@ -94,6 +103,8 @@ class QualityControl(qtgui.QWidget):
         right_box.addWidget(bad_button)
         right_box.addWidget(zap_button)
         right_box.addWidget(skip_button)
+        right_box.addWidget(reload_button)
+        right_box.addWidget(priority_button)
         right_box.addStretch(1)
         right_box.addWidget(qtgui.QLabel("Num left:"))
         right_box.addWidget(self.lcd)
@@ -110,7 +121,7 @@ class QualityControl(qtgui.QWidget):
                 update = self.db.files.update().\
                             where(self.db.files.c.file_id==self.file_id).\
                             values(is_checked=True, \
-                                    status='checked', \
+                                    status='new', \
                                     last_modified=datetime.datetime.now())
                 conn.execute(update)
             self.advance_file()
@@ -129,22 +140,27 @@ class QualityControl(qtgui.QWidget):
             self.advance_file()
 
     def advance_file(self):
+        self.idiag = 0
         if self.files_to_check:
             file_id = self.files_to_check.pop()
             self.set_file(file_id)
             # Decrement number of files left
             self.lcd.display(len(self.files_to_check)+1)
         else:
+            self.file_id = None
+            self.diagplots = []
             self.image_holder.setText("No files on stack...")
             self.lcd.display(0)
 
     def cycle_diag_fwd(self):
-        self.idiag = (self.idiag + 1) % len(self.diagplots)
-        self.display_file()
+        if self.diagplots:
+            self.idiag = (self.idiag + 1) % len(self.diagplots)
+            self.display_file()
 
     def cycle_diag_rev(self):
-        self.idiag = (self.idiag - 1) % len(self.diagplots)
-        self.display_file()
+        if self.diagplots:
+            self.idiag = (self.idiag - 1) % len(self.diagplots)
+            self.display_file()
 
     def display_file(self):
         # Display diagnostic
@@ -188,6 +204,8 @@ class QualityControl(qtgui.QWidget):
         whereclause = (self.db.files.c.is_checked==False) & \
                                 (self.db.files.c.stage=='cleaned') & \
                                 (self.db.files.c.status=='new')
+        if priorities is None:
+            priorities = self.priorities
         if priorities is not None:
             tmp = self.db.files.c.sourcename.like(priorities[0])
             for priority in priorities[1:]:
@@ -243,6 +261,28 @@ class QualityControl(qtgui.QWidget):
                                 last_modified=datetime.datetime.now())
                 result = conn.execute(update)
             self.advance_file()       
+
+    def set_priorities(self):
+        if self.priorities:
+            curr_priority_str = ", ".join(self.priorities)
+        else:
+            curr_priority_str = ""
+        priority_str, ok = qtgui.QInputDialog.getText(self, \
+                            "Set priorities", \
+                            "Enter a comma-separated list of " \
+                                    "source names to prioritize.", \
+                            qtgui.QLineEdit.Normal, \
+                            curr_priority_str
+                            )
+        priority_str = str(priority_str)
+        if ok:
+            if not priority_str.strip():
+                # Match all source names
+                self.priorities = None
+            else:
+                self.priorities = [pr.strip() for pr in \
+                                        priority_str.split(',')]
+        self.get_files_to_check()
 
 
 class ZappingDialog(qtgui.QDialog):
@@ -358,11 +398,12 @@ class ZappingDialog(qtgui.QDialog):
         success = self.exec_()
         return success
 
+
 def main():
     app = qtgui.QApplication(sys.argv)
     
-    qctrl_win = QualityControl()
-    qctrl_win.get_files_to_check(priorities=args.priority)
+    qctrl_win = QualityControl(priorities=args.priority)
+    qctrl_win.get_files_to_check()
     # Display the window
     qctrl_win.show()
 
