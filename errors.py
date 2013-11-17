@@ -77,6 +77,10 @@ class DatabaseError(CoastGuardError):
     pass
 
 
+class BadStatusError(CoastGuardError):
+    pass
+
+
 # Fatal class of errors. These should not be caught.
 class FatalCoastGuardError(Exception):
     def __init__(self, msg):
