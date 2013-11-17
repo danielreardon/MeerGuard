@@ -142,7 +142,8 @@ sa.Table('caldbs', metadata, \
                     autoincrement=True, nullable=False), \
         sa.Column('caldbpath', sa.String(512), nullable=False), \
         sa.Column('caldbname', sa.String(512), nullable=False), \
-        sa.Column('sourcename', sa.String(32), nullable=False), \
+        sa.Column('sourcename', sa.String(32), nullable=False, \
+                    unique=True), \
         sa.Column('status', sa.Enum(*CALDB_STATUSES), nullable=False, \
                     default='ready'), \
         sa.Column('numentries', sa.Integer, nullable=False, \
