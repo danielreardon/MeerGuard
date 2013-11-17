@@ -614,15 +614,16 @@ def load_calibrated_file(filerow):
             # Make diagnostic plots
             arf = utils.ArchiveFile(outpath)
             fullresfn, lowresfn = make_summary_plots(arf)
-            polplotfn = '%s.Scyl.png/PNG' % outpath
-            utils.execute(['psrplot', '-p', 'Scyl', '-j', 'DTFC', \
-                                outpath, '-D', polplotfn])
+            pp_fullresfn, pp_lowresfn = make_polprofile_plots(arf)
+            
             diagvals = [{'diagnosticpath': os.path.dirname(fullresfn), \
                          'diagnosticname': os.path.basename(fullresfn)}, \
                         {'diagnosticpath': os.path.dirname(lowresfn), \
                          'diagnosticname': os.path.basename(lowresfn)}, \
-                        {'diagnosticpath': os.path.dirname(polplotfn), \
-                         'diagnosticname': os.path.basename(polplotfn)},\
+                        {'diagnosticpath': os.path.dirname(pp_fullresfn), \
+                         'diagnosticname': os.path.basename(pp_fullresfn)},\
+                        {'diagnosticpath': os.path.dirname(pp_lowresfn), \
+                         'diagnosticname': os.path.basename(pp_lowresfn)},\
                        ]
         if not os.path.isfile(outpath):
             raise ValueError("Cannot find output file (%s)!" % outpath)
@@ -1258,6 +1259,29 @@ def make_summary_plots(arf):
         # one minute subintegrations
         preproc += ",T %d" % (arf['length']/60)
     lowresfn = arf.fn+".scrunched.png"
+    diagnose.make_composite_summary_plot(arf, preproc, outfn=lowresfn)
+ 
+    return fullresfn, lowresfn
+
+
+def make_polprofile_plots(arf):
+    """Make two polarization profile plots. One with the native bin 
+        resolution and another that is partially scrunched.
+
+        Input:
+            arf: An ArchiveFile object.
+
+        Outputs:
+            fullresfn: The name of the high-resolution polarization 
+                profile plot file.
+            lowresfn: The name of the low-resolution polarization 
+                profile plot file.
+    """
+    fullresfn = arf.fn+".Scyl.png"
+    diagnose.make_composite_summary_plot(arf, outfn=fullresfn)
+    
+    preproc = 'C,D,T,F,B 128'
+    lowresfn = arf.fn+".Scyl.scrunched.png"
     diagnose.make_composite_summary_plot(arf, preproc, outfn=lowresfn)
  
     return fullresfn, lowresfn
