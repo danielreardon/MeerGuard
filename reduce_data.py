@@ -73,7 +73,10 @@ def load_directories(db, *args, **kwargs):
         results = conn.execute(select)
         row = results.fetchone()
         results.close()
-    most_recent_addtime = time.mktime(row['added'].timetuple())
+    if row is None:
+        most_recent_addtime = 0
+    else:
+        most_recent_addtime = time.mktime(row['added'].timetuple())
     
     ninserts = 0
     dirs = get_rawdata_dirs(*args, **kwargs)
@@ -534,6 +537,263 @@ def load_cleaned_file(filerow):
     return file_id
 
 
+def load_calibrated_file(filerow):
+    """Given a row from the DB's files table referring to a
+        status='new' file, process the file
+        by calibrating it and load the new file into the database.
+
+        In the case of a 'pulsar' obs this requires an associated
+        'cal' scan.
+
+        In the case of a 'cal' scan this function will prepare
+        and load the obs.
+
+        Inputs:
+            filerow: A row from the files table.
+
+        Ouput:
+            file_id: The ID of the newly loaded 'calibrated' file.
+    """
+    db = database.Database()
+    parent_file_id = filerow['file_id']
+    group_id = filerow['group_id']
+    logrow = get_log(db, group_id)
+    log_id = logrow['log_id']
+    logfn = os.path.join(logrow['logpath'], logrow['logname'])
+    log.setup_logger(logfn)
+    with db.transaction() as conn:
+        update = db.files.update().\
+                    where(db.files.c.file_id==parent_file_id).\
+                    values(status='running', \
+                            last_modified=datetime.datetime.now())
+        conn.execute(update)
+    if (filerow['status'] != 'new') or (filerow['stage'] != 'cleaned') or \
+                (not filerow['is_checked']):
+        raise errors.BadStatusError("Calibrated files can only be " \
+                        "generated from 'file' entries with " \
+                        "status='new' and stage='cleaned' and " \
+                        "That have successfully passed quality control " \
+                        "- i.e. is_checked=True." \
+                        "(For File ID %d: status='%s', stage='%s', " \
+                        "is_checked=%s)" % \
+                        (parent_file_id, filerow['status'], \
+                            filerow['stage'], filerow['is_checked']))
+    infn = os.path.join(filerow['filepath'], filerow['filename'])
+    try:
+        arf = utils.ArchiveFile(infn)
+        # Reduce data to the equivalent of 128 channels over 200 MHz
+        # That is f_chan = 1.5625 MHz
+        nchans = arf['bw']/1.5625
+        values = {'sourcename': filerow['sourcename'],\
+                  'group_id': group_id, \
+                  'obstype': filerow['obstype'], \
+                  'stage': 'calibrated', \
+                  'parent_file_id': parent_file_id}
+        if nchans != arf['nchan']:
+            values['note'] = "Scrunched to %d channels " \
+                                "(1.5625 MHz each)" % nchans
+
+        if filerow['obstype'] == 'cal':
+            # Calibrator scan
+            # Prepare the data file for being used to calibrate pulsar scans
+            
+            utils.execute(['pam', '--setnchn', '%d' % nchans, '-T', \
+                                '-e', 'pcal.T', infn])
+            outpath = os.path.splitext(infn)[0]+'.pcal.T'
+            diagvals = []
+        else:
+            # Pulsar scan. Calibrate it.
+            # First update the calibrator database
+            caldbpath = update_caldb(db, arf['name'])
+            if not os.path.isfile(caldbpath):
+                raise errors.DataReductionFailed("No calibrator database " \
+                                "file found (%s)." % caldbpath)
+            # No calibrate, scrunching to the appropriate number of channels
+            utils.execute(['pac', '-d', caldbpath, '-j', 'F %d' % nchans, infn])
+            outpath = os.path.splitext(infn)[0]+'.calibP'
+            # Make diagnostic plots
+            arf = utils.ArchiveFile(outpath)
+            fullresfn, lowresfn = make_summary_plots(arf)
+            polplotfn = '%s.Scyl.png/PNG' % outpath
+            utils.execute(['psrplot', '-p', 'Scyl', '-j', 'DTFC', \
+                                outpath, '-D', polplotfn])
+            diagvals = [{'diagnosticpath': os.path.dirname(fullresfn), \
+                         'diagnosticname': os.path.basename(fullresfn)}, \
+                        {'diagnosticpath': os.path.dirname(lowresfn), \
+                         'diagnosticname': os.path.basename(lowresfn)}, \
+                        {'diagnosticpath': os.path.dirname(polplotfn), \
+                         'diagnosticname': os.path.basename(polplotfn)},\
+                       ]
+        if not os.path.isfile(outpath):
+            raise ValueError("Cannot find output file (%s)!" % outpath)
+
+        # Add other file-related values to insert into the DB
+        values['filepath'], values['filename'] = os.path.split(outpath)
+        values['md5sum'] = utils.get_md5sum(outpath)
+        values['filesize'] = os.path.getsize(outpath)
+    except Exception as exc:
+        utils.print_info("Exception caught while working on File ID %d" % \
+                            parent_file_id, 0)
+        # Add ID number to exception arguments
+        exc.args = (exc.args[0] + "\n(File ID: %d)" % parent_file_id,)
+        if isinstance(exc, (errors.CoastGuardError, \
+                            errors.FatalCoastGuardError)):
+            msg = exc.get_message()
+        else:
+            msg = str(exc)
+        with db.transaction() as conn:
+            update = db.files.update(). \
+                        where(db.files.c.file_id==parent_file_id).\
+                        values(status='failed', \
+                                note='Calibration failed! %s: %s' % \
+                                            (type(exc).__name__, msg), \
+                                last_modified=datetime.datetime.now())
+            conn.execute(update)
+        raise
+    else:
+        with db.transaction() as conn:
+            version_id = utils.get_version_id(db)
+            # Insert new entry
+            insert = db.files.insert().\
+                    values(version_id = version_id)
+            result = conn.execute(insert, values)
+            file_id = result.inserted_primary_key[0]
+            if diagvals:
+                # Insert diagnostic entries
+                insert = db.diagnostics.insert().\
+                        values(file_id=file_id)
+                result = conn.execute(insert, diagvals)
+            # Update parent file
+            update = db.files.update(). \
+                        where(db.files.c.file_id==parent_file_id).\
+                        values(status='processed', \
+                                last_modified=datetime.datetime.now())
+            conn.execute(update)
+    return file_id
+
+
+def get_caldb(db, sourcename):
+    """Given a sourcename return the corresponding entry in the
+        caldb table.
+
+        Inputs:
+            db: A Database object.
+            sourcename: The name of the source to match.
+                (NOTE: '_R' will be removed from the sourcename, if present)
+
+        Output:
+            caldbrow: The caldb's DB row, or None if no caldb entry exists.
+    """
+    name = utils.get_prefname(sourcename)
+    if name.endswith('_R'):
+        name = name[:-2]
+
+    with db.transaction() as conn:
+        select = db.select([db.caldbs]).\
+                    where(db.caldbs.c.sourcename==name)
+        results = conn.execute(select)
+        rows = results.fetchall()
+        results.close()
+
+    if len(rows) == 1:
+        return rows[0]
+    elif len(rows) == 0:
+        return None
+    else:
+        raise errors.DatabaseError("Bad number of caldb rows (%d) " \
+                            "with sourcename='%s'!" % \
+                            (len(rows), name))
+
+
+def update_caldb(db, sourcename, force=False):
+    """Check for new calibrator scans. If found update the calibrator database.
+
+        Inputs:
+            db: A Database object.
+            sourcename: The name of the source to match.
+                (NOTE: '_R' will be removed from the sourcename, if present)
+            force: Forcefully update the caldb
+        
+        Outputs:
+            caldb: The path to the updated caldb.
+    """
+    # Get the caldb
+    caldb = get_caldb(db, sourcename)
+    if caldb is None:
+        lastupdated = datetime.datetime.min
+        outdir = os.path.join(config.output_location, 'caldbs')
+        if not os.path.exists(outdir):
+            os.makedirs(outdir)
+        outfn = '%s.caldb.txt' % sourcename.upper()
+        outpath = os.path.join(outdir, outfn)
+        insert_new = True
+        values = {'sourcename': sourcename, \
+                  'caldbpath': outdir, \
+                  'caldbname': outfn}
+    else:
+        lastupdated = caldb['last_modified']
+        outpath = os.path.join(caldb['caldbpath'], caldb['caldbname'])
+        insert_new = False
+        values = {}
+
+    with db.transaction() as conn:
+        if not insert_new:
+            # Mark update of caldb as in-progress
+            update = db.caldbs.update().\
+                        values(status='updating', \
+                                last_modified=datetime.datetime.now()).\
+                        where(db.caldbs.c.caldb_id==caldb['caldb_id'])
+            conn.execute(update)
+
+        select = db.select([db.files]).\
+                    where((db.files.c.status=='new') & \
+                            (db.files.c.stage=='calibrated') & \
+                            (db.files.c.obstype=='cal'))
+        results = conn.execute(select)
+        rows = results.fetchall()
+        results.close()
+
+        numnew = 0
+        for row in rows:
+            if row['added'] > lastupdated:
+                numnew += 1
+        
+        utils.print_info("Found %d suitable calibrators for %s. " \
+                            "%d are new." % \
+                            (len(rows), sourcename, numnew), 2)
+        
+        values['numentries'] = len(rows)
+ 
+        try:
+            if numnew or force:
+                # Create an updated version of the calibrator database 
+                basecaldir = os.path.join(config.output_location, \
+                                            sourcename.upper()+"_R")
+                utils.execute(['pac', '-w', '-u', '.pcal.T', '-k', outpath], \
+                                dir=basecaldir)
+        except:
+            values['status'] = 'failed'
+            if insert_new:
+                action = db.caldbs.insert()
+            else:
+                action = db.caldbs.update().\
+                            values(note = '%d new entries added' % numnew, \
+                                    last_modifed=datetime.datetime.now()).\
+                            where(db.caldbs.c.caldb_id==caldb['caldb_id'])
+            conn.execute(action, values)
+        else:        
+            if insert_new:
+                action = db.caldbs.insert()
+            else:
+                action = db.caldbs.update().\
+                            values(status='ready', \
+                                    note='%d new entries added' % numnew, \
+                                    last_modifed=datetime.datetime.now()).\
+                            where(db.caldbs.c.caldb_id==caldb['caldb_id'])
+            conn.execute(action, values)
+    return outpath
+
+
 def get_log(db, group_id):
     """Given a group_id retrive the corresponding entry
         in the logs table.
@@ -550,6 +810,7 @@ def get_log(db, group_id):
                     where(db.logs.c.group_id==group_id)
         result = conn.execute(select)
         rows = result.fetchall()
+        result.close()
         if len(rows) != 1:
             raise errors.DatabaseError("Bad number of rows (%d) " \
                                 "with group_id=%d!" % \
@@ -599,6 +860,7 @@ def move_grouping(db, group_id, destdir, destfn=None):
         os.remove(src)
         utils.print_info("Moved group listing from %s to %s. The database " \
                         "has been updated accordingly." % (src, dest))
+
 
 def move_log(db, log_id, destdir, destfn=None):
     """Given a group ID move the associated listing.
@@ -989,9 +1251,12 @@ def make_summary_plots(arf):
     fullresfn = arf.fn+".png"
     diagnose.make_composite_summary_plot(arf, outfn=fullresfn)
     
-    preproc = 'C,D,B 128,F 32'
-    if arf['nsub'] > 32:
-        preproc += ",T 32"
+    # 6.25 MHz channels
+    nchans = arf['bw']/6.25
+    preproc = 'C,D,B 128,F %d' % nchans
+    if arf['length'] > 60:
+        # one minute subintegrations
+        preproc += ",T %d" % (arf['length']/60)
     lowresfn = arf.fn+".scrunched.png"
     diagnose.make_composite_summary_plot(arf, preproc, outfn=lowresfn)
  
@@ -1149,11 +1414,13 @@ def get_todo(db, action, priorities=None):
                     "recognized. Valid file actions are '%s'." % \
                     "', '".join(ACTIONS.keys()))
 
-    tablename, idcolumn, target_stage, actfunc = ACTIONS[action]
+    tablename, idcolumn, target_stages, checked_only, actfunc = ACTIONS[action]
     dbtable = db[tablename]
     whereclause = dbtable.c.status=='new'
-    if target_stage is not None:
-        whereclause &= dbtable.c.stage==target_stage
+    if target_stages is not None:
+        whereclause &= dbtable.c.stage.in_(target_stages)
+    if checked_only:
+        whereclause &= dbtable.c.is_checked==True
     if priorities is not None:
         tmp = dbtable.c.sourcename.like(priorities[0])
         for priority in priorities[1:]:
@@ -1164,6 +1431,8 @@ def get_todo(db, action, priorities=None):
         results = conn.execute(select)
         rows = results.fetchall()
         results.close()
+    utils.print_info("Got %d rows for '%s' action (priority: %s)" % \
+                        (len(rows), action, priorities), 2)
     return rows
 
 
@@ -1185,7 +1454,7 @@ def launch_tasks(pool, db, action, rows):
                     "recognized. Valid file actions are '%s'." % \
                     "', '".join(ACTIONS.keys()))
 
-    tablename, idcolumn, target_stage, actfunc = ACTIONS[action]
+    tablename, idcolumn, target_stages, checked_only, actfunc = ACTIONS[action]
     dbtable = db[tablename]
     results = []
     for row in rows:
@@ -1199,11 +1468,36 @@ def launch_tasks(pool, db, action, rows):
     return results
 
 
-# Actions are defined by a 4-tuple: (table name, ID column name, target stage, function)
-ACTIONS = {'group': ('directories', 'dir_id', None, load_groups), \
-           'combine': ('groupings', 'group_id', None, load_combined_file), \
-           'correct': ('files', 'file_id', 'combined', load_corrected_file), \
-           'clean': ('files', 'file_id', 'corrected', load_cleaned_file)}
+# Actions are defined by a 4-tuple: (table name, 
+#                                    ID column name, 
+#                                    target stage, 
+#                                    is checked (quality control),
+#                                    function to proceed to next step)
+ACTIONS = {'group': ('directories', 
+                        'dir_id', 
+                        None, 
+                        False,
+                        load_groups), \
+           'combine': ('groupings', 
+                        'group_id', 
+                        None, 
+                        False, 
+                        load_combined_file), \
+           'correct': ('files', 
+                        'file_id', 
+                        ['combined'], 
+                        False, 
+                        load_corrected_file), \
+           'clean': ('files', 
+                        'file_id', 
+                        ['corrected'], 
+                        False, 
+                        load_cleaned_file), \
+           'calibrate': ('files', 
+                        'file_id', 
+                        ['cleaned', 'manual'], 
+                        True, 
+                        load_calibrated_file)}
 
 
 class DummyResult(object):
@@ -1272,7 +1566,7 @@ def main():
         while True:
             nfree = args.numproc - len(inprogress)
             nsubmit = 0
-            for action in ('clean', 'correct', 'combine'):
+            for action in ('calibrate', 'clean', 'correct', 'combine'):
                 rows = get_todo(db, action, priorities=args.priority)[:nfree]
                 tasks = launch_tasks(pool, db, action, rows)
                 inprogress.extend(tasks)
