@@ -4,7 +4,7 @@ DIRECTORY_STATUSES = ['new', 'submitted', 'failed', 'running', 'grouped', 'archi
 GROUPING_STATUSES = ['new', 'submitted', 'failed', 'running', 'combined']
 FILE_STATUSES = ['new', 'submitted', 'failed', 'running', 'processed', 'done', 'diagnosed', 'checked']
 FILE_OBSTYPES = ['pulsar', 'cal']
-FILE_STAGES = ['combined', 'corrected', 'cleaned', 'calibrated', 'manual']
+FILE_STAGES = ['combined', 'corrected', 'cleaned', 'calibrated']
 CALDB_STATUSES = ['ready', 'submitted', 'updating', 'failed']
 
 NOTELEN = 1024 # Number of characters for the note field

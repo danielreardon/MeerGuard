@@ -1523,7 +1523,7 @@ ACTIONS = {'group': ('directories',
                         load_cleaned_file), \
            'calibrate': ('files', 
                         'file_id', 
-                        ['cleaned', 'manual'], 
+                        ['cleaned'], 
                         True, 
                         load_calibrated_file)}
 

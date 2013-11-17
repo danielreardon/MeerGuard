@@ -237,7 +237,7 @@ class QualityControl(qtgui.QWidget):
                       'filename': outfn, \
                       'sourcename': self.fileinfo['sourcename'], \
                       'obstype': self.fileinfo['obstype'], \
-                      'stage': 'manual', \
+                      'stage': 'cleaned', \
                       'note': "Manually zapped", \
                       'is_checked': True, \
                       'md5sum': utils.get_md5sum(out), \
