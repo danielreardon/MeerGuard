@@ -2,7 +2,7 @@ import sqlalchemy as sa
 
 DIRECTORY_STATUSES = ['new', 'submitted', 'failed', 'running', 'grouped', 'archived']
 GROUPING_STATUSES = ['new', 'submitted', 'failed', 'running', 'combined']
-FILE_STATUSES = ['new', 'submitted', 'failed', 'running', 'processed', 'done', 'diagnosed', 'checked']
+FILE_STATUSES = ['new', 'submitted', 'failed', 'running', 'processed', 'done', 'diagnosed', 'replaced']
 FILE_OBSTYPES = ['pulsar', 'cal']
 FILE_STAGES = ['combined', 'corrected', 'cleaned', 'calibrated']
 CALDB_STATUSES = ['ready', 'submitted', 'updating', 'failed']
@@ -126,8 +126,8 @@ sa.Table('files', metadata, \
         sa.Column('filesize', sa.Integer, nullable=False), \
         sa.Column('is_deleted', sa.Boolean, nullable=False, \
                     default=False), \
-        sa.Column('is_checked', sa.Boolean, nullable=False, \
-                    default=False), \
+        sa.Column('qcpassed', sa.Boolean, nullable=True, \
+                    default=None), \
         sa.Column('added', sa.DateTime, nullable=False, \
                     default=sa.func.now()), \
         sa.Column('last_modified', sa.DateTime, nullable=False, \

@@ -568,16 +568,16 @@ def load_calibrated_file(filerow):
                             last_modified=datetime.datetime.now())
         conn.execute(update)
     if (filerow['status'] != 'new') or (filerow['stage'] != 'cleaned') or \
-                (not filerow['is_checked']):
+                (not filerow['qcpassed']):
         raise errors.BadStatusError("Calibrated files can only be " \
                         "generated from 'file' entries with " \
                         "status='new' and stage='cleaned' and " \
                         "That have successfully passed quality control " \
-                        "- i.e. is_checked=True." \
+                        "- i.e. qcpassed=True." \
                         "(For File ID %d: status='%s', stage='%s', " \
-                        "is_checked=%s)" % \
+                        "qcpassed=%s)" % \
                         (parent_file_id, filerow['status'], \
-                            filerow['stage'], filerow['is_checked']))
+                            filerow['stage'], filerow['qcpassed']))
     infn = os.path.join(filerow['filepath'], filerow['filename'])
     try:
         arf = utils.ArchiveFile(infn)
@@ -1442,13 +1442,14 @@ def get_todo(db, action, priorities=None):
                     "recognized. Valid file actions are '%s'." % \
                     "', '".join(ACTIONS.keys()))
 
-    tablename, idcolumn, target_stages, checked_only, actfunc = ACTIONS[action]
+    tablename, idcolumn, target_stages, \
+            qcpassed_only, actfunc = ACTIONS[action]
     dbtable = db[tablename]
     whereclause = dbtable.c.status=='new'
     if target_stages is not None:
         whereclause &= dbtable.c.stage.in_(target_stages)
-    if checked_only:
-        whereclause &= dbtable.c.is_checked==True
+    if qcpassed_only:
+        whereclause &= dbtable.c.qcpassed==True
     if priorities is not None:
         tmp = dbtable.c.sourcename.like(priorities[0])
         for priority in priorities[1:]:
@@ -1482,7 +1483,8 @@ def launch_tasks(pool, db, action, rows):
                     "recognized. Valid file actions are '%s'." % \
                     "', '".join(ACTIONS.keys()))
 
-    tablename, idcolumn, target_stages, checked_only, actfunc = ACTIONS[action]
+    tablename, idcolumn, target_stages, \
+            qcpassed_only, actfunc = ACTIONS[action]
     dbtable = db[tablename]
     results = []
     for row in rows:
@@ -1499,7 +1501,7 @@ def launch_tasks(pool, db, action, rows):
 # Actions are defined by a 4-tuple: (table name, 
 #                                    ID column name, 
 #                                    target stage, 
-#                                    is checked (quality control),
+#                                    passed quality control,
 #                                    function to proceed to next step)
 ACTIONS = {'group': ('directories', 
                         'dir_id', 

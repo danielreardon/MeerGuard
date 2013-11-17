@@ -120,8 +120,7 @@ class QualityControl(qtgui.QWidget):
             with self.db.transaction() as conn:
                 update = self.db.files.update().\
                             where(self.db.files.c.file_id==self.file_id).\
-                            values(is_checked=True, \
-                                    status='new', \
+                            values(qcpassed=True, \
                                     last_modified=datetime.datetime.now())
                 conn.execute(update)
             self.advance_file()
@@ -131,7 +130,7 @@ class QualityControl(qtgui.QWidget):
             with self.db.transaction() as conn:
                 update = self.db.files.update().\
                             where(self.db.files.c.file_id==self.file_id).\
-                            values(is_checked=True, \
+                            values(qcpassed=False, \
                                     status='failed', \
                                     note='File failed quality control. " \
                                         "Observation is unsalvageable!', \
@@ -201,7 +200,7 @@ class QualityControl(qtgui.QWidget):
             self.display_file()
         
     def get_files_to_check(self, priorities=None):
-        whereclause = (self.db.files.c.is_checked==False) & \
+        whereclause = (self.db.files.c.qcpassed.is_(None)) & \
                                 (self.db.files.c.stage=='cleaned') & \
                                 (self.db.files.c.status=='new')
         if priorities is None:
@@ -239,7 +238,7 @@ class QualityControl(qtgui.QWidget):
                       'obstype': self.fileinfo['obstype'], \
                       'stage': 'cleaned', \
                       'note': "Manually zapped", \
-                      'is_checked': True, \
+                      'qcpassed': True, \
                       'md5sum': utils.get_md5sum(out), \
                       'filesize': os.path.getsize(out), \
                       'parent_file_id': self.file_id}
@@ -255,8 +254,8 @@ class QualityControl(qtgui.QWidget):
                 # Update parent file's entry
                 update = self.db.files.update().\
                         where(self.db.files.c.file_id==self.file_id).\
-                        values(is_checked=True, \
-                                status='checked', \
+                        values(qcpassed=False, \
+                                status='replaced', \
                                 note="File had to be cleaned by hand.", \
                                 last_modified=datetime.datetime.now())
                 result = conn.execute(update)
