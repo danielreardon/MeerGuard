@@ -42,7 +42,8 @@ header_param_types = {'freq': float, \
                       'nsub': int, \
                       'tbin': float, \
                       'period': float, \
-                      'dm': float}
+                      'dm': float, \
+                      'pol_c': bool}
 
 site_to_telescope = {'i': 'WSRT',
                      'wt': 'WSRT',
