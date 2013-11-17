@@ -603,8 +603,9 @@ def load_calibrated_file(filerow):
             diagvals = []
         else:
             # Pulsar scan. Calibrate it.
-            # First update the calibrator database
-            caldbpath = update_caldb(db, arf['name'])
+            caldbrow = get_caldb(db, arf['name'])
+            caldbpath = os.path.join(caldbrow['caldbpath'], \
+                                        caldbrow['caldbname'])
             if not os.path.isfile(caldbpath):
                 raise errors.DataReductionFailed("No calibrator database " \
                                 "file found (%s)." % caldbpath)
@@ -670,6 +671,9 @@ def load_calibrated_file(filerow):
                         values(status='processed', \
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
+            if filerow['obstype'] == 'cal':
+                # First update the calibrator database
+                update_caldb(db, arf['name'])
     return file_id
 
 
