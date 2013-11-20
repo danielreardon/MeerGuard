@@ -143,11 +143,18 @@ def load_groups(dirrow):
             fns.sort()
             arf = utils.ArchiveFile(os.path.join(dirs[0], fns[0]))
             listoutdir = os.path.join(config.output_location, 'groups', arf['name'])
-            if not os.path.exists(listoutdir):
+            try:
                 os.makedirs(listoutdir)
+            except OSError:
+                # Directory already exists
+                pass
             logoutdir = os.path.join(config.output_location, 'logs', arf['name']) 
-            if not os.path.exists(logoutdir):
+                
+            try:
                 os.makedirs(logoutdir)
+            except OSError:
+                # Directory already exists
+                pass
             baseoutname = "%s_%s_%s_%05d_%dsubints" % (arf['name'], arf['band'], \
                                             arf['yyyymmdd'], arf['secs'], len(fns))
             listfn = os.path.join(listoutdir, baseoutname+'.txt')
@@ -243,8 +250,11 @@ def load_combined_file(grprow):
         arf = utils.ArchiveFile(os.path.join(subdirs[0], subints[0]))
         # Combine the now-prepped subints
         cmbdir = os.path.join(config.output_location, arf['name'], 'combined')
-        if not os.path.exists(cmbdir):
+        try:
             os.makedirs(cmbdir)
+        except OSError:
+            # Directory already exists
+            pass
         cmbfn = make_combined_file(subdirs, subints, outdir=cmbdir)
  
         # Pre-compute values to insert because some might be
@@ -350,8 +360,11 @@ def load_corrected_file(filerow):
         archivedir = os.path.join(config.output_location, \
                                 config.output_layout) % arf
         archivefn = (config.outfn_template+".corr") % arf
-        if not os.path.exists(archivedir):
+        try:
             os.makedirs(archivedir)
+        except OSError:
+            # Directory already exists
+            pass
         shutil.move(corrfn, os.path.join(archivedir, archivefn))
         # Update 'corrfn' so it still refers to the file
         corrfn = os.path.join(archivedir, archivefn)
@@ -472,9 +485,11 @@ def load_cleaned_file(filerow):
         cleanfn = os.path.join(archivedir, archivefn)
 
         # Make sure output directory exists
-        if not os.path.exists(archivedir):
+        try:
             os.makedirs(archivedir)
-
+        except OSError:
+            # Directory already exists:
+            pass
         arf.get_archive().unload(cleanfn)
         arf = utils.ArchiveFile(cleanfn)
       
@@ -727,9 +742,11 @@ def update_caldb(db, sourcename, force=False):
     if caldb is None:
         lastupdated = datetime.datetime.min
         outdir = os.path.join(config.output_location, 'caldbs')
-        if not os.path.exists(outdir):
+        try:
             os.makedirs(outdir)
-        outfn = '%s.caldb.txt' % sourcename.upper()
+        except OSError:
+            # Directory already exists
+            pass
         outpath = os.path.join(outdir, outfn)
         insert_new = True
         values = {'sourcename': sourcename, \
@@ -851,8 +868,11 @@ def move_grouping(db, group_id, destdir, destfn=None):
         # Copy file
         src = os.path.join(grp['listpath'], grp['listname'])
         dest = os.path.join(destdir, destfn)
-        if not os.path.exists(destdir):
+        try:
             os.makedirs(destdir)
+        except OSError:
+            # Directory already exists
+            pass
         shutil.copy(src, dest)
         # Update database
         update = db.groupings.update().\
@@ -895,8 +915,11 @@ def move_log(db, log_id, destdir, destfn=None):
         # Copy file
         src = os.path.join(lg['logpath'], lg['logname'])
         dest = os.path.join(destdir, destfn)
-        if not os.path.exists(destdir):
+        try:
             os.makedirs(destdir)
+        except OSError:
+            # Directory already exists
+            pass
         shutil.copy(src, dest)
         # Update database
         update = db.logs.update().\
@@ -939,8 +962,11 @@ def move_file(db, file_id, destdir, destfn=None):
         # Copy file
         src = os.path.join(ff['filepath'], ff['filename'])
         dest = os.path.join(destdir, destfn)
-        if not os.path.exists(destdir):
+        try:
             os.makedirs(destdir)
+        except OSError:
+            # Directory already exists
+            pass
         shutil.copy(src, dest)
         # Update database
         update = db.files.update().\
@@ -1085,8 +1111,11 @@ def prepare_subints(subdirs, subints, baseoutdir):
     for subdir in utils.show_progress(subdirs, width=50):
         freqdir = os.path.split(os.path.abspath(subdir))[-1]
         freqdir = os.path.join(baseoutdir, freqdir)
-        if not os.path.exists(freqdir):
+        try:
             os.makedirs(freqdir)
+        except OSError:
+            # Directory already exists
+            pass
         fns = [os.path.join(subdir, fn) for fn in subints]
         utils.execute(['paz', '-j', 'convert psrfits', \
                             '-E', '6.25', '-O', freqdir] + fns, \
@@ -1412,8 +1441,11 @@ def reduce_directory(path):
                 outdir = os.path.join(config.output_location, \
                                 config.output_layout) % cleanarf 
                 # Create output directory, if necessary
-                if not os.path.exists(outdir):
+                try:
                     os.makedirs(outdir)
+                except OSError:
+                    # Directory already exists
+                    pass
                 for fn in to_save:
                     shutil.copy(fn, os.path.join(outdir, os.path.split(fn)[-1]))
     finally:
