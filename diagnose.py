@@ -844,7 +844,7 @@ def preprocess_archive_file(arf, rmbaseline=None, dedisp=None, \
 
 
 def make_polprofile_plot(arf, preproc='C,D,F,T', outfn=None):
-    utils.print_info("Creating polarization profile plot for %s" % ar.fn, 3)
+    utils.print_info("Creating polarization profile plot for %s" % arf.fn, 3)
     if outfn is None:
         outfn = "%s.Scyl.ps" % arf.fn
     utils.print_info("Output plot name: %s" % outfn, 2)
