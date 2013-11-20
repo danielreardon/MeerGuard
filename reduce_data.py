@@ -573,6 +573,10 @@ def load_calibrated_file(filerow):
         Ouput:
             file_id: The ID of the newly loaded 'calibrated' file.
     """
+    name = utils.get_prefname(filerow['sourcename'])
+    if name.endswith('_R'):
+        name = name[:-2]
+
     db = database.Database()
     parent_file_id = filerow['file_id']
     group_id = filerow['group_id']
@@ -603,7 +607,7 @@ def load_calibrated_file(filerow):
         # Reduce data to the equivalent of 128 channels over 200 MHz
         # That is f_chan = 1.5625 MHz
         nchans = arf['bw']/1.5625
-        values = {'sourcename': filerow['sourcename'],\
+        values = {'sourcename': name,\
                   'group_id': group_id, \
                   'obstype': filerow['obstype'], \
                   'stage': 'calibrated', \
@@ -622,11 +626,14 @@ def load_calibrated_file(filerow):
             diagvals = []
         else:
             # Pulsar scan. Calibrate it.
-            caldbrow = get_caldb(db, arf['name'])
+            caldbrow = get_caldb(db, name)
+            if caldbrow is None:
+                raise errors.DataReductionFailed("No matching calibrator " \
+                                "database row for %s." % name)
             caldbpath = os.path.join(caldbrow['caldbpath'], \
                                         caldbrow['caldbname'])
             if not os.path.isfile(caldbpath):
-                raise errors.DataReductionFailed("No calibrator database " \
+                raise errors.DataReductionFailed("Calibrator database " \
                                 "file found (%s)." % caldbpath)
             # No calibrate, scrunching to the appropriate number of channels
             utils.execute(['pac', '-d', caldbpath, '-j', 'F %d' % nchans, infn])
@@ -663,10 +670,16 @@ def load_calibrated_file(filerow):
         else:
             msg = str(exc)
             utils.log_message(traceback.format_exc(), 'error')
+        if filerow['obstype'] == 'cal':
+            status = 'failed'
+        else:
+            # Calibration of this file will be reattempted when 
+            # the calibration database is updated
+            status = 'calfail'
         with db.transaction() as conn:
             update = db.files.update(). \
                         where(db.files.c.file_id==parent_file_id).\
-                        values(status='failed', \
+                        values(status=status, \
                                 note='Calibration failed! %s: %s' % \
                                             (type(exc).__name__, msg), \
                                 last_modified=datetime.datetime.now())
@@ -691,9 +704,9 @@ def load_calibrated_file(filerow):
                         values(status='processed', \
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
-            if filerow['obstype'] == 'cal':
-                # First update the calibrator database
-                update_caldb(db, arf['name'])
+        #if filerow['obstype'] == 'cal':
+        #    # Update the calibrator database
+        #    update_caldb(db, arf['name'], force=True)
     return file_id
 
 
@@ -742,8 +755,12 @@ def update_caldb(db, sourcename, force=False):
         Outputs:
             caldb: The path to the updated caldb.
     """
+    name = utils.get_prefname(sourcename)
+    if name.endswith('_R'):
+        name = name[:-2]
+
     # Get the caldb
-    caldb = get_caldb(db, sourcename)
+    caldb = get_caldb(db, name)
     if caldb is None:
         lastupdated = datetime.datetime.min
         outdir = os.path.join(config.output_location, 'caldbs')
@@ -752,9 +769,10 @@ def update_caldb(db, sourcename, force=False):
         except OSError:
             # Directory already exists
             pass
+        outfn = '%s.caldb.txt' % name.upper()
         outpath = os.path.join(outdir, outfn)
         insert_new = True
-        values = {'sourcename': sourcename, \
+        values = {'sourcename': name, \
                   'caldbpath': outdir, \
                   'caldbname': outfn}
     else:
@@ -787,7 +805,7 @@ def update_caldb(db, sourcename, force=False):
         
         utils.print_info("Found %d suitable calibrators for %s. " \
                             "%d are new." % \
-                            (len(rows), sourcename, numnew), 2)
+                            (len(rows), name, numnew), 2)
         
         values['numentries'] = len(rows)
  
@@ -795,7 +813,7 @@ def update_caldb(db, sourcename, force=False):
             if numnew or force:
                 # Create an updated version of the calibrator database 
                 basecaldir = os.path.join(config.output_location, \
-                                            sourcename.upper()+"_R")
+                                            name.upper()+"_R")
                 utils.execute(['pac', '-w', '-u', '.pcal.T', '-k', outpath], \
                                 dir=basecaldir)
         except:
@@ -815,10 +833,39 @@ def update_caldb(db, sourcename, force=False):
                 action = db.caldbs.update().\
                             values(status='ready', \
                                     note='%d new entries added' % numnew, \
-                                    last_modifed=datetime.datetime.now()).\
+                                    last_modified=datetime.datetime.now()).\
                             where(db.caldbs.c.caldb_id==caldb['caldb_id'])
             conn.execute(action, values)
+    reattempt_calibration(db, name)
     return outpath
+
+
+def reattempt_calibration(db, sourcename):
+    """Mark files that have failed calibration to be reattempted.
+
+        Inputs:
+            db: A Database object.
+            sourcename: The name of the source to match.
+                (NOTE: '_R' will be removed from the sourcename, if present)
+            
+        Outputs:
+            None
+    """
+    name = utils.get_prefname(sourcename)
+    if name.endswith('_R'):
+        name = name[:-2]
+    
+    db = database.Database()
+    with db.transaction() as conn:
+        update = db.files.update().\
+                    where((db.files.c.status=='calfail') & \
+                            (db.files.c.stage=='cleaned') & \
+                            (db.files.c.qcpassed==True) & \
+                            (db.files.c.sourcename==name)).\
+                    values(status='new', \
+                            note='Reattempting calibration', \
+                            last_modified=datetime.datetime.now())
+        conn.execute(update)
 
 
 def get_log(db, group_id):
