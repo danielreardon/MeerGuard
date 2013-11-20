@@ -692,11 +692,12 @@ def get_prefname(name):
             # Could be B-name, or truncated J-name. Add wildcard at end just in case.
             search += '*'
         try:   
-            cmd = "psrcat -nohead -nonumber -c 'PSRJ PSRB' -o short -null '' '%s'" % search
+            cmd = ['psrcat', '-nohead', '-nonumber', '-c', 'PSRJ PSRB', \
+                            '-o', 'short', '-null', '', search]
             stdout, stderr = execute(cmd)
-
-            names = [line.strip().split() for line in stdout.split('\n') \
-                            if line.strip() and not line.startswith("WARNING:")]
+            lines = [line for line in stdout.split('\n') \
+                        if line.strip() and not line.startswith("WARNING:")]
+            names = [line.strip().split() for line in lines]
         except errors.SystemCallError:
             warnings.warn("Error occurred while trying to run 'psrcat' " \
                             "to get prefname for '%s'" % srcname, \
@@ -710,9 +711,13 @@ def get_prefname(name):
             warnings.warn("Pulsar name '%s' cannot be found in psrcat. " \
                             "No preferred name available." % srcname, \
                             errors.CoastGuardWarning)
-        else:
-            raise errors.BadPulsarNameError("Pulsar name '%s' has a bad number of " \
-                                    "matches (%d) in psrcat" % (srcname, len(names)))
+        elif len(names) > 1:
+            prefname = srcname
+            warnings.warn("Pulsar name '%s' is ambiguous. It has " \
+                            "multiple matches (%d) in psrcat " \
+                            "(search pattern used: '%s'):\n%s" % \
+                    (srcname, len(names), search, '\n'.join(lines)), \
+                                    errors.CoastGuardWarning)
         prefname_cache[srcname] = prefname
     return prefname+tail
 
