@@ -2,7 +2,7 @@ import sqlalchemy as sa
 
 DIRECTORY_STATUSES = ['new', 'submitted', 'failed', 'running', 'grouped', 'archived']
 GROUPING_STATUSES = ['new', 'submitted', 'failed', 'running', 'combined']
-FILE_STATUSES = ['new', 'submitted', 'failed', 'running', 'processed', 'done', 'diagnosed', 'replaced']
+FILE_STATUSES = ['new', 'submitted', 'failed', 'running', 'processed', 'done', 'diagnosed', 'replaced', 'calfail']
 FILE_OBSTYPES = ['pulsar', 'cal']
 FILE_STAGES = ['combined', 'corrected', 'cleaned', 'calibrated']
 CALDB_STATUSES = ['ready', 'submitted', 'updating', 'failed']
