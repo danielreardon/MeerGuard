@@ -177,6 +177,7 @@ def load_groups(dirrow):
             msg = exc.get_message()
         else:
             msg = str(exc)
+            utils.log_message(traceback.format_exc(), 'error')
         with db.transaction() as conn:
             update = db.directories.update().\
                         where(db.directories.c.dir_id==dir_id).\
@@ -291,6 +292,7 @@ def load_combined_file(grprow):
             msg = exc.get_message()
         else:
             msg = str(exc)
+            utils.log_message(traceback.format_exc(), 'error')
         with db.transaction() as conn:
             update = db.groupings.update(). \
                         where(db.groupings.c.group_id==group_id).\
@@ -400,6 +402,7 @@ def load_corrected_file(filerow):
             msg = exc.get_message()
         else:
             msg = str(exc)
+            utils.log_message(traceback.format_exc(), 'error')
         with db.transaction() as conn:
             update = db.files.update(). \
                         where(db.files.c.file_id==parent_file_id).\
@@ -521,6 +524,7 @@ def load_cleaned_file(filerow):
             msg = exc.get_message()
         else:
             msg = str(exc)
+            utils.log_message(traceback.format_exc(), 'error')
         with db.transaction() as conn:
             update = db.files.update(). \
                         where(db.files.c.file_id==parent_file_id).\
@@ -658,6 +662,7 @@ def load_calibrated_file(filerow):
             msg = exc.get_message()
         else:
             msg = str(exc)
+            utils.log_message(traceback.format_exc(), 'error')
         with db.transaction() as conn:
             update = db.files.update(). \
                         where(db.files.c.file_id==parent_file_id).\
