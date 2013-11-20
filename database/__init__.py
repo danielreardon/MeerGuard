@@ -50,7 +50,7 @@ def before_cursor_execute(conn, cursor, statement, parameters, \
         msg += "\n    Executing %d statements" % len(parameters)
     elif parameters:
         msg += "\n    Params: %s" % str(parameters)
-    utils.print_debug(msg, "queries", stepsback=7)
+    utils.print_debug(msg, "queries", stepsback=6)
 
 
 def on_commit(conn):
