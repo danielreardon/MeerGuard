@@ -132,6 +132,21 @@ def set_warning_mode(mode=None, reset=True):
         warnings.resetwarnings()
     warnings.simplefilter(mode)
 
+def log_message(msg, level='info'):
+    """Log a message
+
+        Inputs:
+            msg: The message to print.
+            level: The logging level (see python's logging module) 
+                (Default: info)
+
+        Outputs:
+            None
+    """
+    fn, lineno, funcnm = inspect.stack()[1][1:4]
+    log.log("Log message: [%s:%d - %s(...)]\n%s" % \
+            (os.path.split(fn)[-1], lineno, funcnm, msg), level)
+
 
 def print_info(msg, level=1):
     """Print an informative message if the current verbosity is
