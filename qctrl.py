@@ -27,7 +27,7 @@ class QualityControl(qtgui.QWidget):
     """Quality control window.
     """
 
-    def __init__(self, priorities=None):
+    def __init__(self, priorities=None, stage='cleaned'):
         super(QualityControl, self).__init__()
         # Set up the window
         self.__setup()
@@ -39,6 +39,7 @@ class QualityControl(qtgui.QWidget):
         
         # Initialize
         self.priorities = priorities
+        self.stage = stage
         self.idiag = 0
         self.file_id = None
         self.diagplots = []
@@ -199,10 +200,19 @@ class QualityControl(qtgui.QWidget):
             self.fileinfo = ff
             self.display_file()
         
-    def get_files_to_check(self, priorities=None):
-        whereclause = (self.db.files.c.qcpassed.is_(None)) & \
-                                (self.db.files.c.stage=='cleaned') & \
-                                (self.db.files.c.status=='new')
+    def get_files_to_check(self, priorities=None, stage=None):
+        if stage is None:
+            stage = self.stage
+        if stage == 'cleaned':
+            whereclause = (self.db.files.c.qcpassed.is_(None)) & \
+                                    (self.db.files.c.stage=='cleaned') & \
+                                    (self.db.files.c.status=='new')
+        elif stage == 'calibrated':
+            whereclause = (self.db.files.c.qcpassed.is_(None)) & \
+                                    (self.db.files.c.stage=='calibrated') & \
+                                    (self.db.files.c.status=='new') & \
+                                    (self.db.files.c.obstype=='pulsar')
+            
         if priorities is None:
             priorities = self.priorities
         if priorities is not None:
@@ -401,7 +411,7 @@ class ZappingDialog(qtgui.QDialog):
 def main():
     app = qtgui.QApplication(sys.argv)
     
-    qctrl_win = QualityControl(priorities=args.priority)
+    qctrl_win = QualityControl(priorities=args.priority, stage=args.stage)
     qctrl_win.get_files_to_check()
     # Display the window
     qctrl_win.show()
@@ -416,6 +426,9 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--prioritize", action='append', default=None, \
                         dest='priority', \
                         help="Name of source to prioritize.")
+    parser.add_argument('-C', "--calibrated", dest='stage', action='store_const', \
+                        default='cleaned', const='calibrated', \
+                        help="Review calibrated pulsar observations.")
     args = parser.parse_args()
     main()
 
