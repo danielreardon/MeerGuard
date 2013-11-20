@@ -1363,11 +1363,11 @@ def make_polprofile_plots(arf):
                 profile plot file.
     """
     fullresfn = arf.fn+".Scyl.png"
-    diagnose.make_composite_summary_plot(arf, outfn=fullresfn)
+    diagnose.make_polprofile_plot(arf, outfn=fullresfn)
     
     preproc = 'C,D,T,F,B 128'
     lowresfn = arf.fn+".Scyl.scrunched.png"
-    diagnose.make_composite_summary_plot(arf, preproc, outfn=lowresfn)
+    diagnose.make_polprofile_plot(arf, preproc, outfn=lowresfn)
  
     return fullresfn, lowresfn
 
