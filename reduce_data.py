@@ -1644,18 +1644,16 @@ def get_todo(db, action, priorities=None):
     return rows
 
 
-def launch_tasks(pool, db, action, rows):
-    """Launch tasks acting on the relevant files.
+def launch_task(db, action, row):
+    """Launch a single task acting on the relevant file.
 
         Inputs:
-            pool: A multiprocessing.Pool object to add tasks to.
             db: A Database object to use.
             action: The action to perform.
-            rows: List of rows to launch
+            row: A single row representing a taks to launch
 
         Outputs:
-            results: A list of multiprocessing.pool.AsyncResult objects 
-                for the tasks submitted to 'pool'.
+            proc: The started multiprocessing.Process object
     """
     if action not in ACTIONS:
         raise errors.UnrecognizedValueError("The file action '%s' is not " \
@@ -1663,94 +1661,85 @@ def launch_tasks(pool, db, action, rows):
                     "', '".join(ACTIONS.keys()))
 
     tablename, idcolumn, target_stages, \
-            qcpassed_only, actfunc = ACTIONS[action]
+            qcpassed_only, withlock, actfunc = ACTIONS[action]
     dbtable = db[tablename]
     results = []
-    for row in rows:
-        with db.transaction() as conn:
-            update = dbtable.update().\
-                        where(dbtable.c[idcolumn]==row[idcolumn]).\
-                        values(status='submitted', \
-                                last_modified=datetime.datetime.now())
-            conn.execute(update)
-        results.append(pool.apply_async(actfunc, args=(row,)))
-    return results
+    with db.transaction() as conn:
+        update = dbtable.update().\
+                    where(dbtable.c[idcolumn]==row[idcolumn]).\
+                    values(status='submitted', \
+                            last_modified=datetime.datetime.now())
+        conn.execute(update)
+    if withlock:
+        lock = get_caldb_lock(row['sourcename'])
+        args = (row,lock)
+    else:
+        args = (row,)
+    name = "%s.%s:%d" % (action, idcolumn, row[idcolumn])
+    proc = multiprocessing.Process(group=None, target=actfunc, \
+                                    name=name, args=args)
+    proc.start()
+    return proc
+
+
+def get_caldb_lock(sourcename):
+    """Return the lock used to access the calibrator database
+        file for the given source.
+
+        Input:
+            sourcename: The name of the source to match.
+                (NOTE: '_R' will be removed from the sourcename, if present)
+
+        Output:
+            lock: The corresponding lock.
+    """    
+    name = utils.get_prefname(sourcename)
+    if name.endswith('_R'):
+        name = name[:-2]
+    lock = CALDB_LOCKS.setdefault(name, multiprocessing.Lock())
+    return lock
 
 
 # Actions are defined by a 4-tuple: (table name, 
 #                                    ID column name, 
 #                                    target stage, 
 #                                    passed quality control,
+#                                    with calibrator database lock,
 #                                    function to proceed to next step)
 ACTIONS = {'group': ('directories', 
                         'dir_id', 
                         None, 
                         False,
+                        False,
                         load_groups), \
            'combine': ('groupings', 
                         'group_id', 
                         None, 
-                        False, 
+                        False,
+                        False,
                         load_combined_file), \
            'correct': ('files', 
                         'file_id', 
                         ['combined'], 
-                        False, 
+                        False,
+                        False,
                         load_corrected_file), \
            'clean': ('files', 
                         'file_id', 
                         ['corrected'], 
-                        False, 
+                        False,
+                        False,
                         load_cleaned_file), \
            'calibrate': ('files', 
                         'file_id', 
                         ['cleaned'], 
-                        True, 
+                        True,
+                        True,
                         load_calibrated_file)}
 
 
-class DummyResult(object):
-    def ready(self):
-        warnings.warn("This is a dummy version of " \
-                    "multiprocessing.Pool.AsyncResult.ready()!", \
-                    errors.CoastGuardWarning)
-        return True
-
-    def get(self):
-        warnings.warn("This is a dummy version of " \
-                    "multiprocessing.Pool.AsyncResult.get()!", \
-                    errors.CoastGuardWarning)
-        return None
-
-
-class DummyPool(object):
-    def apply_async(self, func, args=[], kwds={}, callback=None):
-        warnings.warn("This is a dummy version of " \
-                    "multiprocessing.Pool.apply_async()!", \
-                    errors.CoastGuardWarning)
-        try:
-            func(*args, **kwds)
-        except errors.CoastGuardError:
-            sys.stderr.write("".join(traceback.format_exception(*sys.exc_info())))
-        return DummyResult()
-
-    def join(self):
-        warnings.warn("This is a dummy version of " \
-                    "multiprocessing.Pool.join()!", \
-                    errors.CoastGuardWarning)
-
-    def close(self):
-        warnings.warn("This is a dummy version of " \
-                    "multiprocessing.Pool.close()!", \
-                    errors.CoastGuardWarning)
-
 def main():
-    if args.numproc == 1:
-        warnings.warn("Using a dummy version of multiprocessing.Pool()!", \
-                    errors.CoastGuardWarning)
-        pool = DummyPool()
-    else:
-        pool = multiprocessing.Pool(processes=args.numproc)
+    inprogress = []
     try:
         utils.print_info("Prioritizing %s" % ", ".join(args.priority), 0)
         db = database.Database()
@@ -1770,15 +1759,15 @@ def main():
         # Turn off progress counters before we enter the main loop
         config.show_progress = False
     
-        inprogress = []
         print "Entering main loop..."
         while True:
             nfree = args.numproc - len(inprogress)
             nsubmit = 0
             for action in ('calibrate', 'clean', 'correct', 'combine'):
                 rows = get_todo(db, action, priorities=args.priority)[:nfree]
-                tasks = launch_tasks(pool, db, action, rows)
-                inprogress.extend(tasks)
+                for row in rows:
+                    proc = launch_task(db, action, row)
+                    inprogress.append(proc)
                 nnew = len(rows)
                 nfree -= nnew
                 nsubmit += nnew
@@ -1791,19 +1780,19 @@ def main():
             time.sleep(args.sleep_time)
             # Check for completed tasks
             for ii in xrange(len(inprogress)-1, -1, -1):
-                result = inprogress[ii]
-                if result.ready():
-                    try:
-                        result.get()
-                    except errors.CoastGuardError:
-                        sys.stderr.write("".join(traceback.format_exception(*sys.exc_info())))
-                    finally:
-                        inprogress.pop(ii)
+                proc = inprogress[ii]
+                #print "Checking %s" % proc.name
+                #print "Is alive: %s; Exitcode: %s" % \
+                #        (proc.is_alive(), proc.exitcode)
+                if not proc.is_alive() and proc.exitcode is not None:
+                    if proc.exitcode != 0:
+                        if proc.exitcode < 0:
+                            msg = "With signal %d" % (-proc.exitcode)
+                        else:
+                            msg = "With error code %d" % proc.exitcode
+                        sys.stderr.write("Process failed! %s\n" % msg)
+                    inprogress.pop(ii)
     except:
-        # Close the pool
-        pool.close()
-        # Wait for worker processes to finish
-        pool.join()
         # Re-raise the error
         raise
 
