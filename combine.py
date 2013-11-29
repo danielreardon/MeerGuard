@@ -356,62 +356,41 @@ def main():
     print "        combine.py"
     print "     Patrick  Lazarus"
     print ""
-    file_list = args + options.from_glob
-    to_exclude = options.excluded_files + options.excluded_by_glob
-    to_combine = utils.exclude_files(file_list, to_exclude)
-    print "Number of input files: %d" % len(to_combine)
     
-    if not to_combine:
-        raise errors.BadFile("No files to combine!")
+    if len(args.subdirs):
+        print "Number of input sub-band directories: %d" % len(args.subdirs)
+    else:
+        raise errors.InputError("No sub-band directories to combine!")
 
+    # Group
+    usedirs, groups = group_subband_dirs(args.subdirs, \
+                maxspan=args.combine_maxspan, 
+                maxgap=args.combine_maxgap)
     # Combine files
-    raise NotImplementedError
+    outfns = []
+    for subints in groups:
+        outfns.append(combine_subints(usedirs, subints))
+    print "Created %d combined files" % len(outfns)
+    for outfn in outfns:
+        print "    %s" % outfn
 
 
 if __name__=="__main__":
-    raise NotImplementedError
-    parser = utils.DefaultArguments(usage="%prog [OPTIONS] FILES ...", \
+    parser = utils.DefaultArguments(usage="%(prog)s [OPTIONS] DIRS-TO-COMBINE", \
                         description="Given a list of frequency sub-band " \
                                     "directories containing sub-ints to " \
                                     "combine, group them and create " \
                                     "combined archives.")
-    parser.add_argument('-o', '--outname', dest='outfn', type='string', \
-                        help="The output (combined) file's name. " \
-                            "(Default: '%(name)s_%(yyyymmdd)s_%(secs)05d_combined.ar')", \
-                        default="%(name)s_%(yyyymmdd)s_%(secs)05d_combined.ar")
-    parser.add_argument('-g', '--glob', dest='from_glob', action='callback', \
-                        callback=utils.get_files_from_glob, default=[], \
-                        type='string', \
-                        help="Glob expression of input files. Glob expression " \
-                            "should be properly quoted to not be expanded by " \
-                            "the shell prematurely. (Default: no glob " \
-                            "expression is used.)") 
-    parser.add_argument('-x', '--exclude-file', dest='excluded_files', \
-                        type='string', action='append', default=[], \
-                        help="Exclude a single file. Multiple -x/--exclude-file " \
-                            "options can be provided. (Default: don't exclude " \
-                            "any files.)")
-    parser.add_argument('--exclude-glob', dest='excluded_by_glob', action='callback', \
-                        callback=utils.get_files_from_glob, default=[], \
-                        type='string', \
-                        help="Glob expression of files to exclude as input. Glob " \
-                            "expression should be properly quoted to not be " \
-                            "expanded by the shell prematurely. (Default: " \
-                            "exclude any files.)")
-    parser.add_argument('--nchan-to-trim', dest='nchan_to_trim', action='callback', \
-                        callback=parser.override_config, type='int', \
-                        help="The number of channels to trim from the edge of each " \
-                            "subband. (Default: %d)" % config.cfg.nchan_to_trim)
-    parser.add_argument('--frac-to-trim', dest='frac_to_trim', action='callback', \
-                        callback=parser.override_config, type='int', \
-                        help="The fraction of channels to trim from the edge of each " \
-                            "subband. (Default: %g)" % config.cfg.frac_to_trim)
-    parser.add_argument('--max-span', dest='combine_maxspan', action='callback', \
-                        callback=parser.override_config, type='int', \
+    parser.add_argument('subdirs', nargs='*', help="Sub-band directories " \
+                            "containing subints to combine.")
+#    parser.add_argument('-o', '--outname', dest='outfn', type=str, \
+#                        help="The output (combined) file's name. " \
+#                            "(Default: '%%(name)s_%%(yyyymmdd)s_%%(secs)05d_combined.ar')", \
+#                        default="%(name)s_%(yyyymmdd)s_%(secs)05d_combined.ar")
+    parser.add_argument('--max-span', dest='combine_maxspan', type=int, \
                         help="Max number of seconds a combined archive can span. " \
                              "(Default: %d s)" % config.cfg.combine_maxspan)
-    parser.add_argument('--max-gap', dest='combine_maxgap', action='callback', \
-                        callback=parser.override_config, type='int', \
+    parser.add_argument('--max-gap', dest='combine_maxgap', type=int, \
                         help="Max gap (in seconds) between archives before starting " \
                              "a new combined archive. (Default %d s)" % \
                                 config.cfg.combine_maxgap)
