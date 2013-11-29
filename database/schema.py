@@ -111,6 +111,8 @@ sa.Table('files', metadata, \
                     sa.ForeignKey("groupings.group_id", name="fk_files_group")), \
         sa.Column('parent_file_id', sa.Integer, \
                     sa.ForeignKey("files.file_id", name="fk_files_file")), \
+        sa.Column('cal_file_id', sa.Integer, \
+                    sa.ForeignKey("files.file_id", name="fk_files_cal")), \
         sa.Column('version_id', sa.Integer, \
                     sa.ForeignKey("versions.version_id", name="fk_files_ver")), \
         sa.Column('filepath', sa.String(512), nullable=False), \
