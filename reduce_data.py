@@ -1227,11 +1227,13 @@ def prepare_subints(subdirs, subints, baseoutdir):
     return tmpsubdirs
 
 
-def correct_header(arfn):
+def correct_header(arfn, obsinfo=None):
     """Correct header of asterix data in place.
 
         Input:
             arfn: The name of the input archive file.
+            obsinfo: A dictionary of observing log information to use.
+                (Default: search observing logs for matching entry)
 
         Output:
             corrfn: The name of the corrected file.
@@ -1270,10 +1272,12 @@ def correct_header(arfn):
         corrstr += ",type=PolnCal"
     else:
         corrstr += ",type=Pulsar"
-    if arf['name'].endswith('_R') or arf['ra'].startswith('00:00:00'):
+    if obsinfo is not None or arf['name'].endswith('_R') or arf['ra'].startswith('00:00:00'):
         # Correct coordinates
         try:
-            obsinfo = get_obslog_entry(arf)
+            if obsinfo is None:
+                # Search for observing log entry
+                obsinfo = get_obslog_entry(arf)
         except errors.HeaderCorrectionError as exc:
             note = exc.get_message() + "\n(Could not correct coordinates)" 
         else:
@@ -1296,6 +1300,27 @@ def correct_header(arfn):
         raise errors.HeaderCorrectionError("The corrected file (%s) does not " \
                                 "exist!" % corrfn)
     return corrfn, corrstr, note
+
+
+def parse_obslog_line(line):
+    """Given a line from a observing log, parse it.
+
+        Input:
+            line: A single line from an observing log.
+
+        Output:
+            info: A dictionary of information parsed from the
+                observing log entry.
+    """
+    valstrs = line.split()
+    if len(valstrs) < len(OBSLOG_FIELDS):
+        # Not a valid observation log entry
+        raise errors.FormatError("Observing log entry has bad format. " \
+                        "Require at least %d fields." % len(OBSLOG_FIELDS))
+    currinfo = {}
+    for (key, caster), valstr in zip(OBSLOG_FIELDS, valstrs):
+        currinfo[key] = caster(valstr)
+    return currinfo
 
 
 def get_obslog_entry(arf):
@@ -1343,13 +1368,11 @@ def get_obslog_entry(arf):
     for obslogfn in tosearch:
         with open(obslogfn, 'r') as obslog:
             for line in obslog:
-                valstrs = line.split()
-                if len(valstrs) < len(OBSLOG_FIELDS):
+                try:
+                    currinfo = parse_obslog_line(line)
+                except errors.FormatError:
                     # Not a valid observation log entry
                     continue
-                currinfo = {}
-                for (key, caster), valstr in zip(OBSLOG_FIELDS, valstrs):
-                    currinfo[key] = caster(valstr)
                 if check:
                     if (obsdate >= previnfo['localdate']) and \
                             (obsdate <= currinfo['localdate']) and \
