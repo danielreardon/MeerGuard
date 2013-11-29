@@ -53,6 +53,11 @@ RCVR_INFO = {'P217-3': 'rcvr:name=P217-3,rcvr:hand=-1,rcvr:basis=cir', \
              'P200-3': 'rcvr:name=P200-3,rcvr:hand=-1,rcvr:basis=cir'}
 
 
+# A lock for each calibrator database file
+# The multiprocessing.Lock objects are created on demand
+CALDB_LOCKS = {}
+
+
 def load_directories(db, *args, **kwargs):
     """Search for directories containing asterix data.
         For each newly found entry, insert a row in the
@@ -556,7 +561,7 @@ def load_cleaned_file(filerow):
     return file_id
 
 
-def load_calibrated_file(filerow):
+def load_calibrated_file(filerow, lock):
     """Given a row from the DB's files table referring to a
         status='new' file, process the file
         by calibrating it and load the new file into the database.
@@ -569,6 +574,7 @@ def load_calibrated_file(filerow):
 
         Inputs:
             filerow: A row from the files table.
+            lock: Lock for calibrator database file
 
         Ouput:
             file_id: The ID of the newly loaded 'calibrated' file.
@@ -637,6 +643,15 @@ def load_calibrated_file(filerow):
                                 "file found (%s)." % caldbpath)
             # No calibrate, scrunching to the appropriate number of channels
             utils.execute(['pac', '-d', caldbpath, '-j', 'F %d' % nchans, infn])
+            try:
+                lock.acquire()
+                # Now calibrate, scrunching to the appropriate 
+                # number of channels
+                stdout, stderr = utils.execute(['pac', '-d', caldbpath, '-j', \
+                                'F %d' % nchans, infn])
+            finally:
+                lock.release()
+
             outpath = os.path.splitext(infn)[0]+'.calibP'
             # Make diagnostic plots
             arf = utils.ArchiveFile(outpath)
@@ -704,9 +719,13 @@ def load_calibrated_file(filerow):
                         values(status='processed', \
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
-        #if filerow['obstype'] == 'cal':
-        #    # Update the calibrator database
-        #    update_caldb(db, arf['name'], force=True)
+        if filerow['obstype'] == 'cal':
+            # Update the calibrator database
+            try:
+                lock.acquire()
+                update_caldb(db, arf['name'], force=True)
+            finally:
+                lock.release()
     return file_id
 
 
@@ -1527,7 +1546,7 @@ def get_todo(db, action, priorities=None):
                     "', '".join(ACTIONS.keys()))
 
     tablename, idcolumn, target_stages, \
-            qcpassed_only, actfunc = ACTIONS[action]
+            qcpassed_only, withlock, actfunc = ACTIONS[action]
     dbtable = db[tablename]
     whereclause = dbtable.c.status=='new'
     if target_stages is not None:
