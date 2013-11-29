@@ -629,7 +629,10 @@ def load_calibrated_file(filerow, lock):
             utils.execute(['pam', '--setnchn', '%d' % nchans, '-T', \
                                 '-e', 'pcal.T', infn])
             outpath = os.path.splitext(infn)[0]+'.pcal.T'
-            diagvals = []
+            arf = utils.ArchiveFile(outpath)
+            plotfn = make_stokes_plot(arf)
+            diagvals = [{'diagnosticpath': os.path.dirname(plotfn), \
+                         'diagnosticname': os.path.basename(plotfn)}]
         else:
             # Pulsar scan. Calibrate it.
             caldbrow = get_caldb(db, name)
@@ -1389,6 +1392,29 @@ def make_polprofile_plots(arf):
     diagnose.make_polprofile_plot(arf, preproc, outfn=lowresfn)
  
     return fullresfn, lowresfn
+
+
+def make_stokes_plot(arf):
+    """Make a stokes profile plot.
+
+        Input:
+            arf: An ArchiveFile object.
+
+        Output:
+            plotfn: The name of the stokes plot.
+    """
+    utils.print_info("Creating stokes profile plot for %s" % arf.fn, 3)
+    outfn = "%s.stokes.png" % arf.fn
+    utils.print_info("Output plot name: %s" % outfn, 2)
+    suffix = os.path.splitext(outfn)[-1]
+    handle, tmpfn = tempfile.mkstemp(suffix=suffix)
+    
+    grdev = "%s/PNG" % tmpfn
+    utils.execute(['psrplot', '-p', 'stokes', '-j', 'CDTF', \
+                            arf.fn, '-D', grdev])
+    # Rename tmpfn to requested output filename
+    shutil.move(tmpfn, outfn)
+    return outfn
 
 
 def reduce_directory(path):
