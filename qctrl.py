@@ -14,6 +14,7 @@ import subprocess
 import datetime
 import tempfile
 import shutil
+import warnings
 
 import PyQt4 as qt
 from PyQt4 import QtGui as qtgui
@@ -60,6 +61,9 @@ class QualityControl(qtgui.QWidget):
         qtgui.QShortcut(qtcore.Qt.Key_R, self, self.get_files_to_check)
         qtgui.QShortcut(qtcore.Qt.Key_Q, self, self.close)
         qtgui.QShortcut(qtcore.Qt.Key_P, self, self.set_priorities)
+        qtgui.QShortcut(qtcore.Qt.Key_A, self, self.add_parents_diags)
+        qtgui.QShortcut(qtcore.Qt.Key_W, self, self.write_filename)
+        qtgui.QShortcut(qtcore.Qt.Key_C, self, self.add_cal_diags)
 
     def __add_widgets(self):
         self.image_holder = qtgui.QLabel()
@@ -82,6 +86,8 @@ class QualityControl(qtgui.QWidget):
         reload_button.clicked.connect(self.get_files_to_check)
         priority_button = qtgui.QPushButton("&Prioritize")
         priority_button.clicked.connect(self.set_priorities)
+        addparents_button = qtgui.QPushButton("&Add plots")
+        addparents_button.clicked.connect(self.add_parents_diags)
 
         # Counter for the number of plots left
         self.lcd = qtgui.QLCDNumber(4)
@@ -106,6 +112,7 @@ class QualityControl(qtgui.QWidget):
         right_box.addWidget(skip_button)
         right_box.addWidget(reload_button)
         right_box.addWidget(priority_button)
+        right_box.addWidget(addparents_button)
         right_box.addStretch(1)
         right_box.addWidget(qtgui.QLabel("Num left:"))
         right_box.addWidget(self.lcd)
@@ -198,8 +205,59 @@ class QualityControl(qtgui.QWidget):
                 self.idiag = 0
             self.file_id = file_id
             self.fileinfo = ff
+            self.added_parent_plots = False
+            self.added_cal_plots = False
             self.display_file()
-        
+   
+    def write_filename(self):
+        ff = self.fileinfo
+        if self.file_id is not None:
+            print os.path.join(ff['filepath'], ff['filename'])
+
+    def add_parents_diags(self):
+        ff = self.fileinfo
+        file_id = ff['file_id']
+        if not self.added_parent_plots and self.file_id is not None:
+            parent_file_id = ff['parent_file_id']
+            if parent_file_id is not None:
+                with self.db.transaction() as conn:
+                    # Get diagnostics from DB
+                    select = self.db.select([self.db.diagnostics]).\
+                            where(self.db.diagnostics.c.file_id==parent_file_id)
+                    result = conn.execute(select)
+                    rows = result.fetchall()
+                if len(rows) == 0:
+                    raise warnings.warn("No diagnostics for " \
+                                "file (ID: %d) '%s'!" % \
+                                (file_id, os.path.join(ff['filepath'], \
+                                                    ff['filename'])), \
+                                errors.CoastGuardWarning)
+                self.diagplots.extend([os.path.join(row['diagnosticpath'], \
+                                    row['diagnosticname']) for row in rows])
+            self.added_parents_plots = True
+
+    def add_cal_diags(self):
+        ff = self.fileinfo
+        file_id = ff['file_id']
+        if not self.added_cal_plots and self.file_id is not None:
+            cal_file_id = ff['cal_file_id']
+            if cal_file_id is not None:
+                with self.db.transaction() as conn:
+                    # Get diagnostics from DB
+                    select = self.db.select([self.db.diagnostics]).\
+                            where(self.db.diagnostics.c.file_id==cal_file_id)
+                    result = conn.execute(select)
+                    rows = result.fetchall()
+                if len(rows) == 0:
+                    raise warnings.warn("No diagnostics for " \
+                                "file (ID: %d) '%s'!" % \
+                                (file_id, os.path.join(ff['filepath'], \
+                                                    ff['filename'])), \
+                                errors.CoastGuardWarning)
+                self.diagplots.extend([os.path.join(row['diagnosticpath'], \
+                                    row['diagnosticname']) for row in rows])
+            self.added_cal_plots = True
+
     def get_files_to_check(self, priorities=None, stage=None):
         if stage is None:
             stage = self.stage
