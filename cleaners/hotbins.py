@@ -113,15 +113,7 @@ class HotbinsCleaner(cleaners.BaseCleaner):
                                 cleaneddata[ibad] = noise
 
     def __locate_cal(self, ar):
-        prof = ar.get_data()[:,0,:].sum(axis=1).sum(axis=0)
-        nn = len(prof)
-        box = np.zeros(nn)
-        box[:nn*self.configs.calfrac] = 1
-        corr = np.fft.irfft(np.conj(np.fft.rfft(box))*np.fft.rfft(prof))
-        calstart = corr.argmax()
-        utils.print_debug("Cal starts at bin %d" % calstart, 'clean')
-        calbins = np.roll(box, calstart).astype(bool)
-        return calbins
+        return utils.locate_cal(ar, calfrac=self.configs.calfrac)
 
 
 Cleaner = HotbinsCleaner

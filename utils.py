@@ -762,6 +762,30 @@ def get_outfn(fmtstr, arf):
     return outfn
 
 
+def locate_cal(ar, calfrac=0.5):
+    """Locate the profile bins that contain the cal signal.
+
+        Inputs:
+            ar: A psrchive.Archive object.
+            calfrac: The fraction of phase bins occupied by the cal.
+                (Default: 0.5)
+
+        Output:
+            is_cal: A list of boolean values (on for each phase bin).
+                True values contain the cal signal.
+    """
+    prof = ar.get_data()[:,0,:].sum(axis=1).sum(axis=0)
+    nn = len(prof)
+    box = np.zeros(nn)
+    ncalbins = int(nn*calfrac + 0.5)
+    box[:ncalbins] = 1
+    corr = np.fft.irfft(np.conj(np.fft.rfft(box))*np.fft.rfft(prof))
+    calstart = corr.argmax()
+    print_debug("Cal starts at bin %d" % calstart, 'clean')
+    calbins = np.roll(box, calstart).astype(bool)
+    return calbins
+
+
 def correct_asterix_header(arfn):
     """Effelsberg Asterix data doesn't have backend and receiver
         information correctly written into archive headers. It is
