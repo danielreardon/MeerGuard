@@ -1210,7 +1210,7 @@ class DefaultArguments(argparse.ArgumentParser):
         def __call__(self, parser, namespace, values, option_string):
             config.cfg.set_override_config(self.dest, True)
 
-    class UnetOverrideConfigAction(argparse.Action):
+    class UnsetOverrideConfigAction(argparse.Action):
         def __call__(self, parser, namespace, values, option_string):
             config.cfg.set_override_config(self.dest, False)
 
