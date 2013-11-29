@@ -643,9 +643,7 @@ def load_calibrated_file(filerow, lock):
                                         caldbrow['caldbname'])
             if not os.path.isfile(caldbpath):
                 raise errors.DataReductionFailed("Calibrator database " \
-                                "file found (%s)." % caldbpath)
-            # No calibrate, scrunching to the appropriate number of channels
-            utils.execute(['pac', '-d', caldbpath, '-j', 'F %d' % nchans, infn])
+                                "file not found (%s)." % caldbpath)
             try:
                 lock.acquire()
                 # Now calibrate, scrunching to the appropriate 
@@ -654,6 +652,35 @@ def load_calibrated_file(filerow, lock):
                                 'F %d' % nchans, infn])
             finally:
                 lock.release()
+            
+            # Get name of calibrator used\
+            calfn = None
+            lines = stdout.split("\n")
+            for ii, line in enumerate(lines):
+                if line.strip() == "pac: PolnCalibrator constructed from:":
+                    calfn = lines[ii+1].strip()
+                    # Insert log message
+                    utils.log_message("Polarization calibrator used:" \
+                                        "\n    %s" % calfn, 'info')
+
+                    break
+            if calfn is not None:
+                calpath, calname = os.path.split(calfn)
+                # Get file_id number for calibrator scan
+                with db.transaction() as conn:
+                    select = db.select([db.files]).\
+                                where((db.files.c.filepath==calpath) & \
+                                    (db.files.c.filename==calname))
+                    results = conn.execute(select)
+                    rows = results.fetchall()
+                    results.close()
+
+                if len(rows) == 1:
+                    values['cal_file_id'] = rows[0]['file_id']
+                else:
+                    raise errors.DatabaseError("Bad number of file rows (%d) " \
+                                    "with path='%s' and name='%s'!" % \
+                                    (len(rows), calpath, calname))
 
             outpath = os.path.splitext(infn)[0]+'.calibP'
             # Make diagnostic plots
