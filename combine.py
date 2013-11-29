@@ -28,10 +28,26 @@ import debug
 SUBINT_GLOB = '[0-9]'*4+'-'+'[0-9]'*2+'-'+'[0-9]'*2+'-' + \
                 '[0-9]'*2+':'+'[0-9]'*2+':'+'[0-9]'*2 + \
                     '.ar'
+SP_GLOB = "pulse_*.ar"
+
+
+def get_start_from_subint(subint):
+    subint = os.path.basename(subint)
+    start = datetime.datetime.strptime(subint, "%Y-%m-%d-%H:%M:%S.ar")
+    return start
+
+
+def get_start_from_singlepulse(single):
+    arf = utils.ArchiveFile(single)
+    return arf.datetime
+
+
+FILETYPE_SPECIFICS = {'subint': (SUBINT_GLOB, get_start_from_subint), \
+                      'single': (SP_GLOB, get_start_from_singlepulse)}
 
 
 def group_subband_dirs(subdirs, maxspan=None, maxgap=None, \
-            tossfrac=0.7):
+            tossfrac=0.7, filetype='subint'):
     """Based on file names group sub-ints from different
         sub-bands. Each subband is assumed to be in a separate
         directory.
@@ -46,6 +62,8 @@ def group_subband_dirs(subdirs, maxspan=None, maxgap=None, \
                 sub-band to be combined. If a sub-band has
                 fewer than tossfrac*N_subint sub-ints it
                 will be excluded.
+            filetype: Type of files being grouped. Can be 'subint',
+                or 'single'. (Default: 'subint')
 
         Outputs:
             usedirs: List of directories to use when combining.
@@ -62,6 +80,13 @@ def group_subband_dirs(subdirs, maxspan=None, maxgap=None, \
     if maxgap is None:
         maxgap = config.cfg.combine_maxgap
 
+    if filetype not in FILETYPE_SPECIFICS:
+        raise errors.InputError("File type (%s) is not recognized. " \
+                                "Possible values are: '%s'" % \
+                            (filetype, "', '".join(FILETYPE_SPECIFICS.keys())))
+    else:
+        globpat, get_start = FILETYPE_SPECIFICS[filetype]
+
     # Ensure paths are absolute
     subdirs = [os.path.abspath(path) for path in subdirs]
     utils.print_debug("Grouping subints from %d sub-band directories" % \
@@ -73,7 +98,7 @@ def group_subband_dirs(subdirs, maxspan=None, maxgap=None, \
     noccurs = collections.Counter()
     nintotal = 0
     for subdir in subdirs:
-        fns = glob.glob(os.path.join(subdir, SUBINT_GLOB))
+        fns = glob.glob(os.path.join(subdir, globpat))
         nn = len(fns)
         utils.print_debug("Found %d sub-int files in %s" % \
                             (nn, subdir), 'combine')
@@ -93,7 +118,7 @@ def group_subband_dirs(subdirs, maxspan=None, maxgap=None, \
             subdirs.pop(ii)
             del nperdir[subdir]
 
-            fns = glob.glob(os.path.join(subdir, SUBINT_GLOB))
+            fns = glob.glob(os.path.join(subdir, globpat))
             noccurs.subtract([os.path.basename(fn) for fn in fns])
             nsubbands -= 1
 
@@ -116,7 +141,7 @@ def group_subband_dirs(subdirs, maxspan=None, maxgap=None, \
                                 "subbands (only %d of %d)" % \
                                 (subint, noccurs[subint], nsubbands), 2)
                 continue
-            start = datetime.datetime.strptime(subint, "%Y-%m-%d-%H:%M:%S.ar")
+            start = get_start(os.path.join(subdirs[0], subint))
             if ((start - filestart).total_seconds() > maxspan) or \
                         ((start - lastsubint).total_seconds() > maxgap):
                 filestart = start
@@ -365,7 +390,8 @@ def main():
     # Group
     usedirs, groups = group_subband_dirs(args.subdirs, \
                 maxspan=args.combine_maxspan, 
-                maxgap=args.combine_maxgap)
+                maxgap=args.combine_maxgap, \
+                filetype=args.filetype)
     # Combine files
     outfns = []
     for subints in groups:
@@ -394,5 +420,10 @@ if __name__=="__main__":
                         help="Max gap (in seconds) between archives before starting " \
                              "a new combined archive. (Default %d s)" % \
                                 config.cfg.combine_maxgap)
+    parser.add_argument('--type', dest='filetype', type=str, \
+                        choices=FILETYPE_SPECIFICS.keys(), \
+                        help="Type of files being grouped. Can be 'subint',"
+                                "or 'single'. (Default: 'subint')")
+
     args = parser.parse_args()
     main()
