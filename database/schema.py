@@ -1,10 +1,9 @@
 import sqlalchemy as sa
 
-DIRECTORY_STATUSES = ['new', 'submitted', 'failed', 'running', 'grouped', 'archived']
-GROUPING_STATUSES = ['new', 'submitted', 'failed', 'running', 'combined']
+DIRECTORY_STATUSES = ['new', 'submitted', 'failed', 'running', 'processed', 'archived']
 FILE_STATUSES = ['new', 'submitted', 'failed', 'running', 'processed', 'done', 'diagnosed', 'replaced', 'calfail']
-FILE_OBSTYPES = ['pulsar', 'cal']
-FILE_STAGES = ['combined', 'corrected', 'cleaned', 'calibrated']
+FILE_STAGES = ['grouped', 'combined', 'corrected', 'cleaned', 'calibrated']
+OBSTYPES = ['pulsar', 'cal']
 CALDB_STATUSES = ['ready', 'submitted', 'updating', 'failed']
 
 NOTELEN = 1024 # Number of characters for the note field
@@ -46,27 +45,21 @@ sa.Table('directories', metadata, \
         mysql_engine='InnoDB', mysql_charset='ascii')
 
 
-# Define groupings table
-sa.Table('groupings', metadata, \
-        sa.Column('group_id', sa.Integer, primary_key=True, \
+# Define obsinfo table
+sa.Table('obsinfo', metadata, \
+        sa.Column('obsinfo_id', sa.Integer, primary_key=True, \
                     autoincrement=True, nullable=False), \
         sa.Column('dir_id', sa.Integer, \
                     sa.ForeignKey("directories.dir_id", name="fk_group_dir")), \
-        sa.Column('version_id', sa.Integer, \
-                    sa.ForeignKey("versions.version_id", name="fk_group_ver")), \
         sa.Column('sourcename', sa.String(32), nullable=False), \
-        sa.Column('listpath', sa.String(512), nullable=False), \
-        sa.Column('listname', sa.String(512), nullable=False), \
-        sa.Column('status', sa.Enum(*GROUPING_STATUSES), nullable=False, \
+        sa.Column('status', sa.Enum(*FILE_STATUSES), nullable=False, \
                     default='new'), \
-        sa.Column('note', sa.String(NOTELEN), nullable=True), \
-        sa.Column('md5sum', sa.String(64), nullable=False, \
-                    unique=True), \
+        sa.Column('obstype', sa.Enum(*OBSTYPES), nullable=False), \
+        sa.Column('start_mjd', sa.Float, nullable=False), \
         sa.Column('added', sa.DateTime, nullable=False, \
                     default=sa.func.now()), \
         sa.Column('last_modified', sa.DateTime, nullable=False, \
                     default=sa.func.now()), \
-        sa.UniqueConstraint('listpath', 'listname'), \
         mysql_engine='InnoDB', mysql_charset='ascii')
 
 
@@ -107,8 +100,8 @@ sa.Table('logs', metadata, \
 sa.Table('files', metadata, \
         sa.Column('file_id', sa.Integer, primary_key=True, \
                     autoincrement=True, nullable=False), \
-        sa.Column('group_id', sa.Integer, \
-                    sa.ForeignKey("groupings.group_id", name="fk_files_group")), \
+        sa.Column('obsinfo_id', sa.Integer, \
+                    sa.ForeignKey("obsinfo.obsinfo_id", name="fk_files_obsinfo")), \
         sa.Column('parent_file_id', sa.Integer, \
                     sa.ForeignKey("files.file_id", name="fk_files_file")), \
         sa.Column('cal_file_id', sa.Integer, \
@@ -117,11 +110,7 @@ sa.Table('files', metadata, \
                     sa.ForeignKey("versions.version_id", name="fk_files_ver")), \
         sa.Column('filepath', sa.String(512), nullable=False), \
         sa.Column('filename', sa.String(512), nullable=False), \
-        sa.Column('sourcename', sa.String(32), nullable=False), \
-        sa.Column('status', sa.Enum(*FILE_STATUSES), nullable=False, \
-                    default='new'), \
         sa.Column('note', sa.String(NOTELEN), nullable=True), \
-        sa.Column('obstype', sa.Enum(*FILE_OBSTYPES), nullable=False), \
         sa.Column('stage', sa.Enum(*FILE_STAGES), nullable=False), \
         sa.Column('md5sum', sa.String(64), nullable=False, \
                     unique=True), \
