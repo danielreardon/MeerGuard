@@ -216,8 +216,13 @@ def main():
     else:
         raise errors.InputError("No files to correct!")
 
+    if args.obslog_line is not None:
+        obsinfo = parse_obslog_line(args.obslog_line)
+    else:
+        obsinfo = None
+
     for fn in args.files:
-        corrfn, corrstr, note = correct_header(fn)
+        corrfn, corrstr, note = correct_header(fn, obsinfo=obsinfo)
         print "    Output corrected file: %s" % corrfn
 
 
@@ -225,5 +230,9 @@ if __name__ == '__main__':
     parser = utils.DefaultArguments(description="Correct header of Asterix " \
                                     "data files.")
     parser.add_argument('files', nargs='*', help="Files to correct.")
+    parser.add_argument('--obslog-line', dest='obslog_line', type=str, \
+                        help="Line from observing log to use. " \
+                            "(Default: search observing logs for " \
+                            "the appropriate line.)")
     args = parser.parse_args()
     main()
