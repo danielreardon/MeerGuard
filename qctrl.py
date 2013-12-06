@@ -57,6 +57,8 @@ class QualityControl(qtgui.QWidget):
         qtgui.QShortcut(qtcore.Qt.Key_G, self, self.set_file_as_good)
         qtgui.QShortcut(qtcore.Qt.Key_B, self, self.set_file_as_bad)
         qtgui.QShortcut(qtcore.Qt.Key_Z, self, self.zap_file_manually)
+        qtgui.QShortcut(qtcore.Qt.SHIFT+qtcore.Qt.Key_Z, \
+                self, lambda: self.zap_file_manually(reset_weights=True))
         qtgui.QShortcut(qtcore.Qt.Key_S, self, self.advance_file)
         qtgui.QShortcut(qtcore.Qt.Key_R, self, self.get_files_to_check)
         qtgui.QShortcut(qtcore.Qt.Key_Q, self, self.close)
@@ -125,12 +127,14 @@ class QualityControl(qtgui.QWidget):
 
     def set_file_as_good(self):
         if self.file_id:
+            values = {'qcpassed': True}
+            if self.fileinfo['stage'] == 'calibrated':
+                values['status'] = 'toload'
             with self.db.transaction() as conn:
                 update = self.db.files.update().\
                             where(self.db.files.c.file_id==self.file_id).\
-                            values(qcpassed=True, \
-                                    last_modified=datetime.datetime.now())
-                conn.execute(update)
+                            values(last_modified=datetime.datetime.now())
+                conn.execute(update, values)
             self.advance_file()
 
     def set_file_as_bad(self):
@@ -269,17 +273,21 @@ class QualityControl(qtgui.QWidget):
             whereclause = (self.db.files.c.qcpassed.is_(None)) & \
                                     (self.db.files.c.stage=='calibrated') & \
                                     (self.db.files.c.status=='new') & \
-                                    (self.db.files.c.obstype=='pulsar')
+                                    (self.db.obs.c.obstype=='pulsar')
             
         if priorities is None:
             priorities = self.priorities
         if priorities is not None:
-            tmp = self.db.files.c.sourcename.like(priorities[0])
+            tmp = self.db.obs.c.sourcename.like(priorities[0])
             for priority in priorities[1:]:
-                tmp |= self.db.files.c.sourcename.like(priority)
+                tmp |= self.db.obs.c.sourcename.like(priority)
             whereclause &= tmp
         with self.db.transaction() as conn:
-            select = self.db.select([self.db.files.c.file_id]).\
+            select = self.db.select([self.db.files.c.file_id], \
+                        from_obj=[self.db.files.\
+                            outerjoin(self.db.obs, \
+                                onclause=self.db.files.c.obs_id == \
+                                        self.db.obs.c.obs_id)]).\
                         where(whereclause)
             result = conn.execute(select)
             rows = result.fetchall()
@@ -289,21 +297,19 @@ class QualityControl(qtgui.QWidget):
         self.files_to_check.reverse()
         self.advance_file()
 
-    def zap_file_manually(self):
+    def zap_file_manually(self, reset_weights=False):
         arfn = os.path.join(self.fileinfo['filepath'], \
                             self.fileinfo['filename'])
        
         zapdialog = ZappingDialog()
         zapdialog.show()
         # This blocks input to the main quality control window
-        out = zapdialog.zap(arfn)
+        out = zapdialog.zap(arfn, reset_weights)
         if out is not None and os.path.isfile(out):
             # Successful! Insert entry into DB.
             outdir, outfn = os.path.split(out)
             values = {'filepath': outdir, \
                       'filename': outfn, \
-                      'sourcename': self.fileinfo['sourcename'], \
-                      'obstype': self.fileinfo['obstype'], \
                       'stage': 'cleaned', \
                       'note': "Manually zapped", \
                       'qcpassed': True, \
@@ -316,7 +322,7 @@ class QualityControl(qtgui.QWidget):
                 # Insert new entry
                 insert = self.db.files.insert().\
                         values(version_id = version_id, \
-                                group_id = self.fileinfo['group_id'])
+                                obs_id = self.fileinfo['obs_id'])
                 result = conn.execute(insert, values)
                 file_id = result.inserted_primary_key[0]
                 # Update parent file's entry
@@ -417,17 +423,19 @@ class ZappingDialog(qtgui.QDialog):
                             "buttons!" % ret)
         self.done(success)
 
-    def __on_stderr(self):
-        stderr_data = self.proc.readAllStandardError()
-        text = qtcore.QString(stdout_data)
+    def __on_stderr(self, text=None):
+        if text is None:
+            stderr_data = self.proc.readAllStandardError()
+            text = qtcore.QString(stdout_data)
         self.textedit.appendPlainText(text)
 
-    def __on_stdout(self):
-        stdout_data = self.proc.readAllStandardOutput()
-        text = qtcore.QString(stdout_data)
+    def __on_stdout(self, text=None):
+        if text is None:
+            stdout_data = self.proc.readAllStandardOutput()
+            text = qtcore.QString(stdout_data)
         self.textedit.appendPlainText(text)
 
-    def zap(self, arfn):
+    def zap(self, arfn, reset_weights=False):
         self.setWindowTitle("Zapping %s..." % os.path.basename(arfn))
         # Create temporary file for output
         tmpdir = os.path.join(config.tmp_directory, 'qctrl')
@@ -436,7 +444,7 @@ class ZappingDialog(qtgui.QDialog):
         tmpfile, tmpoutfn = tempfile.mkstemp(suffix=".ar", dir=tmpdir)
         os.close(tmpfile) # Close open file handle
         try:
-            success = self.__launch_zapping(arfn, tmpoutfn)
+            success = self.__launch_zapping(arfn, tmpoutfn, reset_weights)
             if success:
                 arf = utils.ArchiveFile(arfn)
                 archivedir = os.path.join(config.output_location, \
@@ -448,10 +456,10 @@ class ZappingDialog(qtgui.QDialog):
             else:
                 return None
         finally:
-            if os.path.exists(self.outfn):
-                os.remove(self.outfn)
+            if os.path.exists(tmpdir):
+                shutil.rmtree(tmpdir)
     
-    def __launch_zapping(self, infn, outfn):
+    def __launch_zapping(self, infn, outfn, reset_weights=False):
         self.infn = infn
         self.outfn = outfn
         self.proc = qtcore.QProcess()
@@ -461,6 +469,14 @@ class ZappingDialog(qtgui.QDialog):
                         self.__on_stderr)
         self.connect(self.proc, qtcore.SIGNAL('finished(int)'), \
                         self.__on_finish)
+        if reset_weights:
+            proc = qtcore.QProcess()
+            self.__on_stdout("Resetting profile weights")
+            tmpfn = outfn+".in"
+            shutil.copy(infn, tmpfn)
+            infn = tmpfn
+            proc.start('pam', ['-m', '-w', '1', infn])
+            self.__on_stdout("Done")
         self.proc.start('pzrzap', [infn, '-o', outfn])
         success = self.exec_()
         return success

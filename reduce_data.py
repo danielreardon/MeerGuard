@@ -24,11 +24,22 @@ import errors
 import debug
 import log
 import correct
+import calibrate
+
+import pyriseset as rs
+
+from toaster.toolkit.rawfiles import load_rawfile
 
 # A lock for each calibrator database file
 # The multiprocessing.Lock objects are created on demand
 CALDB_LOCKS = {}
 
+STAGE_TO_EXT = {'combined': '.cmb', \
+                'grouped': '.list.txt', \
+                'cleaned': '.clean', \
+                'corrected': '.corr'}
+
+TWOHRS_IN_DAYS = 2.0/24.0
 
 def load_directories(db, *args, **kwargs):
     """Search for directories containing asterix data.
@@ -115,6 +126,7 @@ def load_groups(dirrow):
     try:
         ninserts = 0
         values = []
+        obsinfo = []
         logfns = []
         for dirs, fns in zip(*make_groups(path)):
             fns.sort()
@@ -139,9 +151,19 @@ def load_groups(dirrow):
             logfns.append(logfn)
             combine.write_listing(dirs, fns, listfn)
             listpath, listname = os.path.split(listfn)
-            values.append({'listpath': listpath, \
-                           'listname': listname, \
-                           'md5sum': utils.get_md5sum(listfn)})
+            if arf['name'].endswith("_R"):
+                obstype='cal'
+            else:
+                obstype='pulsar'
+            obsinfo.append({'sourcename': arf['name'], \
+                            'start_mjd': arf['mjd'], \
+                            'obstype': obstype})
+                            
+            values.append({'filepath': listpath, \
+                           'filename': listname, \
+                           'stage': 'grouped', \
+                           'md5sum': utils.get_md5sum(listfn), \
+                           'filesize': os.path.getsize(listfn)})
     except Exception as exc:
         utils.print_info("Exception caught while working on Dir ID %d" % \
                             dir_id, 0)
@@ -167,23 +189,27 @@ def load_groups(dirrow):
     else:
         with db.transaction() as conn:
             version_id = utils.get_version_id(db) 
-            for vals, logfn in zip(values, logfns):
-                insert = db.groupings.insert().\
-                            values(version_id = version_id, \
-                                   dir_id = dir_id, \
-                                   sourcename = arf['name'])
+            for obs, vals, logfn in zip(obsinfo, values, logfns):
+                # Insert obs
+                insert = db.obs.insert().\
+                            values(dir_id=dir_id)
+                result = conn.execute(insert, obs)
+                obs_id = result.inserted_primary_key[0]
+                # Insert file
+                insert = db.files.insert().\
+                            values(obs_id=obs_id)
                 result = conn.execute(insert, vals)
-                group_id = result.inserted_primary_key[0]
+                file_id = result.inserted_primary_key[0]
                 # Insert log
                 shutil.copy(tmplogfn, logfn)
                 insert = db.logs.insert().\
-                            values(group_id = group_id, \
-                                   logpath = os.path.dirname(logfn), \
-                                   logname = os.path.basename(logfn))
+                            values(obs_id=obs_id, \
+                                   logpath=os.path.dirname(logfn), \
+                                   logname=os.path.basename(logfn))
                 conn.execute(insert)
             update = db.directories.update().\
                         where(db.directories.c.dir_id==dir_id).\
-                        values(status='grouped', \
+                        values(status='processed', \
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
         ninserts += len(values)
@@ -193,38 +219,41 @@ def load_groups(dirrow):
     return ninserts
 
 
-def load_combined_file(grprow):
-    """Given a row from the DB's groups table create a combined
+def load_combined_file(filerow):
+    """Given a row from the DB's files table create a combined
         archive and load it into the database.
 
         Input:
-            grprow: A row from the groupings table.
+            filerow: A row from the files table.
 
         Outputs:
             file_id: The ID of newly loaded 'combined' file.
     """
     db = database.Database() 
-    group_id = grprow['group_id']
-    logrow = get_log(db, group_id)
+    parent_file_id = filerow['file_id']
+    obs_id = filerow['obs_id']
+    
+    logrow = get_log(db, obs_id)
     log_id = logrow['log_id']
     logfn = os.path.join(logrow['logpath'], logrow['logname'])
     log.setup_logger(logfn)
+    
     # Mark as running
     with db.transaction() as conn:
-        update = db.groupings.update().\
-                    where(db.groupings.c.group_id==group_id).\
+        update = db.files.update().\
+                    where(db.files.c.file_id==parent_file_id).\
                     values(status='running', \
                             last_modified=datetime.datetime.now())
         conn.execute(update)
-    if grprow['status'] != 'new':
+    if filerow['status'] != 'new':
         return errors.BadStatusError("Combined files can only be " \
-                                "generated from 'grouping' entries " \
+                                "generated from 'files' entries " \
                                 "with status 'new'. (The status of " \
-                                "Group ID %d is '%s'.)" % \
-                                (group_id, grprow['status']))
-    listfn = os.path.join(grprow['listpath'], grprow['listname'])
+                                "File ID %d is '%s'.)" % \
+                                (parent_file_id, filerow['status']))
+    fn = os.path.join(filerow['filepath'], filerow['filename'])
     try:
-        subdirs, subints = combine.read_listing(listfn)
+        subdirs, subints = combine.read_listing(fn)
         arf = utils.ArchiveFile(os.path.join(subdirs[0], subints[0]))
         # Combine the now-prepped subints
         cmbdir = os.path.join(config.output_location, arf['name'], 'combined')
@@ -246,23 +275,16 @@ def load_combined_file(grprow):
             utils.execute(['pam', '-m', '--setnchn', '512', cmbfn])
         else:
             note = None
-
-        if arf['name'].endswith("_R"):
-            obstype = 'cal'
-        else:
-            obstype = 'pulsar'
- 
         values = {'filepath': cmbdir, \
                   'filename': os.path.basename(cmbfn), \
-                  'sourcename': arf['name'], \
-                  'obstype': obstype, \
                   'stage': 'combined', \
                   'md5sum': utils.get_md5sum(cmbfn), \
                   'filesize': os.path.getsize(cmbfn), \
+                  'parent_file_id': parent_file_id, \
                   'note': note}
     except Exception as exc:
-        utils.print_info("Exception caught while working on Group ID %d" % \
-                            group_id, 0)
+        utils.print_info("Exception caught while working on File ID %d" % \
+                            parent_file_id, 0)
         if isinstance(exc, (errors.CoastGuardError, \
                             errors.FatalCoastGuardError)):
             # Get error message without colours mark-up
@@ -271,8 +293,8 @@ def load_combined_file(grprow):
             msg = str(exc)
             utils.log_message(traceback.format_exc(), 'error')
         with db.transaction() as conn:
-            update = db.groupings.update(). \
-                        where(db.groupings.c.group_id==group_id).\
+            update = db.files.update(). \
+                        where(db.files.c.file_id==parent_file_id).\
                         values(status='failed', \
                                 note='Combining failed! %s: %s' % \
                                             (type(exc).__name__, msg), \
@@ -284,17 +306,17 @@ def load_combined_file(grprow):
             version_id = utils.get_version_id(db)
             # Insert new entry
             insert = db.files.insert().\
-                    values(version_id = version_id, \
-                            group_id = group_id)
+                    values(version_id=version_id, \
+                            obs_id=obs_id)
             result = conn.execute(insert, values)
-            file_id = result.inserted_primary_key[0]
-            # Update status of groupings
-            update = db.groupings.update(). \
-                        where(db.groupings.c.group_id==group_id).\
-                        values(status='combined', \
+            new_file_id = result.inserted_primary_key[0]
+            # Update status of parent file's entry
+            update = db.files.update(). \
+                        where(db.files.c.file_id==parent_file_id).\
+                        values(status='processed', \
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
-    return file_id
+    return new_file_id
 
 
 def load_corrected_file(filerow):
@@ -311,11 +333,13 @@ def load_corrected_file(filerow):
     """
     db = database.Database() 
     parent_file_id = filerow['file_id']
-    group_id = filerow['group_id']
-    logrow = get_log(db, group_id)
+    obs_id = filerow['obs_id']
+    
+    logrow = get_log(db, obs_id)
     log_id = logrow['log_id']
     logfn = os.path.join(logrow['logpath'], logrow['logname'])
     log.setup_logger(logfn)
+    
     # Mark as running
     with db.transaction() as conn:
         update = db.files.update().\
@@ -357,8 +381,6 @@ def load_corrected_file(filerow):
         arf = utils.ArchiveFile(corrfn)
         values = {'filepath': archivedir, \
                   'filename': archivefn, \
-                  'sourcename': filerow['sourcename'], \
-                  'obstype': filerow['obstype'], \
                   'stage': 'corrected', \
                   'note': note, \
                   'md5sum': utils.get_md5sum(corrfn), \
@@ -395,23 +417,31 @@ def load_corrected_file(filerow):
             # Insert new entry
             insert = db.files.insert().\
                     values(version_id = version_id, \
-                            group_id = filerow['group_id'])
+                            obs_id=obs_id)
             result = conn.execute(insert, values)
             file_id = result.inserted_primary_key[0]
             # Insert diagnostic entries
             insert = db.diagnostics.insert().\
                     values(file_id=file_id)
             result = conn.execute(insert, diagvals)
+            # Update observation to include correct receiver
+            update = db.obs.update().\
+                        where(db.obs.c.obs_id==obs_id).\
+                        values(rcvr=arf['rcvr'], \
+                                last_modified=datetime.datetime.now())
+            conn.execute(update)
             # Update parent file
-            update = db.files.update(). \
+            update = db.files.update().\
                         where(db.files.c.file_id==parent_file_id).\
                         values(status='processed', \
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
-        move_file(db, parent_file_id, archivedir, 
-                    (config.outfn_template+".cmb") % arf)
-        move_grouping(db, filerow['group_id'], archivedir, 
-                    (config.outfn_template+".list.txt") % arf)
+
+        rows = get_files(db, obs_id)
+        for row in get_files(db, obs_id):
+            ext = STAGE_TO_EXT[row['stage']]
+            move_file(db, row['file_id'], archivedir, 
+                    (config.outfn_template+ext) % arf)
         move_log(db, log_id, archivedir, \
                     (config.outfn_template+".log") % arf)
     return file_id
@@ -430,11 +460,13 @@ def load_cleaned_file(filerow):
     """
     db = database.Database()
     parent_file_id = filerow['file_id']
-    group_id = filerow['group_id']
-    logrow = get_log(db, group_id)
+    obs_id = filerow['obs_id']
+
+    logrow = get_log(db, obs_id)
     log_id = logrow['log_id']
     logfn = os.path.join(logrow['logpath'], logrow['logname'])
     log.setup_logger(logfn)
+
     with db.transaction() as conn:
         update = db.files.update().\
                     where(db.files.c.file_id==parent_file_id).\
@@ -480,8 +512,6 @@ def load_cleaned_file(filerow):
         # slow to generate
         values = {'filepath': archivedir, \
                   'filename': archivefn, \
-                  'sourcename': filerow['sourcename'], \
-                  'obstype': filerow['obstype'], \
                   'stage': 'cleaned', \
                   'md5sum': utils.get_md5sum(cleanfn), \
                   'filesize': os.path.getsize(cleanfn), \
@@ -516,8 +546,8 @@ def load_cleaned_file(filerow):
             version_id = utils.get_version_id(db)
             # Insert new entry
             insert = db.files.insert().\
-                    values(version_id = version_id, \
-                            group_id = filerow['group_id'])
+                    values(version_id=version_id, \
+                            obs_id=obs_id)
             result = conn.execute(insert, values)
             file_id = result.inserted_primary_key[0]
             # Insert diagnostic entries
@@ -557,11 +587,13 @@ def load_calibrated_file(filerow, lock):
 
     db = database.Database()
     parent_file_id = filerow['file_id']
-    group_id = filerow['group_id']
-    logrow = get_log(db, group_id)
+    obs_id = filerow['obs_id']
+
+    logrow = get_log(db, obs_id)
     log_id = logrow['log_id']
     logfn = os.path.join(logrow['logpath'], logrow['logname'])
     log.setup_logger(logfn)
+    
     with db.transaction() as conn:
         update = db.files.update().\
                     where(db.files.c.file_id==parent_file_id).\
@@ -586,8 +618,6 @@ def load_calibrated_file(filerow, lock):
         # That is f_chan = 1.5625 MHz
         nchans = arf['bw']/1.5625
         values = {'sourcename': name,\
-                  'group_id': group_id, \
-                  'obstype': filerow['obstype'], \
                   'stage': 'calibrated', \
                   'parent_file_id': parent_file_id}
         if nchans != arf['nchan']:
@@ -605,6 +635,7 @@ def load_calibrated_file(filerow, lock):
             plotfn = make_stokes_plot(arf)
             diagvals = [{'diagnosticpath': os.path.dirname(plotfn), \
                          'diagnosticname': os.path.basename(plotfn)}]
+            values['status'] = 'done'
         else:
             # Pulsar scan. Calibrate it.
             caldbrow = get_caldb(db, name)
@@ -613,29 +644,12 @@ def load_calibrated_file(filerow, lock):
                                 "database row for %s." % name)
             caldbpath = os.path.join(caldbrow['caldbpath'], \
                                         caldbrow['caldbname'])
-            if not os.path.isfile(caldbpath):
-                raise errors.DataReductionFailed("Calibrator database " \
-                                "file not found (%s)." % caldbpath)
             try:
                 lock.acquire()
-                # Now calibrate, scrunching to the appropriate 
-                # number of channels
-                stdout, stderr = utils.execute(['pac', '-d', caldbpath, '-j', \
-                                'F %d' % nchans, infn])
+                calfn = calibrate.calibrate(infn, caldbpath, nchans=nchans)
             finally:
                 lock.release()
             
-            # Get name of calibrator used\
-            calfn = None
-            lines = stdout.split("\n")
-            for ii, line in enumerate(lines):
-                if line.strip() == "pac: PolnCalibrator constructed from:":
-                    calfn = lines[ii+1].strip()
-                    # Insert log message
-                    utils.log_message("Polarization calibrator used:" \
-                                        "\n    %s" % calfn, 'info')
-
-                    break
             if calfn is not None:
                 calpath, calname = os.path.split(calfn)
                 # Get file_id number for calibrator scan
@@ -689,16 +703,20 @@ def load_calibrated_file(filerow, lock):
             utils.log_message(traceback.format_exc(), 'error')
         if filerow['obstype'] == 'cal':
             status = 'failed'
-        else:
+            note = 'Calibration failed! %s: %s' % (type(exc).__name__, msg)
+        elif can_calibrate(db, obs_id):
             # Calibration of this file will be reattempted when 
             # the calibration database is updated
             status = 'calfail'
+            note = 'Calibration failed! %s: %s' % (type(exc).__name__, msg)
+        else:
+            status = 'toload'
+            note = 'File cannot be calibrated'
         with db.transaction() as conn:
             update = db.files.update(). \
                         where(db.files.c.file_id==parent_file_id).\
                         values(status=status, \
-                                note='Calibration failed! %s: %s' % \
-                                            (type(exc).__name__, msg), \
+                                note=note, \
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
         raise
@@ -707,7 +725,8 @@ def load_calibrated_file(filerow, lock):
             version_id = utils.get_version_id(db)
             # Insert new entry
             insert = db.files.insert().\
-                    values(version_id = version_id)
+                    values(version_id=version_id, \
+                            obs_id=obs_id)
             result = conn.execute(insert, values)
             file_id = result.inserted_primary_key[0]
             if diagvals:
@@ -729,6 +748,155 @@ def load_calibrated_file(filerow, lock):
             finally:
                 lock.release()
     return file_id
+
+
+def load_to_toaster(filerow):
+    """Load the row to TOASTER database.
+
+        Input:
+            filerow: The DB of the entry to be loaded.
+
+        Outputs:
+            None
+    """
+    db = database.Database()
+    file_id = filerow['file_id']
+    fn = os.path.join(filerow['filepath'], filerow['filename'])
+    try:
+        rawfile_id = load_rawfile.load_rawfile(fn)
+    except Exception as exc:
+        utils.print_info("Exception caught while working on File ID %d" % \
+                            file_id, 0)
+        # Add ID number to exception arguments
+        exc.args = (exc.args[0] + "\n(File ID: %d)" % file_id,)
+        msg = str(exc)
+        utils.log_message(traceback.format_exc(), 'error')
+        with db.transaction() as conn:
+            update = db.files.update(). \
+                        where(db.files.c.file_id==file_id).\
+                        values(status='failed', \
+                                note='Could not be loaded into TOASTER.', \
+                                last_modified=datetime.datetime.now())
+            conn.execute(update)
+        raise
+    else:
+        with db.transaction() as conn:
+            # Update file
+            update = db.files.update(). \
+                        where(db.files.c.file_id==file_id).\
+                        values(status='done', \
+                                note="Loaded into TOASTER DB (rawfile ID: %d)" % \
+                                        rawfile_id, \
+                                last_modified=datetime.datetime.now())
+            conn.execute(update)
+
+
+def can_calibrate(db, obs_id):
+    """Return True is observation can be calibrated.
+        NOTE: It is still possible the observation cannot
+            be calibrated _now_ even if this function returns
+            True. This might be the case if the calibration
+            observation hasn't been reduced yet.
+
+        Inputs:
+            db: A database object.
+            obs_id: The ID number of an entry in the database.
+
+        Outputs:
+            can_cal: True if the observation can be calibrated.
+    """
+    obsrow = get_obs(db, obs_id)
+    if obsrow['obstype'] != 'pulsar':
+        raise errors.InputError("Only observations of type 'pulsar' " \
+                        "can be calibrated. Obstype for obs_id %d: %s" % \
+                        (obs_id, obsrow['obstype']))
+    mjdnow = rs.utils.mjdnow()
+    if (mjdnow - obsrow['start_mjd']) < 7:
+        # Observation is less than 1 week old.
+        # Let's hold out hope that it can be calibrated.
+        return True
+    mjdrange = (obsrow['start_mjd']-TWOHRS_IN_DAYS, \
+                obsrow['start_mjd']+TWOHRS_IN_DAYS)
+    # Now try to find a compatible calibrator scan
+    with db.transaction() as conn:
+        select = db.select([db.files], \
+                    from_obj=[db.files.\
+                        outerjoin(db.obs, \
+                            onclause=(db.files.c.obs_id == \
+                                        db.obs.c.obs_id))]).\
+                    where((db.obs.c.obstype=='cal') & \
+                            (db.obs.c.sourcename=="%s_R" % \
+                                    obsrow['sourcename']) & \
+                            ((db.obs.c.rcvr==obsrow['rcvr']) | \
+                                (db.obs.c.rcvr.is_(None))) & \
+                            db.obs.c.start_mjd.between(*mjdrange))
+        results = conn.execute(select)
+        rows = results.fetchall()
+        results.close()
+    obs = {}
+    for row in rows:
+        can_cal = obs.setdefault(row['obs_id'], True)
+        obs[row['obs_id']] &= (not (row['qcpassed'] == False))
+    can_cal = obs.values()
+    utils.print_info("Found %d potential calibrators for obs ID %d" % \
+                    (sum(can_cal), obs_id), 2)
+    return any(can_cal)
+
+
+def get_obs(db, obs_id):
+    """Given a observation ID return the corresponding entry
+        in the obss table.
+
+        Inputs:
+            db: A Database object.
+            obs_id: A observation ID.
+
+        Outputs:
+            obsrow: The corresponding obs entry.
+    """
+    with db.transaction() as conn:
+        select = db.select([db.obs]).\
+                    where(db.obs.c.obs_id==obs_id)
+        result = conn.execute(select)
+        rows = result.fetchall()
+        result.close()
+    if len(rows) == 1:
+        return rows[0]
+    elif len(rows) == 0:
+        return None
+    else:
+        raise errors.DatabaseError("Bad number of obs rows (%d) " \
+                            "with obs_id=%d!" % \
+                            (len(rows), obs_id))
+    return rows
+
+
+def get_files(db, obs_id):
+    """Given a observation ID return the corresponding entries
+        in the files table.
+
+        Inputs:
+            db: A Database object.
+            obs_id: A observation ID.
+
+        Outputs:
+            filerows: The corresponding file entries.
+    """
+    with db.transaction() as conn:
+        select = db.select([db.files, \
+                            db.obs.c.dir_id, \
+                            db.obs.c.sourcename, \
+                            db.obs.c.obstype, \
+                            db.obs.c.start_mjd], \
+                    from_obj=[db.files.\
+                        outerjoin(db.obs, \
+                            onclause=db.files.c.obs_id == \
+                                    db.obs.c.obs_id)]).\
+                    where(db.files.c.obs_id==obs_id)
+        result = conn.execute(select)
+        rows = result.fetchall()
+        result.close()
+    return rows
 
 
 def get_caldb(db, sourcename):
@@ -811,10 +979,14 @@ def update_caldb(db, sourcename, force=False):
                         where(db.caldbs.c.caldb_id==caldb['caldb_id'])
             conn.execute(update)
 
-        select = db.select([db.files]).\
+        select = db.select([db.files], \
+                    from_obj=[db.files.\
+                        outerjoin(db.obs, \
+                            onclause=db.files.c.obs_id == \
+                                    db.obs.c.obs_id)]).\
                     where((db.files.c.status=='new') & \
                             (db.files.c.stage=='calibrated') & \
-                            (db.files.c.obstype=='cal'))
+                            (db.obs.c.obstype=='cal'))
         results = conn.execute(select)
         rows = results.fetchall()
         results.close()
@@ -878,86 +1050,56 @@ def reattempt_calibration(db, sourcename):
     
     db = database.Database()
     with db.transaction() as conn:
-        update = db.files.update().\
+        # Get rows that need to be updated
+        # The update is a two-part process because
+        # a join is required. (Can updates include joins?)
+        select = db.select([db.files],\
+                    from_obj=[db.files.\
+                        outerjoin(db.obs, \
+                            onclause=db.files.c.obs_id == \
+                                    db.obs.c.obs_id)]).\
                     where((db.files.c.status=='calfail') & \
                             (db.files.c.stage=='cleaned') & \
                             (db.files.c.qcpassed==True) & \
-                            (db.files.c.sourcename==name)).\
+                            (db.obs.c.sourcename==name))
+        result = conn.execute(select)
+        rows = result.fetchall()
+        result.close()
+        # Now update rows
+        for row in rows:
+            update = db.files.update().\
+                    where(db.files.c.file_id==row['file_id']).\
                     values(status='new', \
                             note='Reattempting calibration', \
                             last_modified=datetime.datetime.now())
-        conn.execute(update)
+            conn.execute(update)
+        utils.print_info("Resetting status to 'new' (from 'calfail') " \
+                            "for %d files with sourcename='%s'" % \
+                            (len(rows), name), 2)
 
 
-def get_log(db, group_id):
-    """Given a group_id retrive the corresponding entry
+def get_log(db, obs_id):
+    """Given a obs_id retrive the corresponding entry
         in the logs table.
 
         Inputs:
             db: A Database object.
-            group_id: The ID of the group to get the log for.
+            obs_id: The ID of the group to get the log for.
 
         Output:
             logrow: The log's DB row.
     """
     with db.transaction() as conn:
         select = db.select([db.logs]).\
-                    where(db.logs.c.group_id==group_id)
+                    where(db.logs.c.obs_id==obs_id)
         result = conn.execute(select)
         rows = result.fetchall()
         result.close()
         if len(rows) != 1:
             raise errors.DatabaseError("Bad number of rows (%d) " \
-                                "with group_id=%d!" % \
-                                (len(rows), group_id))
+                                "with obs_id=%d!" % \
+                                (len(rows), obs_id))
         return rows[0]
-
-
-def move_grouping(db, group_id, destdir, destfn=None):
-    """Given a group ID move the associated listing.
-
-        Inputs:
-            db: Database object to use.
-            group_id: The ID of a row in the groupings table.
-            destdir: The destination directory.
-            destfn: The destination file name.
-                (Default: Keep old file name).
-
-        Outputs:
-            None
-    """
-    with db.transaction() as conn:
-        select = db.select([db.groupings]).\
-                    where(db.groupings.c.group_id==group_id)
-        result = conn.execute(select)
-        rows = result.fetchall()
-        if len(rows) != 1:
-            raise errors.DatabaseError("Bad number of rows (%d) " \
-                                "with group_id=%d!" % \
-                                (len(rows), group_id))
-        grp = rows[0]
-        if destfn is None:
-            destfn = grp['listname']
-        # Copy file
-        src = os.path.join(grp['listpath'], grp['listname'])
-        dest = os.path.join(destdir, destfn)
-        try:
-            os.makedirs(destdir)
-        except OSError:
-            # Directory already exists
-            pass
-        shutil.copy(src, dest)
-        # Update database
-        update = db.groupings.update().\
-                    where(db.groupings.c.group_id==group_id).\
-                    values(listpath=destdir, \
-                            listname=destfn, \
-                            last_modified=datetime.datetime.now())
-        conn.execute(update)
-        # Remove original
-        os.remove(src)
-        utils.print_info("Moved group listing from %s to %s. The database " \
-                        "has been updated accordingly." % (src, dest))
 
 
 def move_log(db, log_id, destdir, destfn=None):
@@ -1035,23 +1177,28 @@ def move_file(db, file_id, destdir, destfn=None):
         # Copy file
         src = os.path.join(ff['filepath'], ff['filename'])
         dest = os.path.join(destdir, destfn)
-        try:
-            os.makedirs(destdir)
-        except OSError:
-            # Directory already exists
-            pass
-        shutil.copy(src, dest)
-        # Update database
-        update = db.files.update().\
-                    where(db.files.c.file_id==file_id).\
-                    values(filepath=destdir, \
-                            filename=destfn, \
-                            last_modified=datetime.datetime.now())
-        conn.execute(update)
-        # Remove original
-        os.remove(src)
-        utils.print_info("Moved archive file from %s to %s. The database " \
-                        "has been updated accordingly." % (src, dest))
+        utils.print_info("Moving archive file from %s to %s." % (src, dest), 2)
+        if src == dest:
+            utils.print_info("File is already at its destination (%s). " \
+                            "No need to move." % dest, 2)
+        else:
+            try:
+                os.makedirs(destdir)
+            except OSError:
+                # Directory already exists
+                pass
+            shutil.copy(src, dest)
+            # Update database
+            update = db.files.update().\
+                        where(db.files.c.file_id==file_id).\
+                        values(filepath=destdir, \
+                                filename=destfn, \
+                                last_modified=datetime.datetime.now())
+            conn.execute(update)
+            # Remove original
+            os.remove(src)
+            utils.print_info("Moved archive file from %s to %s. The database " \
+                            "has been updated accordingly." % (src, dest), 2)
 
 
 def get_rawdata_dirs(basedir=None, priority=[]):
@@ -1407,6 +1554,52 @@ def reduce_directory(path):
             shutil.rmtree(tmpdir)
 
 
+def get_togroup(db):
+    """Get a list of directories rows that need to be grouped.
+
+        Inputs:
+            db: A Database object to use.
+        
+        Outputs:
+            dirrows: A list of directory rows.
+    """
+    with db.transaction() as conn:
+        select = db.select([db.directories]).\
+                    where(db.directories.c.status=='new')
+        results = conn.execute(select)
+        rows = results.fetchall()
+        results.close()
+    utils.print_info("Got %d rows to be grouped" % len(rows), 2)
+    return rows
+
+
+def get_toload(db):
+    """Get a list of rows to load into the TOASTER DB.
+
+        Inputs:
+            db: A Database object to use.
+
+        Output:
+            rows: A list database rows to be reduced.
+    """
+    with db.transaction() as conn:
+        select = db.select([db.files, \
+                            db.obs.c.dir_id, \
+                            db.obs.c.sourcename, \
+                            db.obs.c.obstype, \
+                            db.obs.c.start_mjd], \
+                    from_obj=[db.files.\
+                        outerjoin(db.obs, \
+                            onclause=db.files.c.obs_id == \
+                                    db.obs.c.obs_id)]).\
+                            where(db.files.c.status=='toload')
+        results = conn.execute(select)
+        rows = results.fetchall()
+        results.close()
+    utils.print_info("Got %d rows to load to TOASTER" % len(rows), 2)
+    return rows
+            
+
 def get_todo(db, action, priorities=None):
     """Get a list of rows to reduce.
         
@@ -1425,21 +1618,28 @@ def get_todo(db, action, priorities=None):
                     "recognized. Valid file actions are '%s'." % \
                     "', '".join(ACTIONS.keys()))
 
-    tablename, idcolumn, target_stages, \
-            qcpassed_only, withlock, actfunc = ACTIONS[action]
-    dbtable = db[tablename]
-    whereclause = dbtable.c.status=='new'
+    target_stages, qcpassed_only, withlock, actfunc = ACTIONS[action]
+    whereclause = db.files.c.status=='new'
     if target_stages is not None:
-        whereclause &= dbtable.c.stage.in_(target_stages)
+        whereclause &= db.files.c.stage.in_(target_stages)
     if qcpassed_only:
-        whereclause &= dbtable.c.qcpassed==True
+        whereclause &= db.files.c.qcpassed==True
     if priorities is not None:
-        tmp = dbtable.c.sourcename.like(priorities[0])
+        tmp = db.obs.c.sourcename.like(priorities[0])
         for priority in priorities[1:]:
-            tmp |= dbtable.c.sourcename.like(priority)
+            tmp |= db.obs.c.sourcename.like(priority)
         whereclause &= tmp
     with db.transaction() as conn:
-        select = db.select([dbtable]).where(whereclause)
+        select = db.select([db.files, \
+                            db.obs.c.dir_id, \
+                            db.obs.c.sourcename, \
+                            db.obs.c.obstype, \
+                            db.obs.c.start_mjd], \
+                    from_obj=[db.files.\
+                        outerjoin(db.obs, \
+                            onclause=db.files.c.obs_id == \
+                                    db.obs.c.obs_id)]).\
+                            where(whereclause)
         results = conn.execute(select)
         rows = results.fetchall()
         results.close()
@@ -1464,13 +1664,11 @@ def launch_task(db, action, row):
                     "recognized. Valid file actions are '%s'." % \
                     "', '".join(ACTIONS.keys()))
 
-    tablename, idcolumn, target_stages, \
-            qcpassed_only, withlock, actfunc = ACTIONS[action]
-    dbtable = db[tablename]
+    target_stages, qcpassed_only, withlock, actfunc = ACTIONS[action]
     results = []
     with db.transaction() as conn:
-        update = dbtable.update().\
-                    where(dbtable.c[idcolumn]==row[idcolumn]).\
+        update = db.files.update().\
+                    where(db.files.c.file_id==row['file_id']).\
                     values(status='submitted', \
                             last_modified=datetime.datetime.now())
         conn.execute(update)
@@ -1479,7 +1677,7 @@ def launch_task(db, action, row):
         args = (row,lock)
     else:
         args = (row,)
-    name = "%s.%s:%d" % (action, idcolumn, row[idcolumn])
+    name = "%s.file_id:%d" % (action, row['file_id'])
     proc = multiprocessing.Process(group=None, target=actfunc, \
                                     name=name, args=args)
     proc.start()
@@ -1504,42 +1702,30 @@ def get_caldb_lock(sourcename):
     return lock
 
 
-# Actions are defined by a 4-tuple: (table name, 
-#                                    ID column name, 
-#                                    target stage, 
-#                                    passed quality control,
-#                                    with calibrator database lock,
-#                                    function to proceed to next step)
-ACTIONS = {'group': ('directories', 
-                        'dir_id', 
-                        None, 
-                        False,
-                        False,
-                        load_groups), \
-           'combine': ('groupings', 
-                        'group_id', 
-                        None, 
+# Actions are defined by a tuple: (target stage, 
+#                                  passed quality control,
+#                                  with calibrator database lock,
+#                                  function to proceed to next step)
+ACTIONS = {'combine': (['grouped'], 
                         False,
                         False,
                         load_combined_file), \
-           'correct': ('files', 
-                        'file_id', 
-                        ['combined'], 
+           'correct': (['combined'], 
                         False,
                         False,
                         load_corrected_file), \
-           'clean': ('files', 
-                        'file_id', 
-                        ['corrected'], 
+           'clean': (['corrected'], 
                         False,
                         False,
                         load_cleaned_file), \
-           'calibrate': ('files', 
-                        'file_id', 
-                        ['cleaned'], 
+           'calibrate': (['cleaned'], 
                         True,
                         True,
-                        load_calibrated_file)}
+                        load_calibrated_file), \
+           'load': ([], 
+                        True,
+                        False,
+                        load_to_toaster)}
 
 
 def main():
@@ -1552,7 +1738,7 @@ def main():
         print "Loading directories..."
         ndirs = load_directories(db)
         # Group data immediately
-        dirrows = get_todo(db, 'group')
+        dirrows = get_togroup(db)
         print "Grouping subints..."
         for dirrow in utils.show_progress(dirrows, width=50):
             try:
@@ -1567,17 +1753,30 @@ def main():
         while True:
             nfree = args.numproc - len(inprogress)
             nsubmit = 0
-            for action in ('calibrate', 'clean', 'correct', 'combine'):
-                rows = get_todo(db, action, priorities=args.priority)[:nfree]
-                for row in rows:
-                    proc = launch_task(db, action, row)
+            if nfree:
+                # Load files to TOASTER
+                toload = get_toload(db)[:nfree]
+                for row in toload:
+                    proc = launch_task(db, 'load', row)
                     inprogress.append(proc)
-                nnew = len(rows)
+                nnew = len(toload)
                 nfree -= nnew
                 nsubmit += nnew
                 if nnew:
-                    utils.print_info("Launched %d '%s' tasks" % \
-                                        (nnew, action), 0)
+                    utils.print_info("Launched %d 'load' tasks" % nnew, 0)
+
+                for action in ('calibrate', 'clean', 'correct', 'combine'):
+                    rows = get_todo(db, action, \
+                                    priorities=args.priority)[:nfree]
+                    for row in rows:
+                        proc = launch_task(db, action, row)
+                        inprogress.append(proc)
+                    nnew = len(rows)
+                    nfree -= nnew
+                    nsubmit += nnew
+                    if nnew:
+                        utils.print_info("Launched %d '%s' tasks" % \
+                                            (nnew, action), 0)
             utils.print_info("[%s] - Num running: %d; Num submitted: %d" % \
                         (datetime.datetime.now(), len(inprogress), nsubmit), 0)
             # Sleep between iterations
@@ -1610,7 +1809,7 @@ if __name__ == '__main__':
     parser.add_argument("-t", "--sleep-time", dest='sleep_time', type=int, \
                         default=300, \
                         help="Number of seconds to sleep between iterations " \
-                            "of the main loop.")
+                            "of the main loop. (Default: 300s)")
     parser.add_argument("-n", "--prioritize", action='append', default=None, \
                         dest='priority', \
                         help="Name of source to prioritize.")

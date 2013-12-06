@@ -1,7 +1,7 @@
 import sqlalchemy as sa
 
 DIRECTORY_STATUSES = ['new', 'submitted', 'failed', 'running', 'processed', 'archived']
-FILE_STATUSES = ['new', 'submitted', 'failed', 'running', 'processed', 'done', 'diagnosed', 'replaced', 'calfail']
+FILE_STATUSES = ['new', 'submitted', 'failed', 'running', 'processed', 'done', 'toload', 'calfail']
 FILE_STAGES = ['grouped', 'combined', 'corrected', 'cleaned', 'calibrated']
 OBSTYPES = ['pulsar', 'cal']
 CALDB_STATUSES = ['ready', 'submitted', 'updating', 'failed']
@@ -21,14 +21,6 @@ sa.Table('versions', metadata, \
         sa.UniqueConstraint('cg_githash', 'psrchive_githash'), \
         mysql_engine='InnoDB', mysql_charset='ascii')
 
-
-# Define sources table
-sa.Table('sources', metadata, \
-        sa.Column('source_id', sa.Integer, primary_key=True, \
-                    autoincrement=True, nullable=False), \
-        mysql_engine='InnoDB', mysql_charset='ascii')
-
-
 # Define directoies table
 sa.Table('directories', metadata, \
         sa.Column('dir_id', sa.Integer, primary_key=True, \
@@ -45,17 +37,17 @@ sa.Table('directories', metadata, \
         mysql_engine='InnoDB', mysql_charset='ascii')
 
 
-# Define obsinfo table
-sa.Table('obsinfo', metadata, \
-        sa.Column('obsinfo_id', sa.Integer, primary_key=True, \
+# Define obs table
+sa.Table('obs', metadata, \
+        sa.Column('obs_id', sa.Integer, primary_key=True, \
                     autoincrement=True, nullable=False), \
         sa.Column('dir_id', sa.Integer, \
-                    sa.ForeignKey("directories.dir_id", name="fk_group_dir")), \
+                    sa.ForeignKey("directories.dir_id", name="fk_obs_dir")), \
         sa.Column('sourcename', sa.String(32), nullable=False), \
-        sa.Column('status', sa.Enum(*FILE_STATUSES), nullable=False, \
-                    default='new'), \
         sa.Column('obstype', sa.Enum(*OBSTYPES), nullable=False), \
         sa.Column('start_mjd', sa.Float, nullable=False), \
+        sa.Column('rcvr', sa.String(32), nullable=True, \
+                    default=None), \
         sa.Column('added', sa.DateTime, nullable=False, \
                     default=sa.func.now()), \
         sa.Column('last_modified', sa.DateTime, nullable=False, \
@@ -83,8 +75,8 @@ sa.Table('diagnostics', metadata, \
 sa.Table('logs', metadata, \
         sa.Column('log_id', sa.Integer, primary_key=True, \
                     autoincrement=True, nullable=False), \
-        sa.Column('group_id', sa.Integer, \
-                    sa.ForeignKey("groupings.group_id", name="fk_log_group")), \
+        sa.Column('obs_id', sa.Integer, \
+                    sa.ForeignKey("obs.obs_id", name="fk_log_obs")), \
         sa.Column('logpath', sa.String(512), nullable=False), \
         sa.Column('logname', sa.String(512), nullable=False), \
         sa.Column('added', sa.DateTime, nullable=False, \
@@ -92,16 +84,16 @@ sa.Table('logs', metadata, \
         sa.Column('last_modified', sa.DateTime, nullable=False, \
                     default=sa.func.now()), \
         sa.UniqueConstraint('logpath', 'logname'), \
-        sa.UniqueConstraint('group_id'), \
+        sa.UniqueConstraint('obs_id'), \
         mysql_engine='InnoDB', mysql_charset='ascii')
 
 
-# Define groupings table
+# Define files table
 sa.Table('files', metadata, \
         sa.Column('file_id', sa.Integer, primary_key=True, \
                     autoincrement=True, nullable=False), \
-        sa.Column('obsinfo_id', sa.Integer, \
-                    sa.ForeignKey("obsinfo.obsinfo_id", name="fk_files_obsinfo")), \
+        sa.Column('obs_id', sa.Integer, \
+                    sa.ForeignKey("obs.obs_id", name="fk_files_obs")), \
         sa.Column('parent_file_id', sa.Integer, \
                     sa.ForeignKey("files.file_id", name="fk_files_file")), \
         sa.Column('cal_file_id', sa.Integer, \
@@ -112,6 +104,8 @@ sa.Table('files', metadata, \
         sa.Column('filename', sa.String(512), nullable=False), \
         sa.Column('note', sa.String(NOTELEN), nullable=True), \
         sa.Column('stage', sa.Enum(*FILE_STAGES), nullable=False), \
+        sa.Column('status', sa.Enum(*FILE_STATUSES), nullable=False, \
+                    default='new'), \
         sa.Column('md5sum', sa.String(64), nullable=False, \
                     unique=True), \
         sa.Column('filesize', sa.Integer, nullable=False), \
