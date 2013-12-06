@@ -81,6 +81,10 @@ class BadStatusError(CoastGuardError):
     pass
 
 
+class UnrecognizedValueError(CoastGuardError):
+    pass
+
+
 # Fatal class of errors. These should not be caught.
 class FatalCoastGuardError(Exception):
     def __init__(self, msg):
