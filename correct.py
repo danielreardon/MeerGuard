@@ -4,6 +4,7 @@ import pytz
 import glob
 import datetime
 import pprint
+import shutil
 
 import pyriseset as rs
 
@@ -37,13 +38,15 @@ RCVR_INFO = {'P217-3': 'rcvr:name=P217-3,rcvr:hand=-1,rcvr:basis=cir', \
              'P200-3': 'rcvr:name=P200-3,rcvr:hand=-1,rcvr:basis=cir'}
 
 
-def correct_header(arfn, obsinfo=None):
+def correct_header(arfn, obsinfo=None, outfn=None):
     """Correct header of asterix data in place.
 
         Input:
             arfn: The name of the input archive file.
             obsinfo: A dictionary of observing log information to use.
                 (Default: search observing logs for matching entry)
+            outfn: Output file name.
+                (Default: same as input file name, but with .corr extension)
 
         Output:
             corrfn: The name of the corrected file.
@@ -109,6 +112,12 @@ def correct_header(arfn, obsinfo=None):
     if not os.path.isfile(corrfn):
         raise errors.HeaderCorrectionError("The corrected file (%s) does not " \
                                 "exist!" % corrfn)
+    # Rename output file
+    if outfn is not None:
+        arf = utils.ArchiveFile(corrfn)
+        fn = outfn % arf
+        shutil.move(corrfn, fn)
+        corrfn = fn
     return corrfn, corrstr, note
 
 
@@ -222,7 +231,8 @@ def main():
         obsinfo = None
 
     for fn in args.files:
-        corrfn, corrstr, note = correct_header(fn, obsinfo=obsinfo)
+        corrfn, corrstr, note = correct_header(fn, obsinfo=obsinfo, \
+                    outfn=args.outfn)
         print "    Output corrected file: %s" % corrfn
 
 
@@ -234,5 +244,10 @@ if __name__ == '__main__':
                         help="Line from observing log to use. " \
                             "(Default: search observing logs for " \
                             "the appropriate line.)")
+    parser.add_argument('-o', '--outname', dest='outfn', type=str, \
+                        help="The output (reduced) file's name. " \
+                            "(Default: '%s.corr')" % \
+                                config.outfn_template.replace("%", "%%"), \
+                        default=config.outfn_template+".corr")
     args = parser.parse_args()
     main()
