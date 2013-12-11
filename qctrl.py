@@ -426,7 +426,7 @@ class ZappingDialog(qtgui.QDialog):
     def __on_stderr(self, text=None):
         if text is None:
             stderr_data = self.proc.readAllStandardError()
-            text = qtcore.QString(stdout_data)
+            text = qtcore.QString(stderr_data)
         self.textedit.appendPlainText(text)
 
     def __on_stdout(self, text=None):
