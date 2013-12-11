@@ -53,15 +53,14 @@ def correct_header(arfn, obsinfo=None, outfn=None):
             corrstr: The parameter string of corrections used with psredit.
             note: A note about header correction
     """
-    note = None
+    note = ""
     # Load archive
     arf = utils.ArchiveFile(arfn)
-    if arf['rcvr'].upper() in RCVR_INFO:
-        rcvr = arf['rcvr']
-    elif arf['freq'] > 2000: 
+    if arf['freq'] > 2000: 
         # S-band
         rcvr = 'S110-1'
     else:
+        # L-band
         ar = arf.get_archive()
         nchan = ar.get_nchan()
         # Scrunch
@@ -80,19 +79,23 @@ def correct_header(arfn, obsinfo=None, outfn=None):
             rcvr = 'P217-3'
         else:
             raise errors.HeaderCorrectionError("Cannot determine receiver.")
+    if arf['rcvr'] != rcvr:
+        note += "Receiver is wrong (%s) setting to '%s'. " % \
+                    (arf['rcvr'], rcvr)
     corrstr = "%s,be:name=asterix" % RCVR_INFO[rcvr]
     if arf['name'].endswith("_R"):
         corrstr += ",type=PolnCal"
     else:
         corrstr += ",type=Pulsar"
-    if obsinfo is not None or arf['name'].endswith('_R') or arf['ra'].startswith('00:00:00'):
+    if obsinfo is not None or arf['name'].endswith('_R') or \
+                        arf['ra'].startswith('00:00:00'):
         # Correct coordinates
         try:
             if obsinfo is None:
                 # Search for observing log entry
                 obsinfo = get_obslog_entry(arf)
         except errors.HeaderCorrectionError as exc:
-            note = exc.get_message() + "\n(Could not correct coordinates)" 
+            note += exc.get_message() + "\n(Could not correct coordinates)" 
         else:
             ra_deg, decl_deg = EFF.get_skyposn(obsinfo['alt'], obsinfo['az'], \
                                                 lst=obsinfo['lststart'])
@@ -102,7 +105,7 @@ def correct_header(arfn, obsinfo=None, outfn=None):
                 decstr = "+" + decstr
             corrstr += ",coord=%s%s" % (rastr, decstr)
     else:
-        note = "No reason to correct coords."
+        note += "No reason to correct coords."
     # Correct the file using 'psredit'
     utils.execute(['psredit', '-e', 'corr', '-c', corrstr, arfn], \
                     stderr=open(os.devnull))
