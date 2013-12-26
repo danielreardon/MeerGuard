@@ -166,8 +166,8 @@ def fit_poly(ydata, xdata, order=1):
     x, resids, rank, s = scipy.linalg.lstsq(A, ycomp)
     
     # Generate decompressed detrended array
-    A = np.repeat(xdata.data[start:stop], order+1)
-    A.shape = ((stop-start), order+1)
+    A = np.repeat(xdata.data, order+1)
+    A.shape = (xdata.size, order+1)
     A = A**powers
 
     poly_ydata = np.dot(A, x).squeeze()
