@@ -150,12 +150,12 @@ def fit_poly(ydata, xdata, order=1):
     # Note these arrays still reference the original data/arrays
     xmasked = np.ma.asarray(xdata)
     ymasked = np.ma.asarray(ydata)
-    if not np.ma.count(ymasked[start:stop]):
-        # No unmasked values, skip this segment.
-        # It will be masked in the output anyway.
-        continue
-    ycomp = ymasked[start:stop].compressed()
-    xcomp = xmasked[start:stop].compressed()
+    if not np.ma.count(ymasked):
+        # No unmasked values!
+        raise ValueError("Cannot fit polynomial to data. " \
+                        "There are no unmasked values!")
+    ycomp = ymasked.compressed()
+    xcomp = xmasked.compressed()
 
     powers = np.arange(order+1)
  
@@ -206,7 +206,11 @@ def detrend(ydata, xdata=None, order=1, bp=[], numpieces=None):
         isplit = np.linspace(0, len(ydata), numpieces+1, endpoint=1)
         edges = np.round(isplit).astype(int)
     for start, stop in zip(edges[:-1], edges[1:]):
-        x, poly_ydata = fit_poly(ymasked, xdata, order)
+        if not np.ma.count(ymasked[start:stop]):
+            # No unmasked values, skip this segment.
+            # It will be masked in the output anyway.
+            continue
+        x, poly_ydata = fit_poly(ymasked[start:stop], xdata[start:stop], order)
         detrended.data[start:stop] -= poly_ydata
     if np.ma.isMaskedArray(ydata):
         return detrended
