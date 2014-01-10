@@ -38,7 +38,7 @@ RCVR_INFO = {'P217-3': 'rcvr:name=P217-3,rcvr:hand=-1,rcvr:basis=cir', \
              'P200-3': 'rcvr:name=P200-3,rcvr:hand=-1,rcvr:basis=cir'}
 
 
-def correct_header(arfn, obsinfo=None, outfn=None):
+def correct_header(arfn, obsinfo=None, outfn=None, backend='asterix'):
     """Correct header of asterix data in place.
 
         Input:
@@ -47,6 +47,8 @@ def correct_header(arfn, obsinfo=None, outfn=None):
                 (Default: search observing logs for matching entry)
             outfn: Output file name.
                 (Default: same as input file name, but with .corr extension)
+            backend: Override backend name with this value.
+                (Default: asterix)
 
         Output:
             corrfn: The name of the corrected file.
@@ -82,7 +84,7 @@ def correct_header(arfn, obsinfo=None, outfn=None):
     if arf['rcvr'] != rcvr:
         note += "Receiver is wrong (%s) setting to '%s'. " % \
                     (arf['rcvr'], rcvr)
-    corrstr = "%s,be:name=asterix" % RCVR_INFO[rcvr]
+    corrstr = "%s,be:name=%s" % (RCVR_INFO[rcvr], backend)
     if arf['name'].endswith("_R"):
         corrstr += ",type=PolnCal"
     else:
@@ -235,7 +237,7 @@ def main():
 
     for fn in args.files:
         corrfn, corrstr, note = correct_header(fn, obsinfo=obsinfo, \
-                    outfn=args.outfn)
+                    outfn=args.outfn, backend=args.backend_name)
         print "    Output corrected file: %s" % corrfn
 
 
@@ -247,6 +249,9 @@ if __name__ == '__main__':
                         help="Line from observing log to use. " \
                             "(Default: search observing logs for " \
                             "the appropriate line.)")
+    parser.add_argument('-b', '--backend-name', dest='backend_name', type=str, \
+                        help="Name of backend to use. (Default: 'asterix')", \
+                        default='asterix')
     parser.add_argument('-o', '--outname', dest='outfn', type=str, \
                         help="The output (reduced) file's name. " \
                             "(Default: '%s.corr')" % \

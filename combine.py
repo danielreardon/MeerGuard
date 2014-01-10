@@ -423,7 +423,8 @@ if __name__=="__main__":
     parser.add_argument('--type', dest='filetype', type=str, \
                         choices=FILETYPE_SPECIFICS.keys(), \
                         help="Type of files being grouped. Can be 'subint',"
-                                "or 'single'. (Default: 'subint')")
+                                "or 'single'. (Default: 'subint')", \
+                        default='subint')
 
     args = parser.parse_args()
     main()
