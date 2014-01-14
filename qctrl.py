@@ -449,7 +449,8 @@ class ZappingDialog(qtgui.QDialog):
                 arf = utils.ArchiveFile(arfn)
                 archivedir = os.path.join(config.output_location, \
                                 config.output_layout) % arf
-                archivefn = (config.outfn_template+".zap") % arf
+                # Append .zap to filename
+                archivefn = (os.path.basename(arfn)+".zap") % arf
                 outfn = os.path.join(archivedir, archivefn)
                 shutil.move(tmpoutfn, outfn)
                 return outfn
