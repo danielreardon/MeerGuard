@@ -3,6 +3,7 @@
 import multiprocessing
 import subprocess
 import traceback
+import argparse
 import warnings
 import tempfile
 import datetime
@@ -1624,10 +1625,11 @@ def get_todo(db, action, priorities=None):
         whereclause &= db.files.c.stage.in_(target_stages)
     if qcpassed_only:
         whereclause &= db.files.c.qcpassed==True
-    if priorities is not None:
-        tmp = db.obs.c.sourcename.like(priorities[0])
-        for priority in priorities[1:]:
-            tmp |= db.obs.c.sourcename.like(priority)
+    if priorities:
+        prioritizer, cfgstr = priorities[0]
+        tmp = prioritizer(db, cfgstr)
+        for prioritizer, cfgstr in priorities[1:]:
+            tmp |= prioritizer(db, cfgstr)
         whereclause &= tmp
     with db.transaction() as conn:
         select = db.select([db.files, \
@@ -1702,6 +1704,37 @@ def get_caldb_lock(sourcename):
     return lock
 
 
+def prioritize_pulsar(db, psrname):
+    """Return a sqlalchemy query that will prioritize 
+        a pulsar.
+
+        Inputs:
+            db: A Database object to use.
+            psrname: The name of the pulsar to prioritize.
+
+        Outputs:
+            sqlquery: A sqlquery object.
+    """
+    return db.obs.c.sourcename.like(psrname)
+
+
+def prioritize_mjdrange(db, mjdrangestr):
+    """Return a sqlalchemy query that will prioritize
+        observations in a specific MJD range.
+
+        Inputs:
+            db: A Database object to use.
+            mjdrangestr: The range of MJDs.
+                format: <start MJD>-<end MJD>
+
+        Output:
+            sqlquery: A sqlquery object.
+    """
+    startmjd, endmjd = [float(xx) for xx in mjdrangestr.split('-')]
+    return ((db.obs.c.start_mjd > startmjd) & \
+                    (db.obs.c.start_mjd < endmjd))
+
+
 # Actions are defined by a tuple: (target stage, 
 #                                  passed quality control,
 #                                  with calibrator database lock,
@@ -1727,11 +1760,31 @@ ACTIONS = {'combine': (['grouped'],
                         False,
                         load_to_toaster)}
 
+PRIORITY_FUNC = {'pulsar': prioritize_pulsar, \
+                 #'date': prioritize_daterange, \
+                 'mjd': prioritize_mjdrange}
+
+
+def parse_priorities(priority_str):
+    ruletype, sep, cfgstrs = priority_str.partition('=')
+    if ruletype.lower() not in PRIORITY_FUNC:
+        raise ValueError("Prioritization rule '%s' is not recognized. " \
+                            "Valid types are: '%s'" % \
+                            (ruletype, "', '".join(PRIORITY_FUNC.keys())))
+    priority_list = []
+    for cfgstr in cfgstrs.split(','):
+        priority_list.append((PRIORITY_FUNC[ruletype], cfgstr))
+        utils.print_info("Will add %s=%s as a priority" % \
+                            (ruletype, cfgstr), 1)
+    return priority_list
+
 
 def main():
     inprogress = []
     try:
-        utils.print_info("Prioritizing %s" % ", ".join(args.priority), 0)
+        priority_list = []
+        for priority_str in args.priority:
+            priority_list.extend(parse_priorities(priority_str))
         db = database.Database()
         
         # Load raw data directories
@@ -1767,7 +1820,7 @@ def main():
 
                 for action in ('calibrate', 'clean', 'correct', 'combine'):
                     rows = get_todo(db, action, \
-                                    priorities=args.priority)[:nfree]
+                                    priorities=priority_list)[:nfree]
                     for row in rows:
                         proc = launch_task(db, action, row)
                         inprogress.append(proc)
@@ -1810,8 +1863,8 @@ if __name__ == '__main__':
                         default=300, \
                         help="Number of seconds to sleep between iterations " \
                             "of the main loop. (Default: 300s)")
-    parser.add_argument("-n", "--prioritize", action='append', default=None, \
-                        dest='priority', \
-                        help="Name of source to prioritize.")
+    parser.add_argument("--prioritize", action='append', 
+                        default=[], dest='priority', \
+                        help="A rule for prioritizing observations.")
     args = parser.parse_args()
     main()
