@@ -10,19 +10,19 @@ Patrick Lazarus, Nov 12, 2013
 import sys
 import os
 import os.path
-import subprocess
 import datetime
 import tempfile
 import shutil
 import warnings
 
-import PyQt4 as qt
 from PyQt4 import QtGui as qtgui
 from PyQt4 import QtCore as qtcore
 
 import config
 import database
 import utils
+import errors
+
 
 class QualityControl(qtgui.QWidget):
     """Quality control window.
