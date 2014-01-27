@@ -10,7 +10,8 @@ import schema
 import utils
 
 null = lambda x: x
-    
+
+
 def fancy_getitem(self, key):
     filterfunc = null
     if (type(key) in (type('str'), type(u'str'))) and key.endswith("_L"):
@@ -117,7 +118,7 @@ def get_engine(url=None):
         engine = sa.create_engine(url)
         if engine.name == 'sqlite':
             sa.event.listen(engine, "connect", on_sqlite_connect)
-        sa.event.listen(engine, "before_cursor_execute", \
+        sa.event.listen(engine, "before_cursor_execute",
                             before_cursor_execute)
         if config.debug.is_on('database'):
             sa.event.listen(engine, "commit", on_commit)
