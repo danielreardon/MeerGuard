@@ -1,14 +1,10 @@
 #!/usr/bin/env python
 
 import multiprocessing
-import subprocess
 import traceback
-import argparse
 import warnings
 import tempfile
 import datetime
-import fnmatch
-import os.path
 import shutil
 import time
 import glob
@@ -29,18 +25,22 @@ import calibrate
 
 import pyriseset as rs
 
+import toaster.config
+import toaster.debug
+import toaster.errors
 from toaster.toolkit.rawfiles import load_rawfile
 
 # A lock for each calibrator database file
 # The multiprocessing.Lock objects are created on demand
 CALDB_LOCKS = {}
 
-STAGE_TO_EXT = {'combined': '.cmb', \
-                'grouped': '.list.txt', \
-                'cleaned': '.clean', \
+STAGE_TO_EXT = {'combined': '.cmb',
+                'grouped': '.list.txt',
+                'cleaned': '.clean',
                 'corrected': '.corr'}
 
-TWOHRS_IN_DAYS = 2.0/24.0
+TWO_HRS_IN_DAYS = 2.0/24.0
+
 
 def load_directories(db, *args, **kwargs):
     """Search for directories containing asterix data.
@@ -66,7 +66,7 @@ def load_directories(db, *args, **kwargs):
         most_recent_addtime = 0
     else:
         most_recent_addtime = time.mktime(row['added'].timetuple())
-    
+
     ninserts = 0
     dirs = get_rawdata_dirs(*args, **kwargs)
     nn = len(dirs)
@@ -103,27 +103,27 @@ def load_groups(dirrow):
         Outputs:
             ninserts: The number of group rows inserted.
     """
-    tmplogfile, tmplogfn = tempfile.mkstemp(suffix='.log', \
-                                dir=config.tmp_directory)
+    tmplogfile, tmplogfn = tempfile.mkstemp(suffix='.log',
+                                            dir=config.tmp_directory)
     os.close(tmplogfile)
     log.setup_logger(tmplogfn)
 
-    db = database.Database() 
+    db = database.Database()
     path = dirrow['path']
     dir_id = dirrow['dir_id']
     # Mark as running
     with db.transaction() as conn:
         update = db.directories.update().\
-                    where(db.directories.c.dir_id==dir_id).\
-                    values(status='running', \
+                    where(db.directories.c.dir_id == dir_id).\
+                    values(status='running',
                             last_modified=datetime.datetime.now())
         conn.execute(update)
     if dirrow['status'] != 'new':
-        return errors.BadStatusError("Groupings can only be " \
-                                "generated for 'directory' entries " \
-                                "with status 'new'. (The status of " \
-                                "Dir ID %d is '%s'.)" % \
-                                (dir_id, dirrow['status']))
+        return errors.BadStatusError("Groupings can only be "
+                                     "generated for 'directory' entries "
+                                     "with status 'new'. (The status of "
+                                     "Dir ID %d is '%s'.)" %
+                                     (dir_id, dirrow['status']))
     try:
         ninserts = 0
         values = []
@@ -138,41 +138,44 @@ def load_groups(dirrow):
             except OSError:
                 # Directory already exists
                 pass
-            logoutdir = os.path.join(config.output_location, 'logs', arf['name']) 
-                
+            logoutdir = os.path.join(config.output_location, 'logs', arf['name'])
+
             try:
                 os.makedirs(logoutdir)
             except OSError:
                 # Directory already exists
                 pass
-            baseoutname = "%s_%s_%s_%05d_%dsubints" % (arf['name'], arf['band'], \
-                                            arf['yyyymmdd'], arf['secs'], len(fns))
+            baseoutname = "%s_%s_%s_%05d_%dsubints" % (arf['name'],
+                                                       arf['band'],
+                                                       arf['yyyymmdd'],
+                                                       arf['secs'],
+                                                       len(fns))
             listfn = os.path.join(listoutdir, baseoutname+'.txt')
             logfn = os.path.join(logoutdir, baseoutname+'.log')
             logfns.append(logfn)
             combine.write_listing(dirs, fns, listfn)
             listpath, listname = os.path.split(listfn)
             if arf['name'].endswith("_R"):
-                obstype='cal'
+                obstype = 'cal'
             else:
-                obstype='pulsar'
-            obsinfo.append({'sourcename': arf['name'], \
-                            'start_mjd': arf['mjd'], \
+                obstype = 'pulsar'
+            obsinfo.append({'sourcename': arf['name'],
+                            'start_mjd': arf['mjd'],
                             'obstype': obstype})
-                            
-            values.append({'filepath': listpath, \
-                           'filename': listname, \
-                           'stage': 'grouped', \
-                           'md5sum': utils.get_md5sum(listfn), \
+
+            values.append({'filepath': listpath,
+                           'filename': listname,
+                           'stage': 'grouped',
+                           'md5sum': utils.get_md5sum(listfn),
                            'filesize': os.path.getsize(listfn)})
     except Exception as exc:
-        utils.print_info("Exception caught while working on Dir ID %d" % \
+        utils.print_info("Exception caught while working on Dir ID %d" %
                             dir_id, 0)
-        shutil.copy(tmplogfn, os.path.join(config.output_location, 'logs', \
-                                    "dir%d.log" % dir_id))
+        shutil.copy(tmplogfn, os.path.join(config.output_location, 'logs',
+                                           "dir%d.log" % dir_id))
         # Add ID number to exception arguments
         exc.args = (exc.args[0] + "\n(Dir ID: %d)" % dir_id,)
-        if isinstance(exc, (errors.CoastGuardError, \
+        if isinstance(exc, (errors.CoastGuardError,
                             errors.FatalCoastGuardError)):
             msg = exc.get_message()
         else:
@@ -180,16 +183,16 @@ def load_groups(dirrow):
             utils.log_message(traceback.format_exc(), 'error')
         with db.transaction() as conn:
             update = db.directories.update().\
-                        where(db.directories.c.dir_id==dir_id).\
-                        values(status='failed', \
-                                note='Grouping failed! %s: %s' % \
-                                            (type(exc).__name__, msg), \
+                        where(db.directories.c.dir_id == dir_id).\
+                        values(status='failed',
+                                note='Grouping failed! %s: %s' %
+                                     (type(exc).__name__, msg),
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
         raise
     else:
         with db.transaction() as conn:
-            version_id = utils.get_version_id(db) 
+            version_id = utils.get_version_id(db)
             for obs, vals, logfn in zip(obsinfo, values, logfns):
                 # Insert obs
                 insert = db.obs.insert().\
@@ -204,13 +207,13 @@ def load_groups(dirrow):
                 # Insert log
                 shutil.copy(tmplogfn, logfn)
                 insert = db.logs.insert().\
-                            values(obs_id=obs_id, \
-                                   logpath=os.path.dirname(logfn), \
+                            values(obs_id=obs_id,
+                                   logpath=os.path.dirname(logfn),
                                    logname=os.path.basename(logfn))
                 conn.execute(insert)
             update = db.directories.update().\
-                        where(db.directories.c.dir_id==dir_id).\
-                        values(status='processed', \
+                        where(db.directories.c.dir_id == dir_id).\
+                        values(status='processed',
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
         ninserts += len(values)
@@ -230,28 +233,28 @@ def load_combined_file(filerow):
         Outputs:
             file_id: The ID of newly loaded 'combined' file.
     """
-    db = database.Database() 
+    db = database.Database()
     parent_file_id = filerow['file_id']
     obs_id = filerow['obs_id']
-    
+
     logrow = get_log(db, obs_id)
     log_id = logrow['log_id']
     logfn = os.path.join(logrow['logpath'], logrow['logname'])
     log.setup_logger(logfn)
-    
+
     # Mark as running
     with db.transaction() as conn:
         update = db.files.update().\
-                    where(db.files.c.file_id==parent_file_id).\
-                    values(status='running', \
+                    where(db.files.c.file_id == parent_file_id).\
+                    values(status='running',
                             last_modified=datetime.datetime.now())
         conn.execute(update)
     if filerow['status'] != 'new':
-        return errors.BadStatusError("Combined files can only be " \
-                                "generated from 'files' entries " \
-                                "with status 'new'. (The status of " \
-                                "File ID %d is '%s'.)" % \
-                                (parent_file_id, filerow['status']))
+        return errors.BadStatusError("Combined files can only be "
+                                     "generated from 'files' entries "
+                                     "with status 'new'. (The status of "
+                                     "File ID %d is '%s'.)" %
+                                     (parent_file_id, filerow['status']))
     fn = os.path.join(filerow['filepath'], filerow['filename'])
     try:
         subdirs, subints = combine.read_listing(fn)
@@ -264,7 +267,7 @@ def load_combined_file(filerow):
             # Directory already exists
             pass
         cmbfn = make_combined_file(subdirs, subints, outdir=cmbdir)
- 
+
         # Pre-compute values to insert because some might be
         # slow to generate
         arf = utils.ArchiveFile(cmbfn)
@@ -276,17 +279,17 @@ def load_combined_file(filerow):
             utils.execute(['pam', '-m', '--setnchn', '512', cmbfn])
         else:
             note = None
-        values = {'filepath': cmbdir, \
-                  'filename': os.path.basename(cmbfn), \
-                  'stage': 'combined', \
-                  'md5sum': utils.get_md5sum(cmbfn), \
-                  'filesize': os.path.getsize(cmbfn), \
-                  'parent_file_id': parent_file_id, \
+        values = {'filepath': cmbdir,
+                  'filename': os.path.basename(cmbfn),
+                  'stage': 'combined',
+                  'md5sum': utils.get_md5sum(cmbfn),
+                  'filesize': os.path.getsize(cmbfn),
+                  'parent_file_id': parent_file_id,
                   'note': note}
     except Exception as exc:
-        utils.print_info("Exception caught while working on File ID %d" % \
-                            parent_file_id, 0)
-        if isinstance(exc, (errors.CoastGuardError, \
+        utils.print_info("Exception caught while working on File ID %d" %
+                         parent_file_id, 0)
+        if isinstance(exc, (errors.CoastGuardError,
                             errors.FatalCoastGuardError)):
             # Get error message without colours mark-up
             msg = exc.get_message()
@@ -332,15 +335,15 @@ def load_corrected_file(filerow):
         Output:
             file_id: The ID of the newly loaded 'corrected' file.
     """
-    db = database.Database() 
+    db = database.Database()
     parent_file_id = filerow['file_id']
     obs_id = filerow['obs_id']
-    
+
     logrow = get_log(db, obs_id)
     log_id = logrow['log_id']
     logfn = os.path.join(logrow['logpath'], logrow['logname'])
     log.setup_logger(logfn)
-    
+
     # Mark as running
     with db.transaction() as conn:
         update = db.files.update().\
@@ -441,7 +444,7 @@ def load_corrected_file(filerow):
         rows = get_files(db, obs_id)
         for row in get_files(db, obs_id):
             ext = STAGE_TO_EXT[row['stage']]
-            move_file(db, row['file_id'], archivedir, 
+            move_file(db, row['file_id'], archivedir,
                     (config.outfn_template+ext) % arf)
         move_log(db, log_id, archivedir, \
                     (config.outfn_template+".log") % arf)
@@ -487,7 +490,7 @@ def load_cleaned_file(filerow):
         config.cfg.load_configs_for_archive(arf)
         cleaner_queue = [cleaners.load_cleaner('rcvrstd'), \
                          cleaners.load_cleaner('surgical')]
-        
+
         for cleaner in cleaner_queue:
             cleaner.run(arf.get_archive())
 
@@ -505,7 +508,7 @@ def load_cleaned_file(filerow):
             pass
         arf.get_archive().unload(cleanfn)
         arf = utils.ArchiveFile(cleanfn)
-      
+
         # Make diagnostic plots
         fullresfn, lowresfn = make_summary_plots(arf)
 
@@ -594,7 +597,7 @@ def load_calibrated_file(filerow, lock):
     log_id = logrow['log_id']
     logfn = os.path.join(logrow['logpath'], logrow['logname'])
     log.setup_logger(logfn)
-    
+
     with db.transaction() as conn:
         update = db.files.update().\
                     where(db.files.c.file_id==parent_file_id).\
@@ -628,7 +631,7 @@ def load_calibrated_file(filerow, lock):
         if filerow['obstype'] == 'cal':
             # Calibrator scan
             # Prepare the data file for being used to calibrate pulsar scans
-            
+
             utils.execute(['pam', '--setnchn', '%d' % nchans, '-T', \
                                 '-e', 'pcal.T', infn])
             outpath = os.path.splitext(infn)[0]+'.pcal.T'
@@ -650,7 +653,7 @@ def load_calibrated_file(filerow, lock):
                 calfn = calibrate.calibrate(infn, caldbpath, nchans=nchans)
             finally:
                 lock.release()
-            
+
             if calfn is not None:
                 calpath, calname = os.path.split(calfn)
                 # Get file_id number for calibrator scan
@@ -665,25 +668,26 @@ def load_calibrated_file(filerow, lock):
                 if len(rows) == 1:
                     values['cal_file_id'] = rows[0]['file_id']
                 else:
-                    raise errors.DatabaseError("Bad number of file rows (%d) " \
-                                    "with path='%s' and name='%s'!" % \
-                                    (len(rows), calpath, calname))
+                    raise errors.DatabaseError("Bad number of file "
+                                               "rows (%d) with path='%s' "
+                                               "and name='%s'!" %
+                                               (len(rows), calpath,
+                                                calname))
 
             outpath = os.path.splitext(infn)[0]+'.calibP'
             # Make diagnostic plots
             arf = utils.ArchiveFile(outpath)
             fullresfn, lowresfn = make_summary_plots(arf)
             pp_fullresfn, pp_lowresfn = make_polprofile_plots(arf)
-            
-            diagvals = [{'diagnosticpath': os.path.dirname(fullresfn), \
-                         'diagnosticname': os.path.basename(fullresfn)}, \
-                        {'diagnosticpath': os.path.dirname(lowresfn), \
-                         'diagnosticname': os.path.basename(lowresfn)}, \
-                        {'diagnosticpath': os.path.dirname(pp_fullresfn), \
-                         'diagnosticname': os.path.basename(pp_fullresfn)},\
-                        {'diagnosticpath': os.path.dirname(pp_lowresfn), \
-                         'diagnosticname': os.path.basename(pp_lowresfn)},\
-                       ]
+
+            diagvals = [{'diagnosticpath': os.path.dirname(fullresfn),
+                         'diagnosticname': os.path.basename(fullresfn)},
+                        {'diagnosticpath': os.path.dirname(lowresfn),
+                         'diagnosticname': os.path.basename(lowresfn)},
+                        {'diagnosticpath': os.path.dirname(pp_fullresfn),
+                         'diagnosticname': os.path.basename(pp_fullresfn)},
+                        {'diagnosticpath': os.path.dirname(pp_lowresfn),
+                         'diagnosticname': os.path.basename(pp_lowresfn)}]
         if not os.path.isfile(outpath):
             raise ValueError("Cannot find output file (%s)!" % outpath)
 
@@ -692,11 +696,11 @@ def load_calibrated_file(filerow, lock):
         values['md5sum'] = utils.get_md5sum(outpath)
         values['filesize'] = os.path.getsize(outpath)
     except Exception as exc:
-        utils.print_info("Exception caught while working on File ID %d" % \
-                            parent_file_id, 0)
+        utils.print_info("Exception caught while working on File ID %d" %
+                         parent_file_id, 0)
         # Add ID number to exception arguments
         exc.args = (exc.args[0] + "\n(File ID: %d)" % parent_file_id,)
-        if isinstance(exc, (errors.CoastGuardError, \
+        if isinstance(exc, (errors.CoastGuardError,
                             errors.FatalCoastGuardError)):
             msg = exc.get_message()
         else:
@@ -715,9 +719,9 @@ def load_calibrated_file(filerow, lock):
             note = 'File cannot be calibrated'
         with db.transaction() as conn:
             update = db.files.update(). \
-                        where(db.files.c.file_id==parent_file_id).\
-                        values(status=status, \
-                                note=note, \
+                        where(db.files.c.file_id == parent_file_id).\
+                        values(status=status,
+                                note=note,
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
         raise
@@ -726,7 +730,7 @@ def load_calibrated_file(filerow, lock):
             version_id = utils.get_version_id(db)
             # Insert new entry
             insert = db.files.insert().\
-                    values(version_id=version_id, \
+                    values(version_id=version_id,
                             obs_id=obs_id)
             result = conn.execute(insert, values)
             file_id = result.inserted_primary_key[0]
@@ -737,8 +741,8 @@ def load_calibrated_file(filerow, lock):
                 result = conn.execute(insert, diagvals)
             # Update parent file
             update = db.files.update(). \
-                        where(db.files.c.file_id==parent_file_id).\
-                        values(status='processed', \
+                        where(db.files.c.file_id == parent_file_id).\
+                        values(status='processed',
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
         if filerow['obstype'] == 'cal':
@@ -766,28 +770,28 @@ def load_to_toaster(filerow):
     try:
         rawfile_id = load_rawfile.load_rawfile(fn)
     except Exception as exc:
-        utils.print_info("Exception caught while working on File ID %d" % \
-                            file_id, 0)
+        utils.print_info("Exception caught while working on File ID %d" %
+                         file_id, 0)
         # Add ID number to exception arguments
         exc.args = (exc.args[0] + "\n(File ID: %d)" % file_id,)
         msg = str(exc)
         utils.log_message(traceback.format_exc(), 'error')
         with db.transaction() as conn:
-            update = db.files.update(). \
-                        where(db.files.c.file_id==file_id).\
-                        values(status='failed', \
-                                note='Could not be loaded into TOASTER.', \
+            update = db.files.update().\
+                        where(db.files.c.file_id == file_id).\
+                        values(status='failed',
+                                note='Could not be loaded into TOASTER.',
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
         raise
     else:
         with db.transaction() as conn:
             # Update file
-            update = db.files.update(). \
-                        where(db.files.c.file_id==file_id).\
-                        values(status='done', \
-                                note="Loaded into TOASTER DB (rawfile ID: %d)" % \
-                                        rawfile_id, \
+            update = db.files.update().\
+                        where(db.files.c.file_id == file_id).\
+                        values(status='done',
+                                note="Loaded into TOASTER DB (rawfile ID: %d)" %
+                                     rawfile_id,
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
 
@@ -816,8 +820,8 @@ def can_calibrate(db, obs_id):
         # Observation is less than 1 week old.
         # Let's hold out hope that it can be calibrated.
         return True
-    mjdrange = (obsrow['start_mjd']-TWOHRS_IN_DAYS, \
-                obsrow['start_mjd']+TWOHRS_IN_DAYS)
+    mjdrange = (obsrow['start_mjd']-TWO_HRS_IN_DAYS, \
+                obsrow['start_mjd']+TWO_HRS_IN_DAYS)
     # Now try to find a compatible calibrator scan
     with db.transaction() as conn:
         select = db.select([db.files], \
@@ -996,13 +1000,13 @@ def update_caldb(db, sourcename, force=False):
         for row in rows:
             if row['added'] > lastupdated:
                 numnew += 1
-        
+
         utils.print_info("Found %d suitable calibrators for %s. " \
                             "%d are new." % \
                             (len(rows), name, numnew), 2)
-        
+
         values['numentries'] = len(rows)
- 
+
         try:
             if numnew or force:
                 # Create an updated version of the calibrator database 
@@ -1020,7 +1024,7 @@ def update_caldb(db, sourcename, force=False):
                                     last_modifed=datetime.datetime.now()).\
                             where(db.caldbs.c.caldb_id==caldb['caldb_id'])
             conn.execute(action, values)
-        else:        
+        else:
             if insert_new:
                 action = db.caldbs.insert()
             else:
@@ -1048,35 +1052,35 @@ def reattempt_calibration(db, sourcename):
     name = utils.get_prefname(sourcename)
     if name.endswith('_R'):
         name = name[:-2]
-    
+
     db = database.Database()
     with db.transaction() as conn:
         # Get rows that need to be updated
         # The update is a two-part process because
         # a join is required. (Can updates include joins?)
-        select = db.select([db.files],\
+        select = db.select([db.files],
                     from_obj=[db.files.\
-                        outerjoin(db.obs, \
-                            onclause=db.files.c.obs_id == \
+                        outerjoin(db.obs,
+                            onclause=db.files.c.obs_id ==
                                     db.obs.c.obs_id)]).\
-                    where((db.files.c.status=='calfail') & \
-                            (db.files.c.stage=='cleaned') & \
-                            (db.files.c.qcpassed==True) & \
-                            (db.obs.c.sourcename==name))
+                    where((db.files.c.status == 'calfail') &
+                            (db.files.c.stage == 'cleaned') &
+                            (db.files.c.qcpassed == True) &
+                            (db.obs.c.sourcename == name))
         result = conn.execute(select)
         rows = result.fetchall()
         result.close()
         # Now update rows
         for row in rows:
             update = db.files.update().\
-                    where(db.files.c.file_id==row['file_id']).\
-                    values(status='new', \
-                            note='Reattempting calibration', \
+                    where(db.files.c.file_id == row['file_id']).\
+                    values(status='new',
+                            note='Reattempting calibration',
                             last_modified=datetime.datetime.now())
             conn.execute(update)
-        utils.print_info("Resetting status to 'new' (from 'calfail') " \
-                            "for %d files with sourcename='%s'" % \
-                            (len(rows), name), 2)
+        utils.print_info("Resetting status to 'new' (from 'calfail') "
+                         "for %d files with sourcename='%s'" %
+                         (len(rows), name), 2)
 
 
 def get_log(db, obs_id):
@@ -1092,13 +1096,13 @@ def get_log(db, obs_id):
     """
     with db.transaction() as conn:
         select = db.select([db.logs]).\
-                    where(db.logs.c.obs_id==obs_id)
+                    where(db.logs.c.obs_id == obs_id)
         result = conn.execute(select)
         rows = result.fetchall()
         result.close()
         if len(rows) != 1:
-            raise errors.DatabaseError("Bad number of rows (%d) " \
-                                "with obs_id=%d!" % \
+            raise errors.DatabaseError("Bad number of rows (%d) "
+                                "with obs_id=%d!" %
                                 (len(rows), obs_id))
         return rows[0]
 
@@ -1118,13 +1122,13 @@ def move_log(db, log_id, destdir, destfn=None):
     """
     with db.transaction() as conn:
         select = db.select([db.logs]).\
-                    where(db.logs.c.log_id==log_id)
+                    where(db.logs.c.log_id == log_id)
         result = conn.execute(select)
         rows = result.fetchall()
         if len(rows) != 1:
-            raise errors.DatabaseError("Bad number of rows (%d) " \
-                                "with log_id=%d!" % \
-                                (len(rows), log_id))
+            raise errors.DatabaseError("Bad number of rows (%d) "
+                                       "with log_id=%d!" %
+                                       (len(rows), log_id))
         lg = rows[0]
         if destfn is None:
             destfn = lg['logname']
@@ -1139,15 +1143,15 @@ def move_log(db, log_id, destdir, destfn=None):
         shutil.copy(src, dest)
         # Update database
         update = db.logs.update().\
-                    where(db.logs.c.log_id==log_id).\
-                    values(logpath=destdir, \
-                            logname=destfn, \
+                    where(db.logs.c.log_id == log_id).\
+                    values(logpath=destdir,
+                            logname=destfn,
                             last_modified=datetime.datetime.now())
         conn.execute(update)
         # Remove original
         os.remove(src)
-        utils.print_info("Moved log from %s to %s. The database " \
-                        "has been updated accordingly." % (src, dest))
+        utils.print_info("Moved log from %s to %s. The database "
+                         "has been updated accordingly." % (src, dest))
 
 
 def move_file(db, file_id, destdir, destfn=None):
@@ -1165,13 +1169,13 @@ def move_file(db, file_id, destdir, destfn=None):
     """
     with db.transaction() as conn:
         select = db.select([db.files]).\
-                    where(db.files.c.file_id==file_id)
+                    where(db.files.c.file_id == file_id)
         result = conn.execute(select)
         rows = result.fetchall()
         if len(rows) != 1:
-            raise errors.DatabaseError("Bad number of rows (%d) " \
-                                "with file_id=%d!" % \
-                                (len(rows), file_id))
+            raise errors.DatabaseError("Bad number of rows (%d) "
+                                       "with file_id=%d!" %
+                                       (len(rows), file_id))
         ff = rows[0]
         if destfn is None:
             destfn = ff['filename']
@@ -1180,8 +1184,8 @@ def move_file(db, file_id, destdir, destfn=None):
         dest = os.path.join(destdir, destfn)
         utils.print_info("Moving archive file from %s to %s." % (src, dest), 2)
         if src == dest:
-            utils.print_info("File is already at its destination (%s). " \
-                            "No need to move." % dest, 2)
+            utils.print_info("File is already at its destination (%s). "
+                             "No need to move." % dest, 2)
         else:
             try:
                 os.makedirs(destdir)
@@ -1191,15 +1195,15 @@ def move_file(db, file_id, destdir, destfn=None):
             shutil.copy(src, dest)
             # Update database
             update = db.files.update().\
-                        where(db.files.c.file_id==file_id).\
-                        values(filepath=destdir, \
-                                filename=destfn, \
+                        where(db.files.c.file_id == file_id).\
+                        values(filepath=destdir,
+                                filename=destfn,
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
             # Remove original
             os.remove(src)
-            utils.print_info("Moved archive file from %s to %s. The database " \
-                            "has been updated accordingly." % (src, dest), 2)
+            utils.print_info("Moved archive file from %s to %s. The database "
+                             "has been updated accordingly." % (src, dest), 2)
 
 
 def get_rawdata_dirs(basedir=None, priority=[]):
@@ -1263,12 +1267,12 @@ def make_groups(path):
                     zip(['Lband', 'Sband'], ['1'+'[0-9]'*3, '2'+'[0-9]'*3]):
         subdirs = glob.glob(os.path.join(path, subdir_pattern))
         if subdirs:
-            utils.print_info("Found %d freq sub-band dirs for %s in %s. " \
-                        "Will group sub-ints contained" % \
-                        (len(subdirs), band, path), 2)
+            utils.print_info("Found %d freq sub-band dirs for %s in %s. "
+                             "Will group sub-ints contained" %
+                             (len(subdirs), band, path), 2)
             usedirs, groups = combine.group_subband_dirs(subdirs)
             # Keep track of the groups and directories used
-            for grp in groups:    
+            for grp in groups:
                 groups_list.append(grp)
                 usedirs_list.append(usedirs)
     return usedirs_list, groups_list
@@ -1290,12 +1294,12 @@ def make_combined_file(subdirs, subints, outdir):
             outfn: The name of the combined archive.
     """
     # Work in a temporary directory
-    tmpdir = tempfile.mkdtemp(suffix="_combine", \
-                                    dir=config.tmp_directory)
+    tmpdir = tempfile.mkdtemp(suffix="_combine",
+                              dir=config.tmp_directory)
     try:
         # Prepare subints
-        preppeddirs = prepare_subints(subdirs, subints, \
-                            baseoutdir=os.path.join(tmpdir, 'data'))
+        preppeddirs = prepare_subints(subdirs, subints,
+                                      baseoutdir=os.path.join(tmpdir, 'data'))
         cmbfn = combine.combine_subints(preppeddirs, subints, outdir=outdir)
     except:
         raise # Re-raise the exception
@@ -1338,11 +1342,11 @@ def prepare_subints(subdirs, subints, baseoutdir):
             # Directory already exists
             pass
         fns = [os.path.join(subdir, fn) for fn in subints]
-        utils.execute(['paz', '-j', 'convert psrfits', \
-                            '-E', '6.25', '-O', freqdir] + fns, \
-                        stderr=devnull)
+        utils.execute(['paz', '-j', 'convert psrfits',
+                       '-E', '6.25', '-O', freqdir] + fns,
+                      stderr=devnull)
         tmpsubdirs.append(freqdir)
-    utils.print_info("Prepared %d subint fragments in %d freq sub-dirs" % \
+    utils.print_info("Prepared %d subint fragments in %d freq sub-dirs" %
                     (len(subints), len(subdirs)), 3)
     return tmpsubdirs
 
@@ -1360,7 +1364,7 @@ def make_summary_plots(arf):
     """
     fullresfn = arf.fn+".png"
     diagnose.make_composite_summary_plot(arf, outfn=fullresfn)
-    
+
     # 6.25 MHz channels
     nchans = arf['bw']/6.25
     preproc = 'C,D,B 128,F %d' % nchans
@@ -1369,7 +1373,7 @@ def make_summary_plots(arf):
         preproc += ",T %d" % (arf['length']/60)
     lowresfn = arf.fn+".scrunched.png"
     diagnose.make_composite_summary_plot(arf, preproc, outfn=lowresfn)
- 
+
     return fullresfn, lowresfn
 
 
@@ -1388,11 +1392,11 @@ def make_polprofile_plots(arf):
     """
     fullresfn = arf.fn+".Scyl.png"
     diagnose.make_polprofile_plot(arf, outfn=fullresfn)
-    
+
     preproc = 'C,D,T,F,B 128'
     lowresfn = arf.fn+".Scyl.scrunched.png"
     diagnose.make_polprofile_plot(arf, preproc, outfn=lowresfn)
- 
+
     return fullresfn, lowresfn
 
 
@@ -1410,149 +1414,13 @@ def make_stokes_plot(arf):
     utils.print_info("Output plot name: %s" % outfn, 2)
     suffix = os.path.splitext(outfn)[-1]
     handle, tmpfn = tempfile.mkstemp(suffix=suffix)
-    
+
     grdev = "%s/PNG" % tmpfn
-    utils.execute(['psrplot', '-p', 'stokes', '-j', 'CDTF', \
-                            arf.fn, '-D', grdev])
+    utils.execute(['psrplot', '-p', 'stokes', '-j', 'CDTF',
+                  arf.fn, '-D', grdev])
     # Rename tmpfn to requested output filename
     shutil.move(tmpfn, outfn)
     return outfn
-
-
-def reduce_directory(path):
-    # Create temporary working directory
-    basetmpdir = tempfile.mkdtemp(suffix="_reduce", \
-                                    dir=config.tmp_directory)
-    utils.print_info("Reducing data in %s. Temporary working directory: %s" % \
-                (path, basetmpdir), 2)
-    try:
-        tmpdir = os.path.join(basetmpdir, 'work')
-        toignore = lambda visitdir, xx: [x for x in xx \
-                        if (os.path.isfile(x) and not x.endswith('.ar'))]
-        # Copy *.ar files to working directory
-        shutil.copytree(path, tmpdir, ignore=toignore)
-        utils.execute(['chmod', '-R', '700', tmpdir])
-        utils.print_info("Copied data to working directory.", 3)
-        # Change to working directory
-        os.chdir(tmpdir)
-        # Prepare copied files
-        freqdirs = {}
-        nfragments = 0
-        for (dirpath, dirnames, filenames) in os.walk(tmpdir):
-            utils.print_debug("Walking through data directory %s. " \
-                            "Found %d directories and %d files." % \
-                            (dirpath, len(dirnames), len(filenames)), 'reduce')
-            if fnmatch.fnmatch(os.path.split(dirpath)[-1], '[12]???'):
-                # Directory is a frequency sub-band
-                dirs = freqdirs.setdefault(os.path.split(dirpath)[-1][0], [])
-                dirs.append(dirpath)
-                arfns = [os.path.join(dirpath, xx) for xx in filenames \
-                                if xx.endswith('.ar')]
-                nfragments += len(arfns)
-                if arfns:
-                    # Convert files to PSRFITS format
-                    utils.execute(['psrconv', '-m', '-o', 'PSRFITS'] + arfns) 
-                    # Remove sub-band edges
-                    utils.execute(['paz', '-E', '6.25', '-m'] + arfns)
-        utils.print_info("Prepared %d subint fragments in %d freq sub-dirs" % \
-                        (nfragments, len(freqdirs)), 3)
-        for dirs in freqdirs.values():
-            # Create a sub-directory
-            subdir = tempfile.mkdtemp(suffix="_subdir", dir=tmpdir)
-            os.chdir(subdir)
-            # Create directory for combined files
-            os.mkdir('combined_files')
-            
-            # Combine sub-bands for each sub-int independently
-            utils.execute(['combine_ff.sh'] + dirs, stderr=open(os.devnull, 'w'))
-
-            cmbsubints = glob.glob(os.path.join(subdir, 'combined_*.ar'))
-            # Join combined sub-ints together
-            utils.execute(['psradd', '-O', 'combined_files', '-autoT', '-g', \
-                            '3600', '-G', '119'] + cmbsubints)
-            cmbfns = glob.glob(os.path.join(subdir, 'combined_files', 'combined_*'))
-            utils.print_info("Combined subints into %d files" % len(cmbfns), 2)
-            for tmp in cmbfns:
-                to_save = [] # List of files to copy to results directory
-                # Create ArchiveFile object
-                arf = utils.ArchiveFile(tmp)
-                # Set configurations
-                config.cfg.load_configs_for_archive(arf)
-                
-                # Adjust header in preparation for calibration
-                if arf['name'].endswith("_R"):
-                    # Is a calibration scan
-                    utils.execute(['psredit', '-m', '-c', 'rcvr:hand=-1,rcvr:basis=cir,type=PolnCal', tmp])
-                    cleanext = ".pcal"
-                else:
-                    utils.execute(['psredit', '-m', '-c', 'rcvr:hand=-1,rcvr:basis=cir,type=Pulsar', tmp])
-                    cleanext = ".ar"
-                arf = utils.correct_asterix_header(arf)
-                # Reload configuration because header has changed
-                config.cfg.load_configs_for_archive(arf)
-                
-                # Base name (ie no extension) of output file
-                baseoutfn = config.outfn_template % arf
-                cleanfn = baseoutfn+cleanext
- 
-                # Rename combined file
-                cmbfn = baseoutfn+".cmb"
-                os.rename(arf.fn, cmbfn)
-                arf.fn = cmbfn
-                arf.get_archive().set_filename(cmbfn)
- 
-                # Make pre-cleaning diagnostic plots
-                to_save.extend(make_summary_plots(arf))
- 
-                # Clean the data
-                utils.print_info("Cleaning %s" % arf.fn, 1)
-                # Load cleaners here because each data file might
-                # have different configurations. The configurations
-                # are set when the cleaner is loaded.
-                cleaner_queue = [cleaners.load_cleaner('rcvrstd'), \
-                                 cleaners.load_cleaner('surgical')]
- 
-                for cleaner in cleaner_queue:
-                    cleaner.run(arf.get_archive())
-                arf.get_archive().unload(cleanfn)
-                to_save.append(cleanfn)
-                
-                cleanarf = utils.ArchiveFile(cleanfn)
-                
-                # Make post-cleaning diagnostic plots
-                to_save.extend(make_summary_plots(cleanarf))
- 
-                if cleanarf['name'].endswith("_R"):
-                    # This is a calibration scan
-
-                    # Reduce number of channels to 16 per subband
-                    # We use the number of subbands because occasionally some
-                    # are missing, meaning we don't expect the full 128 channels
-                    nchans = 16*len(dirs)
-                    utils.execute(['pam', '--setnchn', '%d' % nchans, '-T', '-e', 'pcal.T', cleanfn])
-                    to_save.append(cleanfn+'.T')
-                else:
-                    if SAVE_INTERMEDIATE:
-                        # Copy combined file (before cleaning) to output directory
-                        to_save.append(cmbfn)
-                
-                # Copy results files
-                outdir = os.path.join(config.output_location, \
-                                config.output_layout) % cleanarf 
-                # Create output directory, if necessary
-                try:
-                    os.makedirs(outdir)
-                except OSError:
-                    # Directory already exists
-                    pass
-                for fn in to_save:
-                    shutil.copy(fn, os.path.join(outdir, os.path.split(fn)[-1]))
-    finally:
-        if debug.is_on('reduce'):
-            warnings.warn("Not cleaning up temporary directory (%s)" % tmpdir)
-        else:
-            utils.print_info("Removing temporary directory (%s)" % tmpdir, 2)
-            shutil.rmtree(tmpdir)
 
 
 def get_togroup(db):
@@ -1566,7 +1434,7 @@ def get_togroup(db):
     """
     with db.transaction() as conn:
         select = db.select([db.directories]).\
-                    where(db.directories.c.status=='new')
+                    where(db.directories.c.status == 'new')
         results = conn.execute(select)
         rows = results.fetchall()
         results.close()
@@ -1584,22 +1452,22 @@ def get_toload(db):
             rows: A list database rows to be reduced.
     """
     with db.transaction() as conn:
-        select = db.select([db.files, \
-                            db.obs.c.dir_id, \
-                            db.obs.c.sourcename, \
-                            db.obs.c.obstype, \
-                            db.obs.c.start_mjd], \
+        select = db.select([db.files,
+                            db.obs.c.dir_id,
+                            db.obs.c.sourcename,
+                            db.obs.c.obstype,
+                            db.obs.c.start_mjd],
                     from_obj=[db.files.\
-                        outerjoin(db.obs, \
-                            onclause=db.files.c.obs_id == \
+                        outerjoin(db.obs,
+                            onclause=db.files.c.obs_id ==
                                     db.obs.c.obs_id)]).\
-                            where(db.files.c.status=='toload')
+                            where(db.files.c.status == 'toload')
         results = conn.execute(select)
         rows = results.fetchall()
         results.close()
     utils.print_info("Got %d rows to load to TOASTER" % len(rows), 2)
     return rows
-            
+
 
 def get_todo(db, action, priorities=None):
     """Get a list of rows to reduce.
@@ -1615,16 +1483,17 @@ def get_todo(db, action, priorities=None):
             rows: A list database rows to be reduced.
     """
     if action not in ACTIONS:
-        raise errors.UnrecognizedValueError("The file action '%s' is not " \
-                    "recognized. Valid file actions are '%s'." % \
-                    "', '".join(ACTIONS.keys()))
+        raise errors.UnrecognizedValueError("The file action '%s' is not "
+                                            "recognized. Valid file actions "
+                                            "are '%s'." %
+                                            "', '".join(ACTIONS.keys()))
 
     target_stages, qcpassed_only, withlock, actfunc = ACTIONS[action]
-    whereclause = db.files.c.status=='new'
+    whereclause = db.files.c.status == 'new'
     if target_stages is not None:
         whereclause &= db.files.c.stage.in_(target_stages)
     if qcpassed_only:
-        whereclause &= db.files.c.qcpassed==True
+        whereclause &= db.files.c.qcpassed == True
     if priorities:
         prioritizer, cfgstr = priorities[0]
         tmp = prioritizer(db, cfgstr)
@@ -1632,20 +1501,20 @@ def get_todo(db, action, priorities=None):
             tmp |= prioritizer(db, cfgstr)
         whereclause &= tmp
     with db.transaction() as conn:
-        select = db.select([db.files, \
-                            db.obs.c.dir_id, \
-                            db.obs.c.sourcename, \
-                            db.obs.c.obstype, \
-                            db.obs.c.start_mjd], \
+        select = db.select([db.files,
+                            db.obs.c.dir_id,
+                            db.obs.c.sourcename,
+                            db.obs.c.obstype,
+                            db.obs.c.start_mjd],
                     from_obj=[db.files.\
-                        outerjoin(db.obs, \
-                            onclause=db.files.c.obs_id == \
+                        outerjoin(db.obs,
+                            onclause=db.files.c.obs_id ==
                                     db.obs.c.obs_id)]).\
                             where(whereclause)
         results = conn.execute(select)
         rows = results.fetchall()
         results.close()
-    utils.print_info("Got %d rows for '%s' action (priority: %s)" % \
+    utils.print_info("Got %d rows for '%s' action (priority: %s)" %
                         (len(rows), action, priorities), 2)
     return rows
 
@@ -1662,16 +1531,17 @@ def launch_task(db, action, row):
             proc: The started multiprocessing.Process object
     """
     if action not in ACTIONS:
-        raise errors.UnrecognizedValueError("The file action '%s' is not " \
-                    "recognized. Valid file actions are '%s'." % \
-                    "', '".join(ACTIONS.keys()))
+        raise errors.UnrecognizedValueError("The file action '%s' is not "
+                                            "recognized. Valid file actions "
+                                            "are '%s'." %
+                                            "', '".join(ACTIONS.keys()))
 
     target_stages, qcpassed_only, withlock, actfunc = ACTIONS[action]
     results = []
     with db.transaction() as conn:
         update = db.files.update().\
-                    where(db.files.c.file_id==row['file_id']).\
-                    values(status='submitted', \
+                    where(db.files.c.file_id == row['file_id']).\
+                    values(status='submitted',
                             last_modified=datetime.datetime.now())
         conn.execute(update)
     if withlock:
@@ -1680,8 +1550,8 @@ def launch_task(db, action, row):
     else:
         args = (row,)
     name = "%s.file_id:%d" % (action, row['file_id'])
-    proc = multiprocessing.Process(group=None, target=actfunc, \
-                                    name=name, args=args)
+    proc = multiprocessing.Process(group=None, target=actfunc,
+                                   name=name, args=args)
     proc.start()
     return proc
 
@@ -1696,7 +1566,7 @@ def get_caldb_lock(sourcename):
 
         Output:
             lock: The corresponding lock.
-    """    
+    """
     name = utils.get_prefname(sourcename)
     if name.endswith('_R'):
         name = name[:-2]
@@ -1731,7 +1601,7 @@ def prioritize_mjdrange(db, mjdrangestr):
             sqlquery: A sqlquery object.
     """
     startmjd, endmjd = [float(xx) for xx in mjdrangestr.split('-')]
-    return ((db.obs.c.start_mjd > startmjd) & \
+    return ((db.obs.c.start_mjd > startmjd) &
                     (db.obs.c.start_mjd < endmjd))
 
 
@@ -1739,54 +1609,49 @@ def prioritize_mjdrange(db, mjdrangestr):
 #                                  passed quality control,
 #                                  with calibrator database lock,
 #                                  function to proceed to next step)
-ACTIONS = {'combine': (['grouped'], 
-                        False,
-                        False,
-                        load_combined_file), \
-           'correct': (['combined'], 
-                        False,
-                        False,
-                        load_corrected_file), \
-           'clean': (['corrected'], 
-                        False,
-                        False,
-                        load_cleaned_file), \
-           'calibrate': (['cleaned'], 
-                        True,
-                        True,
-                        load_calibrated_file), \
-           'load': ([], 
-                        True,
-                        False,
-                        load_to_toaster)}
+ACTIONS = {'combine': (['grouped'], False, False, load_combined_file),
+           'correct': (['combined'], False, False, load_corrected_file),
+           'clean': (['corrected'], False, False, load_cleaned_file),
+           'calibrate': (['cleaned'], True, True, load_calibrated_file),
+           'load': ([], True, False, load_to_toaster)}
 
-PRIORITY_FUNC = {'pulsar': prioritize_pulsar, \
-                 #'date': prioritize_daterange, \
+PRIORITY_FUNC = {'pulsar': prioritize_pulsar,
+                 'psr': prioritize_pulsar,
+                 #'date': prioritize_daterange,
                  'mjd': prioritize_mjdrange}
 
 
 def parse_priorities(priority_str):
     ruletype, sep, cfgstrs = priority_str.partition('=')
     if ruletype.lower() not in PRIORITY_FUNC:
-        raise ValueError("Prioritization rule '%s' is not recognized. " \
-                            "Valid types are: '%s'" % \
-                            (ruletype, "', '".join(PRIORITY_FUNC.keys())))
+        raise ValueError("Prioritization rule '%s' is not recognized. "
+                         "Valid types are: '%s'" %
+                         (ruletype, "', '".join(PRIORITY_FUNC.keys())))
     priority_list = []
     for cfgstr in cfgstrs.split(','):
         priority_list.append((PRIORITY_FUNC[ruletype], cfgstr))
-        utils.print_info("Will add %s=%s as a priority" % \
-                            (ruletype, cfgstr), 1)
+        utils.print_info("Will add %s=%s as a priority" %
+                         (ruletype, cfgstr), 1)
     return priority_list
 
 
 def main():
+    # Share verbosity level with TOASTER
+    toaster.config.cfg.verbosity = config.verbosity
+    # Share debug modes with TOASTER
+    for mode in debug.get_on_modes():
+        try:
+            toaster.debug.set_mode_on(mode)
+        except toaster.errors.BadDebugMode:
+            pass
+
     inprogress = []
     try:
         priority_list = []
         for priority_str in args.priority:
             priority_list.extend(parse_priorities(priority_str))
         db = database.Database()
-        
+
         # Load raw data directories
         print "Loading directories..."
         ndirs = load_directories(db)
@@ -1801,7 +1666,7 @@ def main():
 
         # Turn off progress counters before we enter the main loop
         config.show_progress = False
-    
+
         print "Entering main loop..."
         while True:
             nfree = args.numproc - len(inprogress)
@@ -1819,7 +1684,7 @@ def main():
                     utils.print_info("Launched %d 'load' tasks" % nnew, 0)
 
                 for action in ('calibrate', 'clean', 'correct', 'combine'):
-                    rows = get_todo(db, action, \
+                    rows = get_todo(db, action,
                                     priorities=priority_list)[:nfree]
                     for row in rows:
                         proc = launch_task(db, action, row)
@@ -1828,9 +1693,9 @@ def main():
                     nfree -= nnew
                     nsubmit += nnew
                     if nnew:
-                        utils.print_info("Launched %d '%s' tasks" % \
-                                            (nnew, action), 0)
-            utils.print_info("[%s] - Num running: %d; Num submitted: %d" % \
+                        utils.print_info("Launched %d '%s' tasks" %
+                                         (nnew, action), 0)
+            utils.print_info("[%s] - Num running: %d; Num submitted: %d" %
                         (datetime.datetime.now(), len(inprogress), nsubmit), 0)
             # Sleep between iterations
             time.sleep(args.sleep_time)
@@ -1854,17 +1719,17 @@ def main():
 
 
 if __name__ == '__main__':
-    parser = utils.DefaultArguments(description="Automated reduction " \
+    parser = utils.DefaultArguments(description="Automated reduction "
                                     "of Asterix data.")
-    parser.add_argument("-P", "--num-procs", dest='numproc', type=int, \
-                        default=1, \
+    parser.add_argument("-P", "--num-procs", dest='numproc', type=int,
+                        default=1,
                         help="Number of processes to run simultaneously.")
-    parser.add_argument("-t", "--sleep-time", dest='sleep_time', type=int, \
-                        default=300, \
-                        help="Number of seconds to sleep between iterations " \
-                            "of the main loop. (Default: 300s)")
-    parser.add_argument("--prioritize", action='append', 
-                        default=[], dest='priority', \
+    parser.add_argument("-t", "--sleep-time", dest='sleep_time', type=int,
+                        default=300,
+                        help="Number of seconds to sleep between iterations "
+                             "of the main loop. (Default: 300s)")
+    parser.add_argument("--prioritize", action='append',
+                        default=[], dest='priority',
                         help="A rule for prioritizing observations.")
     args = parser.parse_args()
     main()
