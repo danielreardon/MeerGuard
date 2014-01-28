@@ -4,7 +4,7 @@ import os
 
 import utils
 import errors
-
+import debug  # Imported for convenience!!
 
 base_config_dir = os.getenv("COASTGUARD_CFG", None)
 if base_config_dir is None:
