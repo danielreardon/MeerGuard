@@ -78,6 +78,7 @@ prefname_cache = {}
 # A cache for version IDs
 versionid_cache = {}
 
+
 def show_progress(iterator, width=0, tot=None):
     """Wrap an iterator so that a progress counter is printed
         as we iterate.
@@ -131,6 +132,7 @@ def set_warning_mode(mode=None, reset=True):
     if reset:
         warnings.resetwarnings()
     warnings.simplefilter(mode)
+
 
 def log_message(msg, level='info'):
     """Log a message
@@ -875,14 +877,13 @@ def mjd_to_datetime(mjd):
     return date
         
 
-
 class ArchiveFile(object):
     def __init__(self, fn):
         self.fn = str(os.path.abspath(fn)) # Cast to string in case fn is unicode
         self.ar = None
         if not os.path.isfile(self.fn):
             raise errors.BadFile("Archive file could not be found (%s)!" % \
-                                    self.fn) 
+                                 self.fn)
         
         self.hdr = get_header_vals(self.fn, ['freq', 'length', 'bw', 'mjd', 
                                             'intmjd', 'fracmjd', 'backend', 
