@@ -85,7 +85,7 @@ class FailedFilesModel(qtcore.QAbstractTableModel):
                                      self.db.obs.c.start_mjd,
                                      self.db.obs.c.obstype,
                                      self.db.files.c.filepath,
-                                     self.db.files.c.filename,
+                                     self.db.files.c.filepath + '/' +self.db.files.c.filename,
                                      self.db.files.c.note,
                                      self.db.files.c.status,
                                      self.db.files.c.qcpassed,
