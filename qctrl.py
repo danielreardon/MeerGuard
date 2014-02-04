@@ -53,18 +53,24 @@ class QualityControl(qtgui.QWidget):
     def __set_keyboard_shortcuts(self):
         qtgui.QShortcut(qtcore.Qt.Key_Space, self, self.cycle_diag_fwd)
         qtgui.QShortcut(qtgui.QKeySequence(qtcore.Qt.SHIFT+qtcore.Qt.Key_Space), \
-                            self, self.cycle_diag_rev)
+                        self, self.cycle_diag_rev)
         qtgui.QShortcut(qtcore.Qt.Key_G, self, self.set_file_as_good)
+        qtgui.QShortcut(qtcore.Qt.Key_W, self, 
+                        lambda: self.set_file_as_good(weak=True))
         qtgui.QShortcut(qtcore.Qt.Key_B, self, self.set_file_as_bad)
+        qtgui.QShortcut(qtcore.Qt.Key_E, self, 
+                        lambda: self.set_file_as_bad(reason='ephem'))
+        qtgui.QShortcut(qtcore.Qt.Key_N, self,
+                        lambda: self.set_file_as_bad(reason='nondetect'))
         qtgui.QShortcut(qtcore.Qt.Key_Z, self, self.zap_file_manually)
-        qtgui.QShortcut(qtcore.Qt.SHIFT+qtcore.Qt.Key_Z, \
-                self, lambda: self.zap_file_manually(reset_weights=True))
+        qtgui.QShortcut(qtcore.Qt.SHIFT+qtcore.Qt.Key_Z,
+                        self, lambda: self.zap_file_manually(reset_weights=True))
         qtgui.QShortcut(qtcore.Qt.Key_S, self, self.advance_file)
         qtgui.QShortcut(qtcore.Qt.Key_R, self, self.get_files_to_check)
         qtgui.QShortcut(qtcore.Qt.Key_Q, self, self.close)
         qtgui.QShortcut(qtcore.Qt.Key_P, self, self.set_priorities)
         qtgui.QShortcut(qtcore.Qt.Key_A, self, self.add_parents_diags)
-        qtgui.QShortcut(qtcore.Qt.Key_W, self, self.write_filename)
+        qtgui.QShortcut(qtcore.Qt.Key_F, self, self.write_filename)
         qtgui.QShortcut(qtcore.Qt.Key_C, self, self.add_cal_diags)
 
     def __add_widgets(self):
@@ -78,8 +84,16 @@ class QualityControl(qtgui.QWidget):
 
         good_button = qtgui.QPushButton("&Good")
         good_button.clicked.connect(self.set_file_as_good)
+        weak_button = qtgui.QPushButton("&Weak")
+        weak_button.clicked.connect(lambda: self.set_file_as_good(weak=True))
         bad_button = qtgui.QPushButton("&Bad")
         bad_button.clicked.connect(self.set_file_as_bad)
+        ephem_button = qtgui.QPushButton("Bad &Ephem")
+        ephem_button.clicked.connect(
+            lambda: self.set_file_as_bad(reason='ephem'))
+        nodetect_button = qtgui.QPushButton("&No Detect")
+        nodetect_button.clicked.connect(
+            lambda: self.set_file_as_bad(reason='nondetect'))
         zap_button = qtgui.QPushButton("&Zap")
         zap_button.clicked.connect(self.zap_file_manually)
         skip_button = qtgui.QPushButton("&Skip")
@@ -93,7 +107,7 @@ class QualityControl(qtgui.QWidget):
 
         # Counter for the number of plots left
         self.lcd = qtgui.QLCDNumber(4)
-        self.lcd.setSegmentStyle(2) # Flat style
+        self.lcd.setSegmentStyle(2)  # Flat style
 
         plotctrl_box = qtgui.QHBoxLayout()
         plotctrl_box.addWidget(prev_button)
@@ -109,7 +123,10 @@ class QualityControl(qtgui.QWidget):
       
         right_box = qtgui.QVBoxLayout()
         right_box.addWidget(good_button)
+        right_box.addWidget(weak_button)
         right_box.addWidget(bad_button)
+        right_box.addWidget(ephem_button)
+        right_box.addWidget(nodetect_button)
         right_box.addWidget(zap_button)
         right_box.addWidget(skip_button)
         right_box.addWidget(reload_button)
@@ -125,27 +142,41 @@ class QualityControl(qtgui.QWidget):
 
         self.setLayout(main_box)
 
-    def set_file_as_good(self):
+    def set_file_as_good(self, weak=False):
         if self.file_id:
             values = {'qcpassed': True}
             if self.fileinfo['stage'] == 'calibrated':
                 values['status'] = 'toload'
+            if weak:
+                values['note'] = "A weak detection."
             with self.db.transaction() as conn:
                 update = self.db.files.update().\
-                            where(self.db.files.c.file_id==self.file_id).\
+                            where(self.db.files.c.file_id == self.file_id).\
                             values(last_modified=datetime.datetime.now())
                 conn.execute(update, values)
             self.advance_file()
 
-    def set_file_as_bad(self):
+    def set_file_as_bad(self, reason='rfi'):
         if self.file_id:
+            note = "File failed quality control."
+            if reason == 'ephem':
+                note += " Ephemeris needs to be updated."
+            elif reason == 'rfi':
+                note += " RFI has rendered the observation unsalvageable!"
+            elif reason == 'nondetect':
+                note += " The observation is a non-detection."
+            else:
+                raise errors.UnrecognizedValueError("The reason for "
+                                                    "setting the file as"
+                                                    "bad is not "
+                                                    "recognized: %s" %
+                                                    reason)
             with self.db.transaction() as conn:
                 update = self.db.files.update().\
-                            where(self.db.files.c.file_id==self.file_id).\
-                            values(qcpassed=False, \
-                                    status='failed', \
-                                    note='File failed quality control. " \
-                                        "Observation is unsalvageable!', \
+                            where(self.db.files.c.file_id == self.file_id).\
+                            values(qcpassed=False,
+                                    status='failed',
+                                    note=note,
                                     last_modified=datetime.datetime.now())
                 conn.execute(update)
             self.advance_file()
@@ -186,26 +217,27 @@ class QualityControl(qtgui.QWidget):
             with self.db.transaction() as conn:
                 # Get file information from DB
                 select = self.db.select([self.db.files]).\
-                        where(self.db.files.c.file_id==file_id)
+                        where(self.db.files.c.file_id == file_id)
                 result = conn.execute(select)
                 rows = result.fetchall()
                 if len(rows) != 1:
-                    raise errors.DatabaseError("Bad number of rows (%d) " \
-                                        "with file_id=%d!" % \
-                                        (len(rows), file_id))
+                    raise errors.DatabaseError("Bad number of rows (%d) "
+                                               "with file_id=%d!" %
+                                               (len(rows), file_id))
                 ff = rows[0]
                 # Get diagnostics from DB
                 select = self.db.select([self.db.diagnostics]).\
-                        where(self.db.diagnostics.c.file_id==file_id)
+                        where(self.db.diagnostics.c.file_id == file_id)
                 result = conn.execute(select)
                 rows = result.fetchall()
                 if len(rows) == 0:
-                    raise errors.DiagnosticError("No diagnostics for " \
-                                "file (ID: %d) '%s'!" % \
-                                (file_id, os.path.join(ff['filepath'], \
-                                                    ff['filename'])))
-                self.diagplots = [os.path.join(row['diagnosticpath'], \
-                                    row['diagnosticname']) for row in rows]
+                    raise errors.DiagnosticError("No diagnostics for "
+                                                 "file (ID: %d) '%s'!" %
+                                                 (file_id,
+                                                  os.path.join(ff['filepath'],
+                                                               ff['filename'])))
+                self.diagplots = [os.path.join(row['diagnosticpath'],
+                                  row['diagnosticname']) for row in rows]
                 self.idiag = 0
             self.file_id = file_id
             self.fileinfo = ff
@@ -227,16 +259,16 @@ class QualityControl(qtgui.QWidget):
                 with self.db.transaction() as conn:
                     # Get diagnostics from DB
                     select = self.db.select([self.db.diagnostics]).\
-                            where(self.db.diagnostics.c.file_id==parent_file_id)
+                            where(self.db.diagnostics.c.file_id == parent_file_id)
                     result = conn.execute(select)
                     rows = result.fetchall()
                 if len(rows) == 0:
-                    raise warnings.warn("No diagnostics for " \
-                                "file (ID: %d) '%s'!" % \
-                                (file_id, os.path.join(ff['filepath'], \
-                                                    ff['filename'])), \
-                                errors.CoastGuardWarning)
-                self.diagplots.extend([os.path.join(row['diagnosticpath'], \
+                    raise warnings.warn("No diagnostics for "
+                                        "file (ID: %d) '%s'!" %
+                                        (file_id, os.path.join(ff['filepath'],
+                                                               ff['filename'])),
+                                        errors.CoastGuardWarning)
+                self.diagplots.extend([os.path.join(row['diagnosticpath'],
                                     row['diagnosticname']) for row in rows])
             self.added_parents_plots = True
 
@@ -249,17 +281,18 @@ class QualityControl(qtgui.QWidget):
                 with self.db.transaction() as conn:
                     # Get diagnostics from DB
                     select = self.db.select([self.db.diagnostics]).\
-                            where(self.db.diagnostics.c.file_id==cal_file_id)
+                            where(self.db.diagnostics.c.file_id == cal_file_id)
                     result = conn.execute(select)
                     rows = result.fetchall()
                 if len(rows) == 0:
-                    raise warnings.warn("No diagnostics for " \
-                                "file (ID: %d) '%s'!" % \
-                                (file_id, os.path.join(ff['filepath'], \
-                                                    ff['filename'])), \
-                                errors.CoastGuardWarning)
-                self.diagplots.extend([os.path.join(row['diagnosticpath'], \
-                                    row['diagnosticname']) for row in rows])
+                    raise warnings.warn("No diagnostics for "
+                                        "file (ID: %d) '%s'!" %
+                                        (file_id, os.path.join(ff['filepath'],
+                                                               ff['filename'])),
+                                        errors.CoastGuardWarning)
+                self.diagplots.extend([os.path.join(row['diagnosticpath'],
+                                                    row['diagnosticname'])
+                                       for row in rows])
             self.added_cal_plots = True
 
     def get_files_to_check(self, priorities=None, stage=None):
@@ -267,26 +300,27 @@ class QualityControl(qtgui.QWidget):
             stage = self.stage
         if stage == 'cleaned':
             whereclause = (self.db.files.c.qcpassed.is_(None)) & \
-                                    (self.db.files.c.stage=='cleaned') & \
-                                    (self.db.files.c.status=='new')
+                          (self.db.files.c.stage == 'cleaned') & \
+                          (self.db.files.c.status == 'new')
         elif stage == 'calibrated':
             whereclause = (self.db.files.c.qcpassed.is_(None)) & \
-                                    (self.db.files.c.stage=='calibrated') & \
-                                    (self.db.files.c.status=='new') & \
-                                    (self.db.obs.c.obstype=='pulsar')
+                          (self.db.files.c.stage == 'calibrated') & \
+                          (self.db.files.c.status == 'new') & \
+                          (self.db.obs.c.obstype == 'pulsar')
             
         if priorities is None:
             priorities = self.priorities
         if priorities is not None:
+            print priorities, type(priorities)
             tmp = self.db.obs.c.sourcename.like(priorities[0])
             for priority in priorities[1:]:
                 tmp |= self.db.obs.c.sourcename.like(priority)
             whereclause &= tmp
         with self.db.transaction() as conn:
-            select = self.db.select([self.db.files.c.file_id], \
+            select = self.db.select([self.db.files.c.file_id],
                         from_obj=[self.db.files.\
-                            outerjoin(self.db.obs, \
-                                onclause=self.db.files.c.obs_id == \
+                            outerjoin(self.db.obs,
+                                onclause=self.db.files.c.obs_id ==
                                         self.db.obs.c.obs_id)]).\
                         where(whereclause)
             result = conn.execute(select)
@@ -298,7 +332,7 @@ class QualityControl(qtgui.QWidget):
         self.advance_file()
 
     def zap_file_manually(self, reset_weights=False):
-        arfn = os.path.join(self.fileinfo['filepath'], \
+        arfn = os.path.join(self.fileinfo['filepath'],
                             self.fileinfo['filename'])
        
         zapdialog = ZappingDialog()
@@ -308,29 +342,29 @@ class QualityControl(qtgui.QWidget):
         if out is not None and os.path.isfile(out):
             # Successful! Insert entry into DB.
             outdir, outfn = os.path.split(out)
-            values = {'filepath': outdir, \
-                      'filename': outfn, \
-                      'stage': 'cleaned', \
-                      'note': "Manually zapped", \
-                      'qcpassed': True, \
-                      'md5sum': utils.get_md5sum(out), \
-                      'filesize': os.path.getsize(out), \
+            values = {'filepath': outdir,
+                      'filename': outfn,
+                      'stage': 'cleaned',
+                      'note': "Manually zapped",
+                      'qcpassed': True,
+                      'md5sum': utils.get_md5sum(out),
+                      'filesize': os.path.getsize(out),
                       'parent_file_id': self.file_id}
 
             with self.db.transaction() as conn:
                 version_id = utils.get_version_id(self.db)
                 # Insert new entry
                 insert = self.db.files.insert().\
-                        values(version_id = version_id, \
-                                obs_id = self.fileinfo['obs_id'])
+                        values(version_id=version_id,
+                                obs_id=self.fileinfo['obs_id'])
                 result = conn.execute(insert, values)
                 file_id = result.inserted_primary_key[0]
                 # Update parent file's entry
                 update = self.db.files.update().\
-                        where(self.db.files.c.file_id==self.file_id).\
-                        values(qcpassed=False, \
-                                status='replaced', \
-                                note="File had to be cleaned by hand.", \
+                        where(self.db.files.c.file_id == self.file_id).\
+                        values(qcpassed=False,
+                                status='replaced',
+                                note="File had to be cleaned by hand.",
                                 last_modified=datetime.datetime.now())
                 result = conn.execute(update)
             self.advance_file()       
@@ -340,21 +374,21 @@ class QualityControl(qtgui.QWidget):
             curr_priority_str = ", ".join(self.priorities)
         else:
             curr_priority_str = ""
-        priority_str, ok = qtgui.QInputDialog.getText(self, \
-                            "Set priorities", \
-                            "Enter a comma-separated list of " \
-                                    "source names to prioritize.", \
-                            qtgui.QLineEdit.Normal, \
-                            curr_priority_str
-                            )
+        priority_str, ok = qtgui.QInputDialog.getText(self,
+                                                      "Set priorities",
+                                                      "Enter a comma-"
+                                                      "separated list of "
+                                                      "priorities.",
+                                                      qtgui.QLineEdit.Normal,
+                                                      curr_priority_str)
         priority_str = str(priority_str)
         if ok:
             if not priority_str.strip():
                 # Match all source names
                 self.priorities = None
             else:
-                self.priorities = [pr.strip() for pr in \
-                                        priority_str.split(',')]
+                self.priorities = [pr.strip() for pr in
+                                   priority_str.split(',')]
         self.get_files_to_check()
 
 
@@ -395,20 +429,21 @@ class ZappingDialog(qtgui.QDialog):
             success = False
             msg_dialog.setText("Output zapped file is empty.")
             msg_dialog.setInformativeText("Did you forget to save?")
-            msg_dialog.setStandardButtons(qtgui.QMessageBox.Yes | \
-                                            qtgui.QMessageBox.No)
+            msg_dialog.setStandardButtons(qtgui.QMessageBox.Yes |
+                                          qtgui.QMessageBox.No)
             msg_dialog.setDefaultButton(qtgui.QMessageBox.Yes)
         elif outsize != insize:
             success = False
-            msg_dialog.setText("Output zapped file's size (%d) is " \
-                    "different than input file's size (%s: %d bytes)" % \
-                    (outsize, self.infn, insize))
+            msg_dialog.setText("Output zapped file's size (%d) is "
+                               "different than input file's size "
+                               "(%s: %d bytes)" %
+                               (outsize, self.infn, insize))
         else:
             success = True
             msg_dialog.setText("The archive has been zapped.")
             msg_dialog.setInformativeText("Save zapped file?")
-            msg_dialog.setStandardButtons(qtgui.QMessageBox.Save | \
-                                            qtgui.QMessageBox.Discard)
+            msg_dialog.setStandardButtons(qtgui.QMessageBox.Save |
+                                          qtgui.QMessageBox.Discard)
             msg_dialog.setDefaultButton(qtgui.QMessageBox.Save)
         ret = msg_dialog.exec_()
         if not success:
@@ -418,9 +453,9 @@ class ZappingDialog(qtgui.QDialog):
         elif ret == qtgui.QMessageBox.Discard:
             success = False
         else:
-            raise ValueError("Value returned by message dialog (%d) " \
-                            "does not match the Save or Discard " \
-                            "buttons!" % ret)
+            raise ValueError("Value returned by message dialog (%d) "
+                             "does not match the Save or Discard "
+                             "buttons!" % ret)
         self.done(success)
 
     def __on_stderr(self, text=None):
@@ -442,13 +477,13 @@ class ZappingDialog(qtgui.QDialog):
         if not os.path.exists(tmpdir):
             os.makedirs(tmpdir)
         tmpfile, tmpoutfn = tempfile.mkstemp(suffix=".ar", dir=tmpdir)
-        os.close(tmpfile) # Close open file handle
+        os.close(tmpfile)  # Close open file handle
         try:
             success = self.__launch_zapping(arfn, tmpoutfn, reset_weights)
             if success:
                 arf = utils.ArchiveFile(arfn)
-                archivedir = os.path.join(config.output_location, \
-                                config.output_layout) % arf
+                archivedir = os.path.join(config.output_location,
+                                          config.output_layout) % arf
                 # Append .zap to filename
                 archivefn = (os.path.basename(arfn)+".zap") % arf
                 outfn = os.path.join(archivedir, archivefn)
@@ -464,20 +499,17 @@ class ZappingDialog(qtgui.QDialog):
         self.infn = infn
         self.outfn = outfn
         self.proc = qtcore.QProcess()
-        self.connect(self.proc, qtcore.SIGNAL('readyReadStandardOutput()'), \
-                        self.__on_stdout)
-        self.connect(self.proc, qtcore.SIGNAL('readyReadStandardError()'), \
-                        self.__on_stderr)
-        self.connect(self.proc, qtcore.SIGNAL('finished(int)'), \
-                        self.__on_finish)
+        self.proc.readyReadStandardOutput.connect(self.__on_stdout)
+        self.proc.readyReadStandardError.connect(self.__on_stderr)
         if reset_weights:
-            proc = qtcore.QProcess()
             self.__on_stdout("Resetting profile weights")
             tmpfn = outfn+".in"
             shutil.copy(infn, tmpfn)
             infn = tmpfn
-            proc.start('pam', ['-m', '-w', '1', infn])
+            self.proc.start('pam', ['-m', '-w', '1', infn])
+            self.proc.waitForFinished(msecs=-1)  # Block until finished
             self.__on_stdout("Done")
+        self.proc.finished.connect(self.__on_finish)
         self.proc.start('pzrzap', [infn, '-o', outfn])
         success = self.exec_()
         return success
@@ -496,13 +528,13 @@ def main():
 
 
 if __name__ == "__main__":
-    parser = utils.DefaultArguments(description="Quality control interface " \
+    parser = utils.DefaultArguments(description="Quality control interface "
                                     "for Asterix data.")
-    parser.add_argument("-n", "--prioritize", action='append', default=None, \
-                        dest='priority', \
+    parser.add_argument("-n", "--prioritize", action='append', default=None,
+                        dest='priority',
                         help="Name of source to prioritize.")
-    parser.add_argument('-C', "--calibrated", dest='stage', action='store_const', \
-                        default='cleaned', const='calibrated', \
+    parser.add_argument('-C', "--calibrated", dest='stage', action='store_const',
+                        default='cleaned', const='calibrated',
                         help="Review calibrated pulsar observations.")
     args = parser.parse_args()
     main()
