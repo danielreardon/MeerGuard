@@ -22,6 +22,7 @@ import config
 import database
 import utils
 import errors
+import reduce_data
 
 
 class QualityControl(qtgui.QWidget):
@@ -56,10 +57,10 @@ class QualityControl(qtgui.QWidget):
                         self, self.cycle_diag_rev)
         qtgui.QShortcut(qtcore.Qt.Key_G, self, self.set_file_as_good)
         qtgui.QShortcut(qtcore.Qt.Key_W, self, 
-                        lambda: self.set_file_as_good(weak=True))
+                        lambda: self.set_file_as_good(note='weak'))
         qtgui.QShortcut(qtcore.Qt.Key_B, self, self.set_file_as_bad)
         qtgui.QShortcut(qtcore.Qt.Key_E, self, 
-                        lambda: self.set_file_as_bad(reason='ephem'))
+                        lambda: self.set_file_as_good(note='ephem'))
         qtgui.QShortcut(qtcore.Qt.Key_N, self,
                         lambda: self.set_file_as_bad(reason='nondetect'))
         qtgui.QShortcut(qtcore.Qt.Key_Z, self, self.zap_file_manually)
@@ -85,12 +86,12 @@ class QualityControl(qtgui.QWidget):
         good_button = qtgui.QPushButton("&Good")
         good_button.clicked.connect(self.set_file_as_good)
         weak_button = qtgui.QPushButton("&Weak")
-        weak_button.clicked.connect(lambda: self.set_file_as_good(weak=True))
+        weak_button.clicked.connect(lambda: self.set_file_as_good(note='weak'))
         bad_button = qtgui.QPushButton("&Bad")
         bad_button.clicked.connect(self.set_file_as_bad)
         ephem_button = qtgui.QPushButton("Bad &Ephem")
         ephem_button.clicked.connect(
-            lambda: self.set_file_as_bad(reason='ephem'))
+            lambda: self.set_file_as_good(note='ephem'))
         nodetect_button = qtgui.QPushButton("&No Detect")
         nodetect_button.clicked.connect(
             lambda: self.set_file_as_bad(reason='nondetect'))
@@ -142,13 +143,16 @@ class QualityControl(qtgui.QWidget):
 
         self.setLayout(main_box)
 
-    def set_file_as_good(self, weak=False):
+    def set_file_as_good(self, note=None):
         if self.file_id:
             values = {'qcpassed': True}
             if self.fileinfo['stage'] == 'calibrated':
                 values['status'] = 'toload'
-            if weak:
+            if note == 'weak':
                 values['note'] = "A weak detection."
+            elif note == 'ephem':
+                values['note'] = "Ephemeris needs to be updated."
+                
             with self.db.transaction() as conn:
                 update = self.db.files.update().\
                             where(self.db.files.c.file_id == self.file_id).\
@@ -159,9 +163,7 @@ class QualityControl(qtgui.QWidget):
     def set_file_as_bad(self, reason='rfi'):
         if self.file_id:
             note = "File failed quality control."
-            if reason == 'ephem':
-                note += " Ephemeris needs to be updated."
-            elif reason == 'rfi':
+            if reason == 'rfi':
                 note += " RFI has rendered the observation unsalvageable!"
             elif reason == 'nondetect':
                 note += " The observation is a non-detection."
@@ -179,6 +181,14 @@ class QualityControl(qtgui.QWidget):
                                     note=note,
                                     last_modified=datetime.datetime.now())
                 conn.execute(update)
+                if self.fileinfo['stage'] == 'calibrated':
+                    update = self.db.files.update().\
+                                where((self.db.files.c.file_id ==
+                                       self.fileinfo['parent_file_id'])).\
+                                values(status='toload',
+                                        note="Derived calibrated file failed quality control.",
+                                        last_modified=datetime.datetime.now())
+                    conn.execute(update)
             self.advance_file()
 
     def advance_file(self):
@@ -311,10 +321,13 @@ class QualityControl(qtgui.QWidget):
         if priorities is None:
             priorities = self.priorities
         if priorities is not None:
-            print priorities, type(priorities)
-            tmp = self.db.obs.c.sourcename.like(priorities[0])
-            for priority in priorities[1:]:
-                tmp |= self.db.obs.c.sourcename.like(priority)
+            priority_list = []
+            for pr in priorities:
+                priority_list.extend(reduce_data.parse_priorities(pr))
+            prioritizer, cfgstr = priority_list[0]
+            tmp = prioritizer(self.db, cfgstr)
+            for prioritizer, cfgstr in priority_list[1:]:
+                tmp |= prioritizer(self.db, cfgstr)
             whereclause &= tmp
         with self.db.transaction() as conn:
             select = self.db.select([self.db.files.c.file_id],
@@ -530,9 +543,9 @@ def main():
 if __name__ == "__main__":
     parser = utils.DefaultArguments(description="Quality control interface "
                                     "for Asterix data.")
-    parser.add_argument("-n", "--prioritize", action='append', default=None,
-                        dest='priority',
-                        help="Name of source to prioritize.")
+    parser.add_argument("--prioritize", action='append',
+                        default=[], dest='priority',
+                        help="A rule for prioritizing observations.")
     parser.add_argument('-C', "--calibrated", dest='stage', action='store_const',
                         default='cleaned', const='calibrated',
                         help="Review calibrated pulsar observations.")
