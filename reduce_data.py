@@ -41,6 +41,27 @@ STAGE_TO_EXT = {'combined': '.cmb',
 
 TWO_HRS_IN_DAYS = 2.0/24.0
 
+SOURCELISTS = {'epta': ['J0030+0451', 'J0218+4232', 'J0613-0200', 
+                        'J0621+1002', 'J0751+1807', 'J1012+5307', 
+                        'J1022+1001', 'J1024-0719', 'J1600-3053', 
+                        'J1640+2224', 'J1643-1224', 'J1713+0747', 
+                        'J1730-2304', 'J1741+1351', 'J1744-1134', 
+                        'J1853+1303', 'J1857+0943', 'J1911+1347', 
+                        'J1918-0642', 'J1939+2134', 'J2010-1323', 
+                        'J2145-0750', 'J2229+2643', 'J2317+1439', 
+                        'J2322+2057', 'J0340+4129', 'J2017+0603', 
+                        'J2043+1711', 'J2234+0944', 'J0023+0923'],
+          'priority1': ['J0613-0200', 'J1012+5307', 'J1022+1001', 
+                        'J1024-0719', 'J1600-3053', 'J1640+2224', 
+                        'J1643-1224', 'J1713+0747', 'J1730-2304', 
+                        'J1744-1134', 'J1853+1303', 'J1857+0943', 
+                        'J1911+1347', 'J1918-0642', 'J1939+2134', 
+                        'J2145-0750', 'J2317+1439'], 
+                'mou': ['J1946+3414', 'J1832-0836', 'J2205+6015', 
+                        'J1125+7819', 'J0742+6620', 'J1710+4923', 
+                        'J0636+5128', 'J2234+0611', 'J0931-1902']}
+
+
 
 def load_directories(db, *args, **kwargs):
     """Search for directories containing asterix data.
@@ -416,12 +437,13 @@ def load_corrected_file(filerow):
             conn.execute(update)
         raise
     else:
+        # Success!
         with db.transaction() as conn:
             version_id = utils.get_version_id(db)
             # Insert new entry
             insert = db.files.insert().\
                     values(version_id = version_id, \
-                            obs_id=obs_id)
+                           obs_id=obs_id)
             result = conn.execute(insert, values)
             file_id = result.inserted_primary_key[0]
             # Insert diagnostic entries
@@ -432,13 +454,13 @@ def load_corrected_file(filerow):
             update = db.obs.update().\
                         where(db.obs.c.obs_id==obs_id).\
                         values(rcvr=arf['rcvr'], \
-                                last_modified=datetime.datetime.now())
+                               last_modified=datetime.datetime.now())
             conn.execute(update)
             # Update parent file
             update = db.files.update().\
                         where(db.files.c.file_id==parent_file_id).\
                         values(status='processed', \
-                                last_modified=datetime.datetime.now())
+                               last_modified=datetime.datetime.now())
             conn.execute(update)
 
         rows = get_files(db, obs_id)
@@ -1605,6 +1627,22 @@ def prioritize_mjdrange(db, mjdrangestr):
                     (db.obs.c.start_mjd < endmjd))
 
 
+def prioritize_predef_srclist(db, srclist_name):
+    """Return a sqlalchemy query that will prioritize a pre-defined
+        list of pulars.
+
+        Inputs:
+            db: A Database object to use.
+            srclist_name: The name of the source list to prioritize.
+
+        Outputs:
+            sqlquery: A sqlquery object.
+    """
+    srclist = [utils.get_prefname(src) for src in SOURCELISTS[srclist_name]]
+    srclist += [name+"_R" for name in srclist if not name.endswith("_R")]
+    return db.obs.c.sourcename.in_(srclist)
+
+
 # Actions are defined by a tuple: (target stage, 
 #                                  passed quality control,
 #                                  with calibrator database lock,
@@ -1618,7 +1656,8 @@ ACTIONS = {'combine': (['grouped'], False, False, load_combined_file),
 PRIORITY_FUNC = {'pulsar': prioritize_pulsar,
                  'psr': prioritize_pulsar,
                  #'date': prioritize_daterange,
-                 'mjd': prioritize_mjdrange}
+                 'mjd': prioritize_mjdrange,
+                 'srclist': prioritize_predef_srclist}
 
 
 def parse_priorities(priority_str):
