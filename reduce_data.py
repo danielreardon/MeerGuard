@@ -1176,6 +1176,42 @@ def move_log(db, log_id, destdir, destfn=None):
                          "has been updated accordingly." % (src, dest))
 
 
+def delete_file(db, file_id):
+    """Given a file ID remove the associated archive.
+
+        Inputs:
+            db: Database object to use.
+            file_id: The ID of a row in the files table.
+
+        Outputs:
+            None
+    """
+    with db.transaction() as conn:
+        select = db.select([db.files]).\
+                    where(db.files.c.file_id == file_id)
+        result = conn.execute(select)
+        rows = result.fetchall()
+        if len(rows) != 1:
+            raise errors.DatabaseError("Bad number of rows (%d) "
+                                       "with file_id=%d!" %
+                                       (len(rows), file_id))
+        ff = rows[0]
+        # Copy file
+        fn = os.path.join(ff['filepath'], ff['filename'])
+        utils.print_info("Deleting archive file (%s)." % fn, 2)
+        # Update database
+        update = db.files.update().\
+                    where(db.files.c.file_id == file_id).\
+                    values(is_deleted=True,
+                            last_modified=datetime.datetime.now())
+        conn.execute(update)
+        # Remove original
+        try:
+            os.remove(fn)
+        except:
+            pass
+
+
 def move_file(db, file_id, destdir, destfn=None):
     """Given a file ID move the associated archive.
 
