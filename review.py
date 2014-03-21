@@ -84,11 +84,11 @@ class FailedFilesModel(qtcore.QAbstractTableModel):
                                      self.db.files.c.stage,
                                      self.db.obs.c.start_mjd,
                                      self.db.obs.c.obstype,
+                                     self.db.files.c.status,
+                                     self.db.files.c.qcpassed,
                                      self.db.files.c.filepath,
                                      self.db.files.c.filepath + '/' +self.db.files.c.filename,
                                      self.db.files.c.note,
-                                     self.db.files.c.status,
-                                     self.db.files.c.qcpassed,
                                      self.db.logs.c.logpath + '/' +
                                      self.db.logs.c.logname],
                         from_obj=[self.db.files.
@@ -98,9 +98,9 @@ class FailedFilesModel(qtcore.QAbstractTableModel):
                             outerjoin(self.db.logs,
                                 onclause=self.db.obs.c.obs_id ==
                                         self.db.logs.c.obs_id)]).\
-                        where((self.db.files.c.status == 'failed') &
-                                ((self.db.files.c.qcpassed == None) |
-                                 (self.db.files.c.qcpassed == True)))
+                        where((self.db.files.c.status.in_(['failed', 'calfailed'])) &
+                                ((self.db.files.c.qcpassed.is_(None)) |
+                                 (self.db.files.c.qcpassed == False)))
             result = conn.execute(select)
             rows = result.fetchall()
             result.close()
@@ -123,7 +123,7 @@ class Reviewer(qtgui.QWidget, ui_reviewer.Ui_Reviewer):
         # Initialize
         self.tableview.setModel(self.__model)
         self.tableview.setUpdatesEnabled(True)
-        for icol in range(6, self.__model.columnCount()):
+        for icol in range(8, self.__model.columnCount()):
             self.tableview.setColumnHidden(icol, True)
 
         # Set up data-widget mapping
@@ -134,8 +134,8 @@ class Reviewer(qtgui.QWidget, ui_reviewer.Ui_Reviewer):
         self.mapper.addMapping(self.stage_text, 3)
         self.mapper.addMapping(self.mjd_text, 4)
         self.mapper.addMapping(self.obstype_text, 5)
-        self.mapper.addMapping(self.file_text, 7)
-        self.mapper.addMapping(self.notes_text, 8)
+        self.mapper.addMapping(self.file_text, 9)
+        self.mapper.addMapping(self.notes_text, 10)
         self.mapper.addMapping(self.log_text, 11)
 
         # Link tableview's selection to the data-widget mapper
