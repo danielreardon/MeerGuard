@@ -169,7 +169,7 @@ class QualityControl(qtgui.QWidget):
                 note += " The observation is a non-detection."
             else:
                 raise errors.UnrecognizedValueError("The reason for "
-                                                    "setting the file as"
+                                                    "setting the file as "
                                                     "bad is not "
                                                     "recognized: %s" %
                                                     reason)
