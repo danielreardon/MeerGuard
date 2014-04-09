@@ -294,8 +294,8 @@ def load_combined_file(filerow):
         arf = utils.ArchiveFile(cmbfn)
         if arf['nchan'] > 512:
             note = "Scrunched from %d to 512 channels" % arf['nchan']
-            utils.print_info("Reducing %s from %d to 512 channels" % \
-                                (cmbfn, arf['nchan']), 2)
+            utils.print_info("Reducing %s from %d to 512 channels" %
+                             (cmbfn, arf['nchan']), 2)
             # Scrunch to 512 channels
             utils.execute(['pam', '-m', '--setnchn', '512', cmbfn])
         else:
@@ -306,7 +306,8 @@ def load_combined_file(filerow):
                   'md5sum': utils.get_md5sum(cmbfn),
                   'filesize': os.path.getsize(cmbfn),
                   'parent_file_id': parent_file_id,
-                  'note': note}
+                  'note': note,
+                  'snr': arf['snr']}
     except Exception as exc:
         utils.print_info("Exception caught while working on File ID %d" %
                          parent_file_id, 0)
@@ -404,24 +405,25 @@ def load_corrected_file(filerow):
         # Pre-compute values to insert because some might be
         # slow to generate
         arf = utils.ArchiveFile(corrfn)
-        values = {'filepath': archivedir, \
-                  'filename': archivefn, \
-                  'stage': 'corrected', \
-                  'note': note, \
-                  'md5sum': utils.get_md5sum(corrfn), \
-                  'filesize': os.path.getsize(corrfn), \
-                  'parent_file_id': parent_file_id}
-        diagvals = [{'diagnosticpath': os.path.dirname(fullresfn), \
-                     'diagnosticname': os.path.basename(fullresfn)}, \
-                    {'diagnosticpath': os.path.dirname(lowresfn), \
+        values = {'filepath': archivedir,
+                  'filename': archivefn,
+                  'stage': 'corrected',
+                  'note': note,
+                  'md5sum': utils.get_md5sum(corrfn),
+                  'filesize': os.path.getsize(corrfn),
+                  'parent_file_id': parent_file_id,
+                  'snr': arf['snr']}
+        diagvals = [{'diagnosticpath': os.path.dirname(fullresfn),
+                     'diagnosticname': os.path.basename(fullresfn)},
+                    {'diagnosticpath': os.path.dirname(lowresfn),
                      'diagnosticname': os.path.basename(lowresfn)}
                    ]
     except Exception as exc:
-        utils.print_info("Exception caught while working on File ID %d" % \
-                            parent_file_id, 0)
+        utils.print_info("Exception caught while working on File ID %d" %
+                         parent_file_id, 0)
         # Add ID number to exception arguments
         exc.args = (exc.args[0] + "\n(File ID: %d)" % parent_file_id,)
-        if isinstance(exc, (errors.CoastGuardError, \
+        if isinstance(exc, (errors.CoastGuardError,
                             errors.FatalCoastGuardError)):
             msg = exc.get_message()
         else:
@@ -429,10 +431,10 @@ def load_corrected_file(filerow):
             utils.log_message(traceback.format_exc(), 'error')
         with db.transaction() as conn:
             update = db.files.update(). \
-                        where(db.files.c.file_id==parent_file_id).\
-                        values(status='failed', \
-                                note='Correction failed! %s: %s' % \
-                                            (type(exc).__name__, msg), \
+                        where(db.files.c.file_id == parent_file_id).\
+                        values(status='failed',
+                                note='Correction failed! %s: %s' %
+                                            (type(exc).__name__, msg),
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
         raise
@@ -442,7 +444,7 @@ def load_corrected_file(filerow):
             version_id = utils.get_version_id(db)
             # Insert new entry
             insert = db.files.insert().\
-                    values(version_id = version_id, \
+                    values(version_id = version_id,
                            obs_id=obs_id)
             result = conn.execute(insert, values)
             file_id = result.inserted_primary_key[0]
@@ -452,14 +454,14 @@ def load_corrected_file(filerow):
             result = conn.execute(insert, diagvals)
             # Update observation to include correct receiver
             update = db.obs.update().\
-                        where(db.obs.c.obs_id==obs_id).\
-                        values(rcvr=arf['rcvr'], \
+                        where(db.obs.c.obs_id == obs_id).\
+                        values(rcvr=arf['rcvr'],
                                last_modified=datetime.datetime.now())
             conn.execute(update)
             # Update parent file
             update = db.files.update().\
-                        where(db.files.c.file_id==parent_file_id).\
-                        values(status='processed', \
+                        where(db.files.c.file_id == parent_file_id).\
+                        values(status='processed',
                                last_modified=datetime.datetime.now())
             conn.execute(update)
 
@@ -468,7 +470,7 @@ def load_corrected_file(filerow):
             ext = STAGE_TO_EXT[row['stage']]
             move_file(db, row['file_id'], archivedir,
                     (config.outfn_template+ext) % arf)
-        move_log(db, log_id, archivedir, \
+        move_log(db, log_id, archivedir,
                     (config.outfn_template+".log") % arf)
     return file_id
 
@@ -495,29 +497,29 @@ def load_cleaned_file(filerow):
 
     with db.transaction() as conn:
         update = db.files.update().\
-                    where(db.files.c.file_id==parent_file_id).\
-                    values(status='running', \
+                    where(db.files.c.file_id == parent_file_id).\
+                    values(status='running',
                             last_modified=datetime.datetime.now())
         conn.execute(update)
     if (filerow['status'] != 'new') or (filerow['stage'] != 'corrected'):
-        return errors.BadStatusError("Cleaned files can only be " \
-                        "generated from 'file' entries with " \
-                        "status='new' and stage='corrected'. " \
-                        "(For File ID %d: status='%s', stage='%s'.)" % \
+        return errors.BadStatusError("Cleaned files can only be "
+                        "generated from 'file' entries with "
+                        "status='new' and stage='corrected'. "
+                        "(For File ID %d: status='%s', stage='%s'.)" %
                         (parent_file_id, filerow['status'], filerow['stage']))
     infn = os.path.join(filerow['filepath'], filerow['filename'])
     try:
         arf = utils.ArchiveFile(infn)
         # Clean the data file
         config.cfg.load_configs_for_archive(arf)
-        cleaner_queue = [cleaners.load_cleaner('rcvrstd'), \
+        cleaner_queue = [cleaners.load_cleaner('rcvrstd'),
                          cleaners.load_cleaner('surgical')]
 
         for cleaner in cleaner_queue:
             cleaner.run(arf.get_archive())
 
         # Write out the cleaned data file
-        archivedir = os.path.join(config.output_location, \
+        archivedir = os.path.join(config.output_location,
                                 config.output_layout) % arf
         archivefn = (config.outfn_template+".clean") % arf
         cleanfn = os.path.join(archivedir, archivefn)
@@ -536,23 +538,24 @@ def load_cleaned_file(filerow):
 
         # Pre-compute values to insert because some might be
         # slow to generate
-        values = {'filepath': archivedir, \
-                  'filename': archivefn, \
-                  'stage': 'cleaned', \
-                  'md5sum': utils.get_md5sum(cleanfn), \
-                  'filesize': os.path.getsize(cleanfn), \
-                  'parent_file_id': parent_file_id}
-        diagvals = [{'diagnosticpath': os.path.dirname(fullresfn), \
-                     'diagnosticname': os.path.basename(fullresfn)}, \
-                    {'diagnosticpath': os.path.dirname(lowresfn), \
+        values = {'filepath': archivedir,
+                  'filename': archivefn,
+                  'stage': 'cleaned',
+                  'md5sum': utils.get_md5sum(cleanfn),
+                  'filesize': os.path.getsize(cleanfn),
+                  'parent_file_id': parent_file_id,
+                  'snr': arf['snr']}
+        diagvals = [{'diagnosticpath': os.path.dirname(fullresfn),
+                     'diagnosticname': os.path.basename(fullresfn)},
+                    {'diagnosticpath': os.path.dirname(lowresfn),
                      'diagnosticname': os.path.basename(lowresfn)}
                    ]
     except Exception as exc:
-        utils.print_info("Exception caught while working on File ID %d" % \
-                            parent_file_id, 0)
+        utils.print_info("Exception caught while working on File ID %d" %
+                         parent_file_id, 0)
         # Add ID number to exception arguments
         exc.args = (exc.args[0] + "\n(File ID: %d)" % parent_file_id,)
-        if isinstance(exc, (errors.CoastGuardError, \
+        if isinstance(exc, (errors.CoastGuardError,
                             errors.FatalCoastGuardError)):
             msg = exc.get_message()
         else:
@@ -560,10 +563,10 @@ def load_cleaned_file(filerow):
             utils.log_message(traceback.format_exc(), 'error')
         with db.transaction() as conn:
             update = db.files.update(). \
-                        where(db.files.c.file_id==parent_file_id).\
-                        values(status='failed', \
+                        where(db.files.c.file_id == parent_file_id).\
+                        values(status='failed',
                                 note='Cleaning failed! %s: %s' % \
-                                            (type(exc).__name__, msg), \
+                                            (type(exc).__name__, msg),
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
         raise
@@ -572,7 +575,7 @@ def load_cleaned_file(filerow):
             version_id = utils.get_version_id(db)
             # Insert new entry
             insert = db.files.insert().\
-                    values(version_id=version_id, \
+                    values(version_id=version_id,
                             obs_id=obs_id)
             result = conn.execute(insert, values)
             file_id = result.inserted_primary_key[0]
@@ -582,8 +585,8 @@ def load_cleaned_file(filerow):
             result = conn.execute(insert, diagvals)
             # Update parent file
             update = db.files.update(). \
-                        where(db.files.c.file_id==parent_file_id).\
-                        values(status='processed', \
+                        where(db.files.c.file_id == parent_file_id).\
+                        values(status='processed',
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
     return file_id
@@ -622,20 +625,20 @@ def load_calibrated_file(filerow, lock):
 
     with db.transaction() as conn:
         update = db.files.update().\
-                    where(db.files.c.file_id==parent_file_id).\
-                    values(status='running', \
+                    where(db.files.c.file_id == parent_file_id).\
+                    values(status='running',
                             last_modified=datetime.datetime.now())
         conn.execute(update)
     if (filerow['status'] != 'new') or (filerow['stage'] != 'cleaned') or \
                 (not filerow['qcpassed']):
-        raise errors.BadStatusError("Calibrated files can only be " \
-                        "generated from 'file' entries with " \
-                        "status='new' and stage='cleaned' and " \
-                        "That have successfully passed quality control " \
-                        "- i.e. qcpassed=True." \
-                        "(For File ID %d: status='%s', stage='%s', " \
-                        "qcpassed=%s)" % \
-                        (parent_file_id, filerow['status'], \
+        raise errors.BadStatusError("Calibrated files can only be "
+                        "generated from 'file' entries with "
+                        "status='new' and stage='cleaned' and "
+                        "That have successfully passed quality control "
+                        "- i.e. qcpassed=True."
+                        "(For File ID %d: status='%s', stage='%s', "
+                        "qcpassed=%s)" %
+                        (parent_file_id, filerow['status'],
                             filerow['stage'], filerow['qcpassed']))
     infn = os.path.join(filerow['filepath'], filerow['filename'])
     try:
@@ -643,8 +646,8 @@ def load_calibrated_file(filerow, lock):
         # Reduce data to the equivalent of 128 channels over 200 MHz
         # That is f_chan = 1.5625 MHz
         nchans = arf['bw']/1.5625
-        values = {'sourcename': name,\
-                  'stage': 'calibrated', \
+        values = {'sourcename': name,
+                  'stage': 'calibrated',
                   'parent_file_id': parent_file_id}
         if nchans != arf['nchan']:
             values['note'] = "Scrunched to %d channels " \
@@ -654,21 +657,21 @@ def load_calibrated_file(filerow, lock):
             # Calibrator scan
             # Prepare the data file for being used to calibrate pulsar scans
 
-            utils.execute(['pam', '--setnchn', '%d' % nchans, '-T', \
-                                '-e', 'pcal.T', infn])
+            utils.execute(['pam', '--setnchn', '%d' % nchans, '-T',
+                           '-e', 'pcal.T', infn])
             outpath = os.path.splitext(infn)[0]+'.pcal.T'
             arf = utils.ArchiveFile(outpath)
             plotfn = make_stokes_plot(arf)
-            diagvals = [{'diagnosticpath': os.path.dirname(plotfn), \
+            diagvals = [{'diagnosticpath': os.path.dirname(plotfn),
                          'diagnosticname': os.path.basename(plotfn)}]
             values['status'] = 'done'
         else:
             # Pulsar scan. Calibrate it.
             caldbrow = get_caldb(db, name)
             if caldbrow is None:
-                raise errors.DataReductionFailed("No matching calibrator " \
-                                "database row for %s." % name)
-            caldbpath = os.path.join(caldbrow['caldbpath'], \
+                raise errors.DataReductionFailed("No matching calibrator "
+                                                 "database row for %s." % name)
+            caldbpath = os.path.join(caldbrow['caldbpath'],
                                         caldbrow['caldbname'])
             try:
                 lock.acquire()
@@ -681,8 +684,8 @@ def load_calibrated_file(filerow, lock):
                 # Get file_id number for calibrator scan
                 with db.transaction() as conn:
                     select = db.select([db.files]).\
-                                where((db.files.c.filepath==calpath) & \
-                                    (db.files.c.filename==calname))
+                                where((db.files.c.filepath == calpath) &
+                                    (db.files.c.filename == calname))
                     results = conn.execute(select)
                     rows = results.fetchall()
                     results.close()
@@ -710,6 +713,7 @@ def load_calibrated_file(filerow, lock):
                          'diagnosticname': os.path.basename(pp_fullresfn)},
                         {'diagnosticpath': os.path.dirname(pp_lowresfn),
                          'diagnosticname': os.path.basename(pp_lowresfn)}]
+            values['snr'] = arf['snr']
         if not os.path.isfile(outpath):
             raise ValueError("Cannot find output file (%s)!" % outpath)
 
@@ -834,27 +838,27 @@ def can_calibrate(db, obs_id):
     """
     obsrow = get_obs(db, obs_id)
     if obsrow['obstype'] != 'pulsar':
-        raise errors.InputError("Only observations of type 'pulsar' " \
-                        "can be calibrated. Obstype for obs_id %d: %s" % \
-                        (obs_id, obsrow['obstype']))
+        raise errors.InputError("Only observations of type 'pulsar' "
+                                "can be calibrated. Obstype for obs_id %d: %s" %
+                                (obs_id, obsrow['obstype']))
     mjdnow = rs.utils.mjdnow()
     if (mjdnow - obsrow['start_mjd']) < 7:
         # Observation is less than 1 week old.
         # Let's hold out hope that it can be calibrated.
         return True
-    mjdrange = (obsrow['start_mjd']-TWO_HRS_IN_DAYS, \
+    mjdrange = (obsrow['start_mjd']-TWO_HRS_IN_DAYS,
                 obsrow['start_mjd']+TWO_HRS_IN_DAYS)
     # Now try to find a compatible calibrator scan
     with db.transaction() as conn:
-        select = db.select([db.files], \
+        select = db.select([db.files],
                     from_obj=[db.files.\
-                        outerjoin(db.obs, \
-                            onclause=(db.files.c.obs_id == \
+                        outerjoin(db.obs,
+                            onclause=(db.files.c.obs_id ==
                                         db.obs.c.obs_id))]).\
                     where((db.obs.c.obstype=='cal') & \
-                            (db.obs.c.sourcename=="%s_R" % \
+                            (db.obs.c.sourcename=="%s_R" %
                                     obsrow['sourcename']) & \
-                            ((db.obs.c.rcvr==obsrow['rcvr']) | \
+                            ((db.obs.c.rcvr==obsrow['rcvr']) |
                                 (db.obs.c.rcvr.is_(None))) & \
                             db.obs.c.start_mjd.between(*mjdrange))
         results = conn.execute(select)
@@ -865,7 +869,7 @@ def can_calibrate(db, obs_id):
         can_cal = obs.setdefault(row['obs_id'], True)
         obs[row['obs_id']] &= (not (row['qcpassed'] == False))
     can_cal = obs.values()
-    utils.print_info("Found %d potential calibrators for obs ID %d" % \
+    utils.print_info("Found %d potential calibrators for obs ID %d" %
                     (sum(can_cal), obs_id), 2)
     return any(can_cal)
 
@@ -883,7 +887,7 @@ def get_obs(db, obs_id):
     """
     with db.transaction() as conn:
         select = db.select([db.obs]).\
-                    where(db.obs.c.obs_id==obs_id)
+                    where(db.obs.c.obs_id == obs_id)
         result = conn.execute(select)
         rows = result.fetchall()
         result.close()
@@ -892,9 +896,9 @@ def get_obs(db, obs_id):
     elif len(rows) == 0:
         return None
     else:
-        raise errors.DatabaseError("Bad number of obs rows (%d) " \
-                            "with obs_id=%d!" % \
-                            (len(rows), obs_id))
+        raise errors.DatabaseError("Bad number of obs rows (%d) "
+                                   "with obs_id=%d!" %
+                                   (len(rows), obs_id))
     return rows
 
 
@@ -910,16 +914,16 @@ def get_files(db, obs_id):
             filerows: The corresponding file entries.
     """
     with db.transaction() as conn:
-        select = db.select([db.files, \
-                            db.obs.c.dir_id, \
-                            db.obs.c.sourcename, \
-                            db.obs.c.obstype, \
-                            db.obs.c.start_mjd], \
+        select = db.select([db.files,
+                            db.obs.c.dir_id,
+                            db.obs.c.sourcename,
+                            db.obs.c.obstype,
+                            db.obs.c.start_mjd],
                     from_obj=[db.files.\
-                        outerjoin(db.obs, \
-                            onclause=db.files.c.obs_id == \
+                        outerjoin(db.obs,
+                            onclause=db.files.c.obs_id ==
                                     db.obs.c.obs_id)]).\
-                    where(db.files.c.obs_id==obs_id)
+                    where(db.files.c.obs_id == obs_id)
         result = conn.execute(select)
         rows = result.fetchall()
         result.close()
@@ -944,7 +948,7 @@ def get_caldb(db, sourcename):
 
     with db.transaction() as conn:
         select = db.select([db.caldbs]).\
-                    where(db.caldbs.c.sourcename==name)
+                    where(db.caldbs.c.sourcename == name)
         results = conn.execute(select)
         rows = results.fetchall()
         results.close()
@@ -954,9 +958,9 @@ def get_caldb(db, sourcename):
     elif len(rows) == 0:
         return None
     else:
-        raise errors.DatabaseError("Bad number of caldb rows (%d) " \
-                            "with sourcename='%s'!" % \
-                            (len(rows), name))
+        raise errors.DatabaseError("Bad number of caldb rows (%d) "
+                                   "with sourcename='%s'!" %
+                                   (len(rows), name))
 
 
 def update_caldb(db, sourcename, force=False):
@@ -988,8 +992,8 @@ def update_caldb(db, sourcename, force=False):
         outfn = '%s.caldb.txt' % name.upper()
         outpath = os.path.join(outdir, outfn)
         insert_new = True
-        values = {'sourcename': name, \
-                  'caldbpath': outdir, \
+        values = {'sourcename': name,
+                  'caldbpath': outdir,
                   'caldbname': outfn}
     else:
         lastupdated = caldb['last_modified']
@@ -1001,19 +1005,19 @@ def update_caldb(db, sourcename, force=False):
         if not insert_new:
             # Mark update of caldb as in-progress
             update = db.caldbs.update().\
-                        values(status='updating', \
+                        values(status='updating',
                                 last_modified=datetime.datetime.now()).\
-                        where(db.caldbs.c.caldb_id==caldb['caldb_id'])
+                        where(db.caldbs.c.caldb_id == caldb['caldb_id'])
             conn.execute(update)
 
-        select = db.select([db.files], \
+        select = db.select([db.files],
                     from_obj=[db.files.\
-                        outerjoin(db.obs, \
-                            onclause=db.files.c.obs_id == \
+                        outerjoin(db.obs,
+                            onclause=db.files.c.obs_id ==
                                     db.obs.c.obs_id)]).\
-                    where((db.files.c.status=='new') & \
-                            (db.files.c.stage=='calibrated') & \
-                            (db.obs.c.obstype=='cal'))
+                    where((db.files.c.status == 'new') &
+                            (db.files.c.stage == 'calibrated') &
+                            (db.obs.c.obstype == 'cal'))
         results = conn.execute(select)
         rows = results.fetchall()
         results.close()
@@ -1023,18 +1027,18 @@ def update_caldb(db, sourcename, force=False):
             if row['added'] > lastupdated:
                 numnew += 1
 
-        utils.print_info("Found %d suitable calibrators for %s. " \
-                            "%d are new." % \
-                            (len(rows), name, numnew), 2)
+        utils.print_info("Found %d suitable calibrators for %s. "
+                         "%d are new." %
+                         (len(rows), name, numnew), 2)
 
         values['numentries'] = len(rows)
 
         try:
             if numnew or force:
                 # Create an updated version of the calibrator database 
-                basecaldir = os.path.join(config.output_location, \
+                basecaldir = os.path.join(config.output_location,
                                             name.upper()+"_R")
-                utils.execute(['pac', '-w', '-u', '.pcal.T', '-k', outpath], \
+                utils.execute(['pac', '-w', '-u', '.pcal.T', '-k', outpath],
                                 dir=basecaldir)
         except:
             values['status'] = 'failed'
@@ -1042,19 +1046,19 @@ def update_caldb(db, sourcename, force=False):
                 action = db.caldbs.insert()
             else:
                 action = db.caldbs.update().\
-                            values(note = '%d new entries added' % numnew, \
+                            values(note='%d new entries added' % numnew,
                                     last_modifed=datetime.datetime.now()).\
-                            where(db.caldbs.c.caldb_id==caldb['caldb_id'])
+                            where(db.caldbs.c.caldb_id == caldb['caldb_id'])
             conn.execute(action, values)
         else:
             if insert_new:
                 action = db.caldbs.insert()
             else:
                 action = db.caldbs.update().\
-                            values(status='ready', \
-                                    note='%d new entries added' % numnew, \
+                            values(status='ready',
+                                    note='%d new entries added' % numnew,
                                     last_modified=datetime.datetime.now()).\
-                            where(db.caldbs.c.caldb_id==caldb['caldb_id'])
+                            where(db.caldbs.c.caldb_id == caldb['caldb_id'])
             conn.execute(action, values)
     reattempt_calibration(db, name)
     return outpath
@@ -1124,8 +1128,8 @@ def get_log(db, obs_id):
         result.close()
         if len(rows) != 1:
             raise errors.DatabaseError("Bad number of rows (%d) "
-                                "with obs_id=%d!" %
-                                (len(rows), obs_id))
+                                       "with obs_id=%d!" %
+                                       (len(rows), obs_id))
         return rows[0]
 
 
