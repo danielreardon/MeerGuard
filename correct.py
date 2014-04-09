@@ -239,6 +239,7 @@ def main():
         corrfn, corrstr, note = correct_header(fn, obsinfo=obsinfo, \
                     outfn=args.outfn, backend=args.backend_name)
         print "    Output corrected file: %s" % corrfn
+        print "        Notes: %s" % note
 
 
 if __name__ == '__main__':
