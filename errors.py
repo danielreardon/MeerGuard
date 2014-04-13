@@ -8,6 +8,7 @@ Patrick Lazarus, Nov. 10, 2011
 import colour
 import log
 
+
 class CoastGuardError(Exception):
     def __init__(self, msg, logit=True):
         if logit:
@@ -82,6 +83,10 @@ class BadStatusError(CoastGuardError):
 
 
 class UnrecognizedValueError(CoastGuardError):
+    pass
+
+
+class TemplateGenerationError(CoastGuardError):
     pass
 
 
