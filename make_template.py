@@ -46,6 +46,8 @@ def get_files_to_combine(rows, max_span=1, min_snr=0):
                 tot += snr
             jj += 1
         info.append((ii, tot, jj-ii))
+    if not info:
+        return []
     ind, snr, nn = max(info, key=lambda aa: aa[1])
     utils.print_info("Highest total SNR is %g for %d files starting "
                      "at index %d." % (snr, nn, ind), 2)
@@ -74,18 +76,19 @@ def combine_files(rawfns):
     return tmpfn
 
 
-def main():
-    if args.outdir is None:
-        outdir = os.getcwd()
-    elif os.path.isdir(args.outdir):
-        outdir = args.outdir
+def make_template(outdir, psrname, stage, rcvr, max_span=1, min_snr=0):
+    if os.path.isdir(outdir):
+        outdir = outdir
     else:
         raise errors.InputError("Output directory (%s) doesn't exist!" %
-                                args.outdir)
-    psrname = utils.get_prefname(args.psr)
-    filerows = list_files.get_files(psrname, args.stage, args.rcvr)
+                                outdir)
+    filerows = list_files.get_files(psrname, stage, rcvr)
     print "Found %d matching files" % len(filerows)
-    fns = get_files_to_combine(filerows, args.max_span, args.min_snr)
+    fns = get_files_to_combine(filerows, max_span, min_snr)
+    if not fns:
+        raise errors.TemplateGenerationError("No files for type=%s, "
+                                             "psr=%s, rcvr=%s" %
+                                             (stage, psrname, rcvr))
     print "Combining %d files" % len(fns)
     cmbfn = combine_files(fns)
 
@@ -102,7 +105,7 @@ def main():
             if raw_input("Success! Keep template? (y/n): ").lower()[0] == 'y':
                 runpaas = False
                 outbasenm = os.path.join(outdir,
-                                         "%s_%s_%s" % (psrname, args.rcvr, args.stage))
+                                         "%s_%s_%s" % (psrname, rcvr, stage))
                 tmpbasenm = os.path.join(tmpdir, 'paas')
                 shutil.copy(tmpbasenm+'.m', outbasenm+'.m')
                 shutil.copy(tmpbasenm+'.std', outbasenm+'.std')
@@ -114,6 +117,18 @@ def main():
     try:
         os.remove(cmbfn)
     except: pass
+    return outbasenm+'.std'
+
+
+def main():
+    if args.outdir is None:
+        outdir = os.getcwd()
+    else:
+        outdir = args.outdir
+    psrname = utils.get_prefname(args.psr)
+    stdfn = make_template(outdir, psrname, args.stage, args.rcvr,
+                          args.max_span, args.min_snr)
+    print "Made template: %s", stdfn
 
 
 if __name__ == '__main__':
