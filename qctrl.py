@@ -446,11 +446,15 @@ class ZappingDialog(qtgui.QDialog):
                                           qtgui.QMessageBox.No)
             msg_dialog.setDefaultButton(qtgui.QMessageBox.Yes)
         elif outsize != insize:
-            success = False
+            success = True
             msg_dialog.setText("Output zapped file's size (%d) is "
                                "different than input file's size "
                                "(%s: %d bytes)" %
                                (outsize, self.infn, insize))
+            msg_dialog.setInformativeText("Save zapped file?")
+            msg_dialog.setStandardButtons(qtgui.QMessageBox.Save |
+                                          qtgui.QMessageBox.Discard)
+            msg_dialog.setDefaultButton(qtgui.QMessageBox.Discard)
         else:
             success = True
             msg_dialog.setText("The archive has been zapped.")
