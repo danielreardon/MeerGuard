@@ -228,20 +228,47 @@ def get_norm_parfile(arfn):
     cmd = ['vap', '-E', arfn]
     stdoutstr, stderrstr = execute(cmd)
     if "has no ephemeris" in stdoutstr:
-        raise errors.InputError("Input archive (%s) has no parfile. " \
-                        "Cannot return normalised parfile." % arfn)
-    parlines = ["% -15s%s" % tuple(line.split()[:2]) for line \
-                    in stdoutstr.split("\n") \
-                    if line.strip() and ("TZ" not in line)]
+        raise errors.InputError("Input archive (%s) has no parfile. "
+                                "Cannot return normalised parfile." % arfn)
+    print_info("Extracted parfile from %s" % arfn, 3)
+    return normalise_parfile(stdoutstr)
+
+
+def normalise_parfile(par):
+    """Given a parfile normalise it by removing empty
+        lines, fit-flags, uncertainties, and
+        polyco-creation related lines (ie "TZ*")
+
+        Input:
+            par: This can be either:
+                a) path to parfile
+                b) Contents of parfile as a single string
+                c) A list of parfile lines (ie a list of strings)
+
+        Output:
+            parfn: Name of (temporary) parfile.
+    """
+    if isinstance(par, types.StringTypes):
+        # Assume input is
+        if os.path.isfile(par):
+            # Assume input is par filename
+            lines = open(par, 'r').readlines()
+        else:
+            # Assume input is parfile contents
+            lines = par.split('\n')
+    else:
+        # Assume input is list of lines
+        lines = par
+    parlines = ["% -15s%s" % tuple(line.split()[:2]) for line
+                in lines
+                if line.strip() and ("TZ" not in line)]
     
     # Make a temporary file for the parfile
     tmpfd, tmpfn = tempfile.mkstemp(suffix='.par', dir=config.tmp_directory)
     tmpfile = os.fdopen(tmpfd, 'w')
     tmpfile.write("\n".join(parlines)+"\n")
     tmpfile.close()
-    print_info("Extracted parfile from %s. " \
-                "Normalised parfile output to %s." % \
-                (arfn, tmpfn), 3)
+    print_info("Normalised parfile output to %s." % tmpfn, 3)
     return tmpfn
 
 
