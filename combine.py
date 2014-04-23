@@ -235,7 +235,7 @@ def read_listing(infn):
     return subdirs, subints
 
 
-def combine_subints(subdirs, subints, outdir=None):
+def combine_subints(subdirs, subints, parfn=None, outdir=None):
     """Combine sub-ints from various freq sub-band directories.
         The input lists are as created by
         'group_subband_dirs' or read-in by 'read_listing'.
@@ -247,6 +247,8 @@ def combine_subints(subdirs, subints, outdir=None):
                 (NOTE: These are the file name only (i.e. no path)
                     Each file listed should appear in each of the
                     subdirs.)
+            parfn: New ephemeris to install when combining subints.
+                (Default: Use ephemeris in archive file's header)
             outdir: Directory to output combined file.
                 (Default: Current working directory)
         
@@ -256,35 +258,38 @@ def combine_subints(subdirs, subints, outdir=None):
     if outdir is None:
         outdir = os.getcwd()
     subints = sorted(subints)
-    tmpdir = tempfile.mkdtemp(suffix="_combine", \
-                                    dir=config.tmp_directory)
+    tmpdir = tempfile.mkdtemp(suffix="_combine", dir=config.tmp_directory)
     devnull = open(os.devnull)
     try:
         cmbsubints = []
         
         # Try to normalise the archive's parfile
         try:
-            parfn = utils.get_norm_parfile(os.path.join(subdirs[0], subints[0]))
+            if parfn is None:
+                arfn = os.path.join(subdirs[0], subints[0])
+                normparfn = utils.get_norm_parfile(arfn)
+            else:
+                normparfn = utils.normalise_parfile(parfn)
         except errors.InputError:
             # No parfile present
             parargs = []
         else:
-            parargs = ['-E', parfn]
+            parargs = ['-E', normparfn]
 
         utils.print_info("Adding freq sub-bands for each sub-int...", 2)
         for ii, subint in enumerate(utils.show_progress(subints, width=50)):
             to_combine = [os.path.join(path, subint) for path in subdirs]
             outfn = os.path.join(tmpdir, "combined_%s" % subint)
             cmbsubints.append(outfn)
-            utils.execute(['psradd', '-q', '-R', '-o', outfn] + parargs + \
-                        to_combine, stderr=devnull)
+            utils.execute(['psradd', '-q', '-R', '-o', outfn] + parargs +
+                          to_combine, stderr=devnull)
         arf = utils.ArchiveFile(os.path.join(tmpdir, "combined_%s" % subints[0]))
-        outfn = os.path.join(outdir, "%s_%s_%s_%05d_%dsubints.cmb" % \
-                        (arf['name'], arf['band'], arf['yyyymmdd'], \
-                            arf['secs'], len(subints)))
+        outfn = os.path.join(outdir, "%s_%s_%s_%05d_%dsubints.cmb" %
+                             (arf['name'], arf['band'], arf['yyyymmdd'],
+                              arf['secs'], len(subints)))
         utils.print_info("Combining %d sub-ints..." % len(cmbsubints), 1)
-        utils.execute(['psradd', '-q', '-o', outfn] + cmbsubints, \
-                     stderr=devnull)
+        utils.execute(['psradd', '-q', '-o', outfn] + cmbsubints,
+                      stderr=devnull)
     except:
         raise # Re-raise the exception
     finally:
