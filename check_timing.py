@@ -17,6 +17,7 @@ from toaster.toolkit.timfiles import formatters
 STAGES = ['cleaned', 'calibrated']
 RCVRS = ["P217-3", "P200-3", "S110-1"]
 BASE_TEMPLATE_DIR = "/media/part1/plazarus/timing/asterix/testing/templates/"
+PARFILE_DIR = "/homes/plazarus/research/epta-legacy/"
 TIME_OFFSETS = {56230: "TIME -0.0972846",
                 56500: "TIME +0.0972846\nTIME -0.409269648",
                 56720: "TIME +0.409269648"}
@@ -40,13 +41,19 @@ def main():
     psrname = utils.get_prefname(args.psrname)
 
     # Find parfile
-    psrdirs = dict([(utils.get_prefname(os.path.basename(dd)),
-                     os.path.basename(dd))
-                    for dd in glob.glob('/homes/plazarus/research/epta-legacy/*')
-                    if os.path.isdir(dd)])
-    # Create parfile
-    inparfn = os.path.join('/homes/plazarus/research/epta-legacy/',
-                           psrdirs[psrname], "%s.par" % psrdirs[psrname])
+    if args.parfile is not None:
+        if not os.path.exists(args.parfile):
+            raise errors.InputError("Parfile specified (%s) doesn't exist!" %
+                                    args.parfile)
+        inparfn = args.parfile
+    else:
+        psrdirs = dict([(utils.get_prefname(os.path.basename(dd)),
+                         os.path.basename(dd))
+                        for dd in glob.glob(os.path.join(PARFILE_DIR, '*'))
+                        if os.path.isdir(dd)])
+        # Create parfile
+        inparfn = os.path.join('/homes/plazarus/research/epta-legacy/',
+                               psrdirs[psrname], "%s.par" % psrdirs[psrname])
     outparfn = "%s.T2.par" % psrname
     with open(inparfn, 'r') as inff, open(outparfn, 'w') as outff:
         for line in inff:
@@ -104,7 +111,8 @@ def main():
             try:
                 os.makedirs(scrunchdir)
             except: pass
-            for fn in toscrunch:
+            print "Working on %s %s" % (rcvr, stage)
+            for fn in utils.show_progress(toscrunch, width=50):
                 utils.execute(['pam', '-DFTp', '-u', scrunchdir, '-e',
                                fn.split('.')[-1]+'.DTFp', fn])
 
@@ -173,5 +181,8 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--psr', dest='psrname', type=str,
                         required=True,
                         help='Name of the pulsar to fetch files for.')
+    parser.add_argument('-E', '--parfile', dest='parfile', type=str,
+                        help="Parfile to prepare for checking timing."
+                             "(Default: use parfile from %s" % PARFILE_DIR)
     args = parser.parse_args()
     main()
