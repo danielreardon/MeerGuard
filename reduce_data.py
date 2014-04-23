@@ -61,6 +61,8 @@ SOURCELISTS = {'epta': ['J0030+0451', 'J0218+4232', 'J0613-0200',
                         'J1125+7819', 'J0742+6620', 'J1710+4923', 
                         'J0636+5128', 'J2234+0611', 'J0931-1902']}
 
+PARFILES = {'J0737-3039A': '/media/part1/plazarus/timing/asterix/'
+                           'testing/parfiles/to_install/0737-3039A.par'}
 
 
 def load_directories(db, *args, **kwargs):
@@ -287,7 +289,11 @@ def load_combined_file(filerow):
         except OSError:
             # Directory already exists
             pass
-        cmbfn = make_combined_file(subdirs, subints, outdir=cmbdir)
+        if arf['name'] in PARFILES:
+            parfn = PARFILES[arf['name']]
+        else:
+            parfn = None
+        cmbfn = make_combined_file(subdirs, subints, outdir=cmbdir, parfn=parfn)
 
         # Pre-compute values to insert because some might be
         # slow to generate
@@ -1340,7 +1346,7 @@ def make_groups(path):
     return usedirs_list, groups_list
 
 
-def make_combined_file(subdirs, subints, outdir):
+def make_combined_file(subdirs, subints, outdir, parfn=None):
     """Given lists of directories and subints combine them.
 
         Inputs:
@@ -1351,6 +1357,8 @@ def make_combined_file(subdirs, subints, outdir):
                     Each file listed should appear in each of the
                     subdirs.)
             outdir: Directory to copy combined file to.
+            parfn: Parfile to install when creating combined file
+                (Default: don't install a new ephemeris)
 
         Outputs:
             outfn: The name of the combined archive.
@@ -1362,7 +1370,8 @@ def make_combined_file(subdirs, subints, outdir):
         # Prepare subints
         preppeddirs = prepare_subints(subdirs, subints,
                                       baseoutdir=os.path.join(tmpdir, 'data'))
-        cmbfn = combine.combine_subints(preppeddirs, subints, outdir=outdir)
+        cmbfn = combine.combine_subints(preppeddirs, subints,
+                                        parfn=parfn, outdir=outdir)
     except:
         raise # Re-raise the exception
     finally:
