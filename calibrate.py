@@ -5,6 +5,7 @@ import os.path
 import utils
 import errors
 
+
 def calibrate(infn, caldbpath, nchans=None):
     """Calibrate a pulsar scan using the calibrator database provided.
 
@@ -19,16 +20,16 @@ def calibrate(infn, caldbpath, nchans=None):
             polcalfn: The name of the polarization calibrator used.
     """
     if not os.path.isfile(caldbpath):
-        raise errors.DataReductionFailed("Calibrator database " \
-                        "file not found (%s)." % caldbpath)
+        raise errors.DataReductionFailed("Calibrator database "
+                                         "file not found (%s)." % caldbpath)
     if nchans is not None:
         preproc = ['-j', 'F %d' % nchans]
     else:
         preproc = []
     # Now calibrate, scrunching to the appropriate 
     # number of channels
-    stdout, stderr = utils.execute(['pac', '-d', caldbpath, \
-                    infn] + preproc)
+    stdout, stderr = utils.execute(['pac', '-d', caldbpath,
+                                    infn] + preproc)
     
     # Get name of calibrator used
     calfn = None
@@ -37,7 +38,7 @@ def calibrate(infn, caldbpath, nchans=None):
         if line.strip() == "pac: PolnCalibrator constructed from:":
             calfn = lines[ii+1].strip()
             # Insert log message
-            utils.log_message("Polarization calibrator used:" \
-                                "\n    %s" % calfn, 'info')
+            utils.log_message("Polarization calibrator used:"
+                              "\n    %s" % calfn, 'info')
             break
     return calfn
