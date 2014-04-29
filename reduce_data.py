@@ -861,17 +861,17 @@ def can_calibrate(db, obs_id):
                         outerjoin(db.obs,
                             onclause=(db.files.c.obs_id ==
                                         db.obs.c.obs_id))]).\
-                    where((db.obs.c.obstype=='cal') & \
-                            (db.obs.c.sourcename=="%s_R" %
-                                    obsrow['sourcename']) & \
-                            ((db.obs.c.rcvr==obsrow['rcvr']) |
-                                (db.obs.c.rcvr.is_(None))) & \
+                    where((db.obs.c.obstype == 'cal') &
+                            (db.obs.c.sourcename == "%s_R" %
+                                    obsrow['sourcename']) &
+                            ((db.obs.c.rcvr == obsrow['rcvr']) |
+                                (db.obs.c.rcvr.is_(None))) &
                             db.obs.c.start_mjd.between(*mjdrange))
         results = conn.execute(select)
         rows = results.fetchall()
         results.close()
     obs = {}
-    for row in rows:
+    for row in utils.sort_by_keys(rows, ['file_id']):
         can_cal = obs.setdefault(row['obs_id'], True)
         obs[row['obs_id']] &= (not (row['qcpassed'] == False))
     can_cal = obs.values()
@@ -882,7 +882,7 @@ def can_calibrate(db, obs_id):
 
 def get_obs(db, obs_id):
     """Given a observation ID return the corresponding entry
-        in the obss table.
+        in the obs table.
 
         Inputs:
             db: A Database object.
