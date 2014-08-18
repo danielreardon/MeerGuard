@@ -106,7 +106,7 @@ def main():
                          "Stage: %(stage)s; "
                          "QC passed: %(qcpassed)s" % row, 2)
         info['Total'] = info.get('Total', 0)+1
-        info['QC Passed'] = info.get('QC Passed', 0)+int(row['qcpassed'])
+        info['QC Passed'] = info.get('QC Passed', 0)+int(bool(row['qcpassed']))
         info['Status %s' % row['status']] = \
             info.get('Status %s' % row['status'], 0)+1
         info['Stage %s' % row['stage']] = \
