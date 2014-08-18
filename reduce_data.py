@@ -57,7 +57,7 @@ SOURCELISTS = {'epta': ['J0030+0451', 'J0218+4232', 'J0613-0200',
                         'J1744-1134', 'J1853+1303', 'J1857+0943', 
                         'J1911+1347', 'J1918-0642', 'J1939+2134', 
                         'J2145-0750', 'J2317+1439'], 
-                'mou': ['J1946+3414', 'J1832-0836', 'J2205+6015', 
+                'mou': [#'J1946+3414', 'J1832-0836', 'J2205+6015', 
                         'J1125+7819', 'J0742+6620', 'J1710+4923', 
                         'J0636+5128', 'J2234+0611', 'J0931-1902']}
 
@@ -871,7 +871,8 @@ def can_calibrate(db, obs_id):
         rows = results.fetchall()
         results.close()
     obs = {}
-    for row in utils.sort_by_keys(rows, ['file_id']):
+    utils.sort_by_keys(rows, ['file_id'])
+    for row in rows:
         can_cal = obs.setdefault(row['obs_id'], True)
         obs[row['obs_id']] &= (not (row['qcpassed'] == False))
     can_cal = obs.values()
