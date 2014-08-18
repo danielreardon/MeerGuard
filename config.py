@@ -158,14 +158,16 @@ class ConfigManager(object):
         utils.print_debug("Getting config %s = %s" % (key, val), 'config')
         return val 
 
+
 cfg = ConfigManager()
 
 
 def main():
-    arf = utils.ArchiveFile(sys.argv[1])
-    cfg.set_override_config("something", 'newvalue!')
-    cfg.load_configs_for_archive(arf)
-    print cfg
+    if len(sys.argv) > 1:
+        arf = utils.ArchiveFile(sys.argv[1])
+        cfg.set_override_config("something", 'newvalue!')
+        cfg.load_configs_for_archive(arf)
+    print cfg.get()
 
 
 if __name__ == '__main__':
