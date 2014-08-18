@@ -320,7 +320,7 @@ class QualityControl(qtgui.QWidget):
             
         if priorities is None:
             priorities = self.priorities
-        if priorities is not None:
+        if priorities:
             priority_list = []
             for pr in priorities:
                 priority_list.extend(reduce_data.parse_priorities(pr))
