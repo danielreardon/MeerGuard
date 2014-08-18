@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
 import os
-import sys
 import glob
+import shutil
 
 import numpy as np
 
@@ -12,6 +12,7 @@ from coast_guard import make_template
 from coast_guard import errors
 from toaster.toolkit.timfiles import readers
 from toaster.toolkit.timfiles import formatters
+from toaster.toolkit.toas import load_toa
 
 
 STAGES = ['cleaned', 'calibrated']
@@ -40,6 +41,22 @@ EXTRA_PARFILE_LINES = ['JUMP MJD 40000 56230',
 def main():
     psrname = utils.get_prefname(args.psrname)
 
+    psrdirs = dict([(utils.get_prefname(os.path.basename(dd)),
+                     os.path.basename(dd))
+                    for dd in glob.glob(os.path.join(PARFILE_DIR, '*'))
+                    if os.path.isdir(dd)])
+
+    legacydir = os.path.join('/homes/plazarus/research/epta-legacy/',
+                             psrdirs[psrname])
+
+    # Copy EPTA legacy TOAs
+    if not os.path.exists("epta-legacy"):
+        os.mkdir("epta-legacy")
+        shutil.copytree(os.path.join(legacydir, "tims"), "epta-legacy/tims")
+        shutil.copy(os.path.join(legacydir,
+                                 "%s_t2noise.model" % psrdirs[psrname]),
+                    "epta-legacy")
+
     # Find parfile
     if args.parfile is not None:
         if not os.path.exists(args.parfile):
@@ -47,20 +64,19 @@ def main():
                                     args.parfile)
         inparfn = args.parfile
     else:
-        psrdirs = dict([(utils.get_prefname(os.path.basename(dd)),
-                         os.path.basename(dd))
-                        for dd in glob.glob(os.path.join(PARFILE_DIR, '*'))
-                        if os.path.isdir(dd)])
         # Create parfile
         inparfn = os.path.join('/homes/plazarus/research/epta-legacy/',
                                psrdirs[psrname], "%s.par" % psrdirs[psrname])
+    intimfn = os.path.join('/homes/plazarus/research/epta-legacy/',
+                           psrdirs[psrname], "%s_all.tim" % psrdirs[psrname])
+
     outparfn = "%s.T2.par" % psrname
     with open(inparfn, 'r') as inff, open(outparfn, 'w') as outff:
         for line in inff:
-            # Don't copy over JUMPs or EFACs
-            if line.startswith("JUMP") or line.startswith("T2EFAC"):
-                continue
-            outff.write(line)
+            # Don't copy over JUMPs or EFACs to 'outff'
+            if not line.startswith("JUMP") and \
+                    not 'EFAC' in line:
+                outff.write(line)
         outff.write("\n".join(EXTRA_PARFILE_LINES))
 
     template_dir = os.path.join(BASE_TEMPLATE_DIR, psrname)
@@ -149,9 +165,11 @@ def main():
             utils.sort_by_keys(toas, ['fmjd', 'imjd'])
 
             # Format timfile
+            sysflag = 'EFF.AS.%(rcvr)s.'+stage.upper()[:2]
             timlines = formatters.tempo2_formatter(toas, flags=[('rcvr', '%(rcvr)s'),
                                                                 ('type', '%(type)s'),
-                                                                ('grp', '%(grp)s')])
+                                                                ('grp', '%(grp)s'),
+                                                                ('sys', sysflag)])
 
             mjds.sort()
             offsetmjds = sorted(TIME_OFFSETS.keys())
@@ -167,6 +185,56 @@ def main():
                     ff.write(line+"\n")
             utils.print_info("Wrote out timfile: %s" % timfn)
             timfns.append(timfn)
+
+    outtimfn = os.path.join("epta-legacy", os.path.basename(intimfn))
+    with open(intimfn, 'r') as inff, open(outtimfn, 'w') as outff:
+        for line in inff:
+            outff.write(line)
+        for rcvr in RCVRS:
+            timfn = "%s_%s_cleaned.tim" % (psrname, rcvr)
+            print os.path.abspath(timfn)
+            if os.path.exists(timfn):
+                outff.write("INCLUDE ../%s\n" % timfn)
+
+    # Count TOAs
+    toas = load_toa.parse_timfile(outtimfn, determine_obssystem=False)
+    systems = {}
+    for toa in toas:
+        if toa['is_bad']:
+            continue
+        if not 'sys' in toa['extras']:
+            print toa
+        else:
+            nn = systems.get(toa['extras']['sys'], 0)
+            systems[toa['extras']['sys']] = nn+1
+
+    outparfn = "%s.T2.par" % psrname
+    outparfn2 = os.path.join("epta-legacy", os.path.basename(inparfn))
+    with open(inparfn, 'r') as inff, open(outparfn, 'w') as outff, \
+            open(outparfn2, 'w') as outff2:
+        for line in inff:
+            # Don't copy over JUMPs or EFACs to 'outff'
+            # Copy JUMPs and EFACs to 'outff2' and fit
+            if line.startswith("JUMP"):
+                if "-sys" in line:
+                    obssys = line.split()[2]
+                    if systems.get(obssys, 0):
+                        # Observing system has TOAs
+                        # Replace all system jumps by 0 and set the fit flag
+                        outff2.write(" ".join(line.split()[:3])+" 0 1\n")
+                else:
+                    outff2.write(line)
+            elif line.startswith("T2EFAC"):
+                outff2.write(line)
+            elif line.startswith("NITS"):
+                pass
+            else:
+                outff.write(line)
+                # Remove fit-flags for 'outff2'
+                outff2.write(" ".join(line.split()[:2])+'\n')
+        outff.write("\n".join(EXTRA_PARFILE_LINES))
+        outff2.write("\n".join(["JUMP -sys EFF.AS.%s.CL 0 1" % rcvr for rcvr in RCVRS]))
+        outff2.write("\nNITS 3\n")
 
     # Create a master timfile
     master_timfn = "%s_all.tim" % psrname
