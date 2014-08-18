@@ -16,12 +16,14 @@ import ui_reviewer
 
 import database
 import utils
+import reduce_data
 
 
 class FailedFilesModel(qtcore.QAbstractTableModel):
-    def __init__(self, parent=None):
+    def __init__(self, priorities=None, parent=None):
         super(FailedFilesModel, self).__init__(parent)
 
+        self.priorities = priorities
         # Establish a database object
         self.db = database.Database()
         # Fetch information about files that 
@@ -77,6 +79,20 @@ class FailedFilesModel(qtcore.QAbstractTableModel):
         self.__reattempted.append(row)
 
     def fetch_data_from_database(self):
+        whereclause = (self.db.files.c.status.in_(['running', \
+                                                   'failed', 
+                                                   'calfailed']))# & \
+#                      ((self.db.files.c.qcpassed.is_(None)) | \
+#                       (self.db.files.c.qcpassed == False))
+        if self.priorities:
+            priority_list = []
+            for pr in self.priorities:
+                priority_list.extend(reduce_data.parse_priorities(pr))
+            prioritizer, cfgstr = priority_list[0]
+            tmp = prioritizer(self.db, cfgstr)
+            for prioritizer, cfgstr in priority_list[1:]:
+                tmp |= prioritizer(self.db, cfgstr)
+            whereclause &= tmp
         with self.db.transaction() as conn:
             select = self.db.select([self.db.files.c.file_id,
                                      self.db.obs.c.sourcename,
@@ -98,9 +114,7 @@ class FailedFilesModel(qtcore.QAbstractTableModel):
                             outerjoin(self.db.logs,
                                 onclause=self.db.obs.c.obs_id ==
                                         self.db.logs.c.obs_id)]).\
-                        where((self.db.files.c.status.in_(['failed', 'calfailed'])) &
-                                ((self.db.files.c.qcpassed.is_(None)) |
-                                 (self.db.files.c.qcpassed == False)))
+                        where(whereclause)
             result = conn.execute(select)
             rows = result.fetchall()
             result.close()
@@ -110,7 +124,7 @@ class FailedFilesModel(qtcore.QAbstractTableModel):
 class Reviewer(qtgui.QWidget, ui_reviewer.Ui_Reviewer):
     """Failed-job reviewer window.
     """
-    def __init__(self):
+    def __init__(self, priorities=None):
         super(Reviewer, self).__init__()
         # Set up the window
         self.setupUi(self)
@@ -118,7 +132,7 @@ class Reviewer(qtgui.QWidget, ui_reviewer.Ui_Reviewer):
         self.__connect_signals()
 
         # Set up model
-        self.__model = FailedFilesModel()
+        self.__model = FailedFilesModel(priorities=priorities)
         
         # Initialize
         self.tableview.setModel(self.__model)
@@ -164,15 +178,19 @@ class Reviewer(qtgui.QWidget, ui_reviewer.Ui_Reviewer):
 def main():
     app = qtgui.QApplication(sys.argv)
     
-    review_win = Reviewer()
+    review_win = Reviewer(priorities=args.priority)
     # Display the window
     review_win.show()
 
     exitcode = app.exec_()
     sys.exit(exitcode)
 
+
 if __name__ == "__main__":
     parser = utils.DefaultArguments(description="Review files that failed "
                                     "automated Asterix data reduction jobs.")
+    parser.add_argument("--prioritize", action='append',
+                        default=[], dest='priority',
+                        help="A rule for prioritizing observations.")
     args = parser.parse_args()
     main()
