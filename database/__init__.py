@@ -3,11 +3,11 @@ import string
 
 import sqlalchemy as sa
 
-import config
-import errors
+from coast_guard import config
+from coast_guard import errors
 
 import schema
-import utils
+from coast_guard import utils
 
 null = lambda x: x
 
