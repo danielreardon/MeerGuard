@@ -77,6 +77,40 @@ site_to_telescope = {'i': 'WSRT',
 prefname_cache = {}
 # A cache for version IDs
 versionid_cache = {}
+# A cache for fluxcal names
+__fluxcals = None
+
+
+def read_fluxcal_names(fluxcalfn):
+    """Read names of flux calibrators from PSRCHIVE configuration
+        file and return a list.
+
+        Input:
+            fluxcalfn: The PSRCHIVE fluxcal.cfg file.
+
+        Output:
+            fluxcals: A list of names of flux calibrators.
+                Aliases are included.
+    """
+    global __fluxcals
+    if __fluxcals is None:
+        __fluxcals = []
+        with open(fluxcalfn, 'r') as ff:
+            for line in ff:
+                line = line.partition('#')[0].strip()
+                if not line:
+                    continue
+                split = line.split()
+                if line.startswith("&"):
+                    # Second format
+                    __fluxcals.append(split[0][1:])
+                elif line.lower().startswith("aka"):
+                    # Alias
+                    __fluxcals.append(split[1])
+                else:
+                    # First format
+                    __fluxcals.append(split[0])
+    return __fluxcals
 
 
 def show_progress(iterator, width=0, tot=None):
@@ -764,6 +798,10 @@ def get_prefname(name):
                                     errors.CoastGuardWarning)
         prefname_cache[srcname] = prefname
     return prefname+tail
+
+
+def is_fluxcal_source(name):
+    raise NotImplementedError
 
 
 def get_outfn(fmtstr, arf):
