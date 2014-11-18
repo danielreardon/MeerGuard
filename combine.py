@@ -18,11 +18,11 @@ import shutil
 
 import numpy as np
 
-import utils
-import clean
-import config
-import errors
-import debug
+from coast_guard import utils
+from coast_guard import clean
+from coast_guard import config
+from coast_guard import errors
+from coast_guard import debug
 
 
 SUBINT_GLOB = '[0-9]'*4+'-'+'[0-9]'*2+'-'+'[0-9]'*2+'-' + \
@@ -47,7 +47,7 @@ FILETYPE_SPECIFICS = {'subint': (SUBINT_GLOB, get_start_from_subint), \
 
 
 def group_subband_dirs(subdirs, maxspan=None, maxgap=None, \
-            tossfrac=0.7, filetype='subint'):
+            tossfrac=None, filetype='subint'):
     """Based on file names group sub-ints from different
         sub-bands. Each subband is assumed to be in a separate
         directory.
@@ -79,6 +79,8 @@ def group_subband_dirs(subdirs, maxspan=None, maxgap=None, \
         maxspan = config.cfg.combine_maxspan
     if maxgap is None:
         maxgap = config.cfg.combine_maxgap
+    if tossfrac is None:
+        tossfrac = 1-config.cfg.missing_subint_tolerance
 
     if filetype not in FILETYPE_SPECIFICS:
         raise errors.InputError("File type (%s) is not recognized. " \
