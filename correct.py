@@ -8,10 +8,10 @@ import shutil
 
 import pyriseset as rs
 
-import config
-import utils
-import clean_utils
-import errors
+from coast_guard import config
+from coast_guard import utils
+from coast_guard import clean_utils
+from coast_guard import errors
 
 EFF = rs.sites.load('effelsberg')
 UTC_TZ = pytz.utc
@@ -22,20 +22,47 @@ HOURS_PER_MIN = 1/60.0
 
 # Observing log fields:
 #                (name,   from-string converter)
-OBSLOG_FIELDS = (('localdate', rs.utils.parse_datestr), \
-                 ('scannum', str), \
-                 ('utcstart', rs.utils.parse_timestr), \
-                 ('lststart', rs.utils.parse_timestr), \
-                 ('name', str), \
-                 ('az', float), \
-                 ('alt', float), \
-                 ('catalog_rastr', str), \
+OBSLOG_FIELDS = (('localdate', rs.utils.parse_datestr),
+                 ('scannum', str),
+                 ('utcstart', rs.utils.parse_timestr),
+                 ('lststart', rs.utils.parse_timestr),
+                 ('name', str),
+                 ('az', float),
+                 ('alt', float),
+                 ('catalog_rastr', str),
                  ('catalog_decstr', str))
 
 
-RCVR_INFO = {'P217-3': 'rcvr:name=P217-3,rcvr:hand=-1,rcvr:basis=cir', \
-             'S110-1': 'rcvr:name=S110-1,rcvr:hand=-1,rcvr:basis=cir', \
+RCVR_INFO = {'P217-3': 'rcvr:name=P217-3,rcvr:hand=-1,rcvr:basis=cir',
+             'S110-1': 'rcvr:name=S110-1,rcvr:hand=-1,rcvr:basis=cir',
              'P200-3': 'rcvr:name=P200-3,rcvr:hand=-1,rcvr:basis=cir'}
+
+
+def get_coordinates(arf, obsinfo=None):
+    """Given an archive file try to compute the telescope coordinates
+        from the observation log.
+
+        Inputs:
+            arfn: The name of the input archive file.
+            obsinfo: A dictionary of observing log information to use.
+                (Default: search observing logs for matching entry)
+        
+        Outputs:
+            rastr:  RA in hms format
+            decstr: Dec in dms format
+    """
+    if obsinfo is None:
+        # Search for observing log entry
+        obsinfo = get_obslog_entry(arf)
+        utils.print_debug("Information from matching observing log line:\n%s" % 
+                          pprint.pformat(obsinfo), 'logmatch')
+    ra_deg, decl_deg = EFF.get_skyposn(obsinfo['alt'], obsinfo['az']+180, \
+                                       lst=obsinfo['lststart'])
+    rastr = rs.utils.deg_to_hmsstr(ra_deg, decpnts=3)[0]
+    decstr = rs.utils.deg_to_dmsstr(decl_deg, decpnts=2)[0]
+    if decstr[0] not in ('-', '+'):
+        decstr = "+" + decstr
+    return rastr, decstr
 
 
 def correct_header(arfn, obsinfo=None, outfn=None, backend='asterix'):
@@ -83,40 +110,40 @@ def correct_header(arfn, obsinfo=None, outfn=None, backend='asterix'):
             raise errors.HeaderCorrectionError("Cannot determine receiver.")
     if arf['rcvr'] != rcvr:
         note += "Receiver is wrong (%s) setting to '%s'. " % \
-                    (arf['rcvr'], rcvr)
+                (arf['rcvr'], rcvr)
     corrstr = "%s,be:name=%s" % (RCVR_INFO[rcvr], backend)
-    if arf['name'].endswith("_R"):
-        corrstr += ",type=PolnCal"
-    else:
-        corrstr += ",type=Pulsar"
     if obsinfo is not None or arf['name'].endswith('_R') or \
                         arf['ra'].startswith('00:00:00'):
-        # Correct coordinates
         try:
-            if obsinfo is None:
-                # Search for observing log entry
-                obsinfo = get_obslog_entry(arf)
+            rastr, decstr = get_coordinates(arf, obsinfo)
         except errors.HeaderCorrectionError as exc:
-            note += exc.get_message() + "\n(Could not correct coordinates)" 
+            note += exc.get_message() + "\n(Could not correct coordinates)"
         else:
-            ra_deg, decl_deg = EFF.get_skyposn(obsinfo['alt'], obsinfo['az'], \
-                                                lst=obsinfo['lststart'])
-            rastr = rs.utils.deg_to_hmsstr(ra_deg, decpnts=3)[0]
-            decstr = rs.utils.deg_to_dmsstr(decl_deg, decpnts=2)[0]
-            if decstr[0] not in ('-', '+'):
-                decstr = "+" + decstr
             corrstr += ",coord=%s%s" % (rastr, decstr)
     else:
         note += "No reason to correct coords."
+
+    if arf['name'].endswith("_R"):
+        # Calibration diode was fired.
+        # Observation could be pol-cal scan or flux-cal scan
+        if any([arf['name'].startswith(fluxcal) for fluxcal
+                in utils.read_fluxcal_names(config.fluxcal_cfg)]):
+            # Flux calibrator
+            pass
+        else:
+            # Polarization calibrator
+            corrstr += ",type=PolnCal"
+    else:
+        corrstr += ",type=Pulsar"
     # Correct the file using 'psredit'
-    utils.execute(['psredit', '-e', 'corr', '-c', corrstr, arfn], \
-                    stderr=open(os.devnull))
+    utils.execute(['psredit', '-e', 'corr', '-c', corrstr, arfn],
+                  stderr=open(os.devnull))
     # Assume the name of the corrected file
     corrfn = os.path.splitext(arfn)[0]+".corr"
     # Confirm that our assumed file name is accurate
     if not os.path.isfile(corrfn):
         raise errors.HeaderCorrectionError("The corrected file (%s) does not " \
-                                "exist!" % corrfn)
+                                           "exist!" % corrfn)
     # Rename output file
     if outfn is not None:
         arf = utils.ArchiveFile(corrfn)
@@ -174,7 +201,7 @@ def get_obslog_entry(arf):
     tosearch = []
     for currfn in obslogfns:
         fndatetime = datetime.datetime.strptime(os.path.split(currfn)[-1], \
-                                            '%y%m%d.prot')
+                                                '%y%m%d.prot')
         fndate = fndatetime.date()
 
         if fndate == obsdate:
@@ -184,8 +211,8 @@ def get_obslog_entry(arf):
             break
     if not tosearch:
         raise errors.HeaderCorrectionError("Could not find an obslog file " \
-                                    "for the obs date (%s)." % \
-                                    obsdate.strftime("%Y-%b-%d"))
+                                           "for the obs date (%s)." %
+                                           obsdate.strftime("%Y-%b-%d"))
     
     logentries = []
     check = False
@@ -202,10 +229,13 @@ def get_obslog_entry(arf):
                             (obsdate <= currinfo['localdate']) and \
                             (obsutc_hours >= (previnfo['utcstart']-HOURS_PER_MIN)) and \
                             (obsutc_hours <= (currinfo['utcstart']+HOURS_PER_MIN)):
+                        utils.print_debug("Matching observing log line:\n%s" % 
+                                          prevline, 'logmatch')
                         logentries.append(previnfo)
                 # Check in next iteration if observation's source name matches
                 # that of the current obslog entry
                 check = (utils.get_prefname(currinfo['name']) == arf['name'])
+                prevline = line
                 previnfo = currinfo
     if len(logentries) != 1:
         msg = "Bad number (%d) of entries " \
@@ -236,8 +266,9 @@ def main():
         obsinfo = None
 
     for fn in args.files:
-        corrfn, corrstr, note = correct_header(fn, obsinfo=obsinfo, \
-                    outfn=args.outfn, backend=args.backend_name)
+        corrfn, corrstr, note = correct_header(fn, obsinfo=obsinfo,
+                                               outfn=args.outfn,
+                                               backend=args.backend_name)
         print "    Output corrected file: %s" % corrfn
         print "        Notes: %s" % note
 
