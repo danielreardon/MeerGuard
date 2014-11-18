@@ -317,11 +317,13 @@ def load_combined_file(filerow):
         # slow to generate
         arf = utils.ArchiveFile(cmbfn)
         if arf['nchan'] > 512:
-            note = "Scrunched from %d to 512 channels" % arf['nchan']
-            utils.print_info("Reducing %s from %d to 512 channels" %
-                             (cmbfn, arf['nchan']), 2)
-            # Scrunch to 512 channels
-            utils.execute(['pam', '-m', '--setnchn', '512', cmbfn])
+            factor = 0.015625*arf['nchan']/len(subdirs)
+            new_nchan = arf['nchan']/factor
+            note = "Scrunched from %d to %g channels" % (arf['nchan'], new_nchan)
+            utils.print_info("Reducing %s from %d to %g channels" %
+                             (cmbfn, arf['nchan'], new_nchan), 2)
+            # Scrunch channels
+            utils.execute(['pam', '-m', '--setnchn', "%d" % new_nchan, cmbfn])
         else:
             note = None
         values = {'filepath': cmbdir,
