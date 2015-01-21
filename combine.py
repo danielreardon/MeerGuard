@@ -402,10 +402,16 @@ def main():
     # Combine files
     outfns = []
     for subints in groups:
-        outfns.append(combine_subints(usedirs, subints))
-    print "Created %d combined files" % len(outfns)
-    for outfn in outfns:
-        print "    %s" % outfn
+        if not args.no_combine:
+            outfn = combine_subints(usedirs, subints)
+            outfns.append(outfn)
+        if args.write_listing:
+            write_listing(usedirs, subints, "list.txt")
+
+    if outfns:
+        print "Created %d combined files" % len(outfns)
+        for outfn in outfns:
+            print "    %s" % outfn
 
 
 if __name__=="__main__":
@@ -432,6 +438,9 @@ if __name__=="__main__":
                         help="Type of files being grouped. Can be 'subint',"
                                 "or 'single'. (Default: 'subint')", \
                         default='subint')
-
+    parser.add_argument('--write-listing', dest='write_listing', action='store_true', 
+                        help="Write text file containing listing of files to combine.")
+    parser.add_argument('--no-combine', dest='no_combine', action='store_true',
+                        help="Don't actually combine files.")
     args = parser.parse_args()
     main()
