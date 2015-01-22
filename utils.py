@@ -18,6 +18,7 @@ import datetime
 import argparse
 import string
 import tempfile
+import stat
 
 import numpy as np
 
@@ -29,6 +30,7 @@ import log
 header_param_types = {'freq': float, \
                       'length': float, \
                       'bw': float, \
+                      'chbw': float, \
                       'mjd': float, \
                       'intmjd': int, \
                       'fracmjd': float, \
@@ -739,6 +741,48 @@ def get_files_from_glob(option, opt_str, value, parser):
     glob_file_list.extend(glob.glob(value))
 
 
+def get_spectral_index(name):
+    """Use 'psrcat' program to find the spectral index of the given pulsar.
+
+        Input:
+            name: Name of the pulsar.
+
+        Output:
+            spindex: Spectral of the pulsar.
+    """
+    search = name
+    if not name[0] in ('J', 'B') and len(name)==7:
+        # Could be B-name, or truncated J-name. Add wildcard at end just in case.
+        search += '*'
+    try:   
+        cmd = ['psrcat', '-nohead', '-nonumber', '-c', 'SPINDX', \
+                        '-o', 'short', '-null', '', search]
+        stdout, stderr = execute(cmd)
+        lines = [line for line in stdout.split('\n') \
+                    if line.strip() and not line.startswith("WARNING:")]
+        spinds = [float(line.strip()) for line in lines]
+    except errors.SystemCallError:
+        warnings.warn("Error occurred while trying to run 'psrcat' " \
+                        "to get prefname for '%s'" % name, \
+                        errors.CoastGuardWarning)
+        spinds = []
+    
+    if len(spinds) == 1:
+        spindex = spinds[0]
+    elif len(spinds) == 0:
+        warnings.warn("No spectral index found in psrcat for %s. " % name, \
+                        errors.CoastGuardWarning)
+        spindex = None
+    elif len(names) > 1:
+        warnings.warn("Pulsar name '%s' is ambiguous. It has " \
+                        "multiple matches (%d) in psrcat " \
+                        "(search pattern used: '%s'):\n%s" % \
+                (srcname, len(names), search, '\n'.join(lines)), \
+                                errors.CoastGuardWarning)
+        spindex = None
+    return spindex
+
+
 def get_prefname(name):
     """Use 'psrcat' program to find the preferred name of the given pulsar.
         NOTE: B-names are preferred over J-names.
@@ -971,7 +1015,17 @@ def sort_by_keys(tosort, keys):
             tosort.sort(key=lambda x: x[sortkey].lower(), reverse=rev)
         else:
             tosort.sort(key=lambda x: x[sortkey], reverse=rev)
-        
+
+
+PERMS = {"w": stat.S_IWGRP,
+         "r": stat.S_IRGRP,
+         "x": stat.S_IXGRP}
+def add_group_permissions(fn, perms=""):
+    mode = os.stat(fn)
+    for perm in perms:
+        mode |= PERMS[perm]
+    os.chmod(fn, mode)
+
 
 class ArchiveFile(object):
     def __init__(self, fn):
