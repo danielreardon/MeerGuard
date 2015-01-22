@@ -1,5 +1,6 @@
 import warnings
 import string
+import re
 
 import sqlalchemy as sa
 
@@ -10,6 +11,7 @@ import schema
 from coast_guard import utils
 
 null = lambda x: x
+toround_re = re.compile(r"_R(-?\d+)?$")
 
 
 def fancy_getitem(self, key):
@@ -20,20 +22,31 @@ def fancy_getitem(self, key):
     elif (type(key) in (type('str'), type(u'str'))) and key.endswith("_U"):
         filterfunc = string.upper
         key = key[:-2]
-    if self.has_key(key):
+    elif (type(key) in (type('str'), type(u'str'))) and toround_re.search(key):
+        head, sep, tail = key.rpartition('_R')
+        digits = int(tail) if tail else 0
+        filterfunc = lambda x: round(x, digits)
+        key = head
+    elif (type(key) in (type('str'), type(u'str'))) and key.startswith("date:"):
+        fmt = key[5:]
+        key = 'start_mjd'
+        filterfunc = lambda mjd: utils.mjd_to_datetime(mjd).strftime(fmt)
+    if key in self:
         return filterfunc(super(self.__class__, self).__getitem__(key))
     else:
         matches = [k for k in self.keys() if k.startswith(key)]
         if len(matches) == 1:
             return filterfunc(super(self.__class__, self).__getitem__(matches[0]))
         elif len(matches) > 1:
-            raise errors.BadColumnNameError("The column abbreviation " \
-                                "'%s' is ambiguous. ('%s' all match)" % \
-                                (key, "', '".join(matches)))
+            raise errors.BadColumnNameError("The column abbreviation "
+                                            "'%s' is ambiguous. "
+                                            "('%s' all match)" %
+                                            (key, "', '".join(matches)))
         else:
-            raise errors.BadColumnNameError("The column '%s' doesn't exist! " \
-                                "(Valid column names: '%s')" % \
-                                (key, "', '".join(sorted(self.keys()))))
+            raise errors.BadColumnNameError("The column '%s' doesn't exist! "
+                                            "(Valid column names: '%s')" %
+                                            (key, "', '".join(sorted(self.keys()))))
+
 
 sa.engine.RowProxy.__getitem__ = fancy_getitem
     
