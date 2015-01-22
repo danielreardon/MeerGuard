@@ -59,7 +59,7 @@ class HotbinsCleaner(cleaners.BaseCleaner):
             # Clean off-cal region
             self.__find_and_replace_hotbins(ar, reference, ~calbins)
         else:
-            offbins = np.ones(nbins, dtype='bool')
+            offbins = np.ones(ar.get_nbin(), dtype='bool')
             for lobin, hibin in self.configs.onpulse:
                 offbins[lobin:hibin] = False
             self.__find_and_replace_hotbins(ar, reference, offbins)
@@ -87,7 +87,7 @@ class HotbinsCleaner(cleaners.BaseCleaner):
                 utils.print_debug('isub: %d, ichan: %d, ipol: %d\n' \
                             '    med: %g, mad: %g\n' \
                             '    %d hotbins found (ibin: %s)' % \
-                            (isub, ichan, ipol, med, mad, nbad, ibad), 'clean')
+                            (isub, ichan, 0, med, mad, nbad, ibad), 'clean')
                 # Replace data in cleaned archive with noise
                 if self.configs.fscrunchfirst:
                     chans_to_clean = np.arange(ar.get_nchan())
@@ -103,7 +103,7 @@ class HotbinsCleaner(cleaners.BaseCleaner):
                 for jsub in subints_to_clean:
                     for jchan in chans_to_clean:
                         for jpol in pols_to_clean:
-                            cleanedprof = ar.get_Profile(int(jsub), int(jpol)
+                            cleanedprof = ar.get_Profile(int(jsub), int(jpol), int(jchan))
                             cleaneddata = cleanedprof.get_amps()
                             gooddata = cleaneddata[igood]
                             avg = gooddata.mean()
@@ -113,15 +113,7 @@ class HotbinsCleaner(cleaners.BaseCleaner):
                                 cleaneddata[ibad] = noise
 
     def __locate_cal(self, ar):
-        prof = ar.get_data()[:,0,:].sum(axis=1).sum(axis=0)
-        nn = len(prof)
-        box = np.zeros(nn)
-        box[:nn*self.configs.calfrac] = 1
-        corr = np.fft.irfft(np.conj(np.fft.rfft(box))*np.fft.rfft(prof))
-        calstart = corr.argmax()
-        utils.print_debug("Cal starts at bin %d" % calstart, 'clean')
-        calbins = np.roll(box, calstart).astype(bool)
-        return calbins
+        return utils.locate_cal(ar, calfrac=self.configs.calfrac)
 
 
 Cleaner = HotbinsCleaner

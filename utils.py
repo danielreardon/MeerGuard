@@ -17,16 +17,20 @@ import inspect
 import datetime
 import argparse
 import string
+import tempfile
+import stat
 
 import numpy as np
 
 import config
 import errors
 import colour
+import log
 
 header_param_types = {'freq': float, \
                       'length': float, \
                       'bw': float, \
+                      'chbw': float, \
                       'mjd': float, \
                       'intmjd': int, \
                       'fracmjd': float, \
@@ -40,7 +44,8 @@ header_param_types = {'freq': float, \
                       'nsub': int, \
                       'tbin': float, \
                       'period': float, \
-                      'dm': float}
+                      'dm': float, \
+                      'pol_c': bool}
 
 site_to_telescope = {'i': 'WSRT',
                      'wt': 'WSRT',
@@ -72,6 +77,114 @@ site_to_telescope = {'i': 'WSRT',
 
 # A cache for pulsar preferred names
 prefname_cache = {}
+# A cache for version IDs
+versionid_cache = {}
+# A cache for fluxcal names
+__fluxcals = None
+
+
+def read_fluxcal_names(fluxcalfn):
+    """Read names of flux calibrators from PSRCHIVE configuration
+        file and return a list.
+
+        Input:
+            fluxcalfn: The PSRCHIVE fluxcal.cfg file.
+
+        Output:
+            fluxcals: A list of names of flux calibrators.
+                Aliases are included.
+    """
+    global __fluxcals
+    if __fluxcals is None:
+        __fluxcals = []
+        with open(fluxcalfn, 'r') as ff:
+            for line in ff:
+                line = line.partition('#')[0].strip()
+                if not line:
+                    continue
+                split = line.split()
+                if line.startswith("&"):
+                    # Second format
+                    __fluxcals.append(split[0][1:])
+                elif line.lower().startswith("aka"):
+                    # Alias
+                    __fluxcals.append(split[1])
+                else:
+                    # First format
+                    __fluxcals.append(split[0])
+    return __fluxcals
+
+
+def show_progress(iterator, width=0, tot=None):
+    """Wrap an iterator so that a progress counter is printed
+        as we iterate.
+
+        Inputs:
+            iterator: The object to iterate over.
+            width: The width of the progress bar.
+                (Default: Don't show a progress bar, only the percentage)
+            tot: The total number of iterations.
+                (Default: Use len(iterator) to determine 
+                    total number of iterations)
+
+        Outputs:
+            None
+    """
+    if tot is None:
+        tot = len(iterator)
+    old = -1
+    curr = 1
+    for toreturn in iterator:
+        if config.show_progress:
+            progfrac = curr/float(tot)
+            progpcnt = int(100*progfrac)
+            if progpcnt > old:
+                bar = "["*bool(width) + \
+                        "="*int(width*progfrac+0.5) + \
+                        " "*int(width*(1-progfrac)+0.5) + \
+                        "]"*bool(width)
+                old = progpcnt
+                sys.stdout.write("     " + bar + " %d %% \r" % progpcnt)
+                sys.stdout.flush()
+            curr += 1
+        yield toreturn
+    if config.show_progress:
+        print "Done"
+
+
+def set_warning_mode(mode=None, reset=True):
+    """Add a simple warning filter.
+        
+        Inputs:
+            mode: The action to use for warnings.
+                (Default: take value of 'warnmode' configuration.
+            reset: Remove warning filters previously set.
+
+        Outputs:
+            None
+    """
+    if mode is None:
+        mode = config.warnmode
+    if reset:
+        warnings.resetwarnings()
+    warnings.simplefilter(mode)
+
+
+def log_message(msg, level='info'):
+    """Log a message
+
+        Inputs:
+            msg: The message to print.
+            level: The logging level (see python's logging module) 
+                (Default: info)
+
+        Outputs:
+            None
+    """
+    fn, lineno, funcnm = inspect.stack()[1][1:4]
+    log.log("Log message: [%s:%d - %s(...)]\n%s" % \
+            (os.path.split(fn)[-1], lineno, funcnm, msg), level)
+
 
 def print_info(msg, level=1):
     """Print an informative message if the current verbosity is
@@ -87,10 +200,14 @@ def print_info(msg, level=1):
         Outputs:
             None
     """
+    fn, lineno, funcnm = inspect.stack()[1][1:4]
+    if config.log_verbosity >= level:
+        log.log("verbosity: %d [%s:%d - %s(...)]\n%s" % \
+                (level, os.path.split(fn)[-1], lineno, funcnm, msg), 'info')
+
     if config.verbosity >= level:
         if config.excessive_verbosity:
             # Get caller info
-            fn, lineno, funcnm = inspect.stack()[1][1:4]
             colour.cprint("INFO (level: %d) [%s:%d - %s(...)]:" % 
                     (level, os.path.split(fn)[-1], lineno, funcnm), 'infohdr')
             msg = msg.replace('\n', '\n    ')
@@ -116,9 +233,12 @@ def print_debug(msg, category, stepsback=1):
             None
     """
     if config.debug.is_on(category):
+        fn, lineno, funcnm = inspect.stack()[stepsback][1:4]
+        log.log("mode: %s [%s:%d - %s(...)]\n%s" % \
+                (category.upper(), os.path.split(fn)[-1], lineno, 
+                    funcnm, msg), 'debug')
         if config.helpful_debugging:
             # Get caller info
-            fn, lineno, funcnm = inspect.stack()[stepsback][1:4]
             to_print = colour.cstring("DEBUG %s [%s:%d - %s(...)]:\n" % \
                         (category.upper(), os.path.split(fn)[-1], lineno, funcnm), \
                             'debughdr')
@@ -128,6 +248,64 @@ def print_debug(msg, category, stepsback=1):
             to_print = colour.cstring(msg, 'debug')
         sys.stderr.write(to_print + '\n')
         sys.stderr.flush()
+
+
+def get_norm_parfile(arfn):
+    """Given an archive file extract its ephemeris and normalise it
+        by removing empty lines, fit-flags, uncertainties, and
+        polyco-creation related lines (ie "TZ*")
+
+        Input:
+            arfn: Name of archive file.
+
+        Output:
+            parfn: Name of (temporary) parfile.
+    """
+    cmd = ['vap', '-E', arfn]
+    stdoutstr, stderrstr = execute(cmd)
+    if "has no ephemeris" in stdoutstr:
+        raise errors.InputError("Input archive (%s) has no parfile. "
+                                "Cannot return normalised parfile." % arfn)
+    print_info("Extracted parfile from %s" % arfn, 3)
+    return normalise_parfile(stdoutstr)
+
+
+def normalise_parfile(par):
+    """Given a parfile normalise it by removing empty
+        lines, fit-flags, uncertainties, and
+        polyco-creation related lines (ie "TZ*")
+
+        Input:
+            par: This can be either:
+                a) path to parfile
+                b) Contents of parfile as a single string
+                c) A list of parfile lines (ie a list of strings)
+
+        Output:
+            parfn: Name of (temporary) parfile.
+    """
+    if isinstance(par, types.StringTypes):
+        # Assume input is
+        if os.path.isfile(par):
+            # Assume input is par filename
+            lines = open(par, 'r').readlines()
+        else:
+            # Assume input is parfile contents
+            lines = par.split('\n')
+    else:
+        # Assume input is list of lines
+        lines = par
+    parlines = ["% -15s%s" % tuple(line.split()[:2]) for line
+                in lines
+                if line.strip() and ("TZ" not in line)]
+    
+    # Make a temporary file for the parfile
+    tmpfd, tmpfn = tempfile.mkstemp(suffix='.par', dir=config.tmp_directory)
+    tmpfile = os.fdopen(tmpfd, 'w')
+    tmpfile.write("\n".join(parlines)+"\n")
+    tmpfile.close()
+    print_info("Normalised parfile output to %s." % tmpfn, 3)
+    return tmpfn
 
 
 def get_md5sum(fn, block_size=16*8192):
@@ -152,36 +330,131 @@ def get_md5sum(fn, block_size=16*8192):
     return md5.hexdigest()
 
 
-def get_githash():
-    """Get the Coast Guard project's git hash.
+def get_version_id(db):
+    """Get the version ID number from the database.
+        If the version number isn't in the database, add it.
+
+        Input:
+            db: A database connection object.
+
+        Output:
+            version_id: The version ID for the current pipeline/psrchive
+                combination.
+    """
+    # Check to make sure the repositories are clean
+    is_gitrepo_dirty(config.coastguard_repo)
+    is_gitrepo_dirty(config.psrchive_repo)
+    # Get git hashes
+    coastguard_githash = get_githash(config.coastguard_repo)
+    if is_gitrepo(config.psrchive_repo):
+        psrchive_githash = get_githash(config.psrchive_repo)
+    else:
+        warnings.warn("PSRCHIVE directory (%s) is not a git repository! " \
+                        "Falling back to 'psrchive --version' for version " \
+                        "information." % config.psrchive_repo, \
+                        errors.CoastGuardWarning)
+        cmd = ["psrchive", "--version"]
+        stdout, stderr = execute(cmd)
+        psrchive_githash = stdout.strip()
+  
+    if (coastguard_githash, psrchive_githash) in versionid_cache:
+        version_id = versionid_cache[(coastguard_githash, psrchive_githash)]
+    else:
+        import sqlalchemy as sa
+        try:
+            # Take a 'shoot-first-ask-questions-later' approach.
+            # Try to insert a new version entry into the database
+            # if the combination of Coast Guard githas and PSRCHIVE
+            # githash already exist the UNIQUE constraint won't be 
+            # satisfied and a sa.exc.IntegrityError will be thrown
+            # catch it and select the appropriate version_id from
+            # the database
+            with db.transaction() as conn:
+                # Insert the current versions
+                ins = db.versions.insert().\
+                            values(cg_githash=coastguard_githash, \
+                                    psrchive_githash=psrchive_githash)
+                result = conn.execute(ins)
+                # Get the newly add version ID
+                version_id = result.inserted_primary_key[0]
+                result.close()
+        except sa.exc.IntegrityError:
+            with db.transaction() as conn:
+                # Get the version_id from the DB
+                select = db.select([db.versions.c.version_id]).\
+                            where((db.versions.c.cg_githash==coastguard_githash) & \
+                                  (db.versions.c.psrchive_githash==psrchive_githash))
+                result = conn.execute(select)
+                rows = result.fetchall()
+                result.close()
+            if len(rows) == 1:
+                version_id = rows[0].version_id
+            else:
+                raise errors.DatabaseError("Bad number of rows (%d) in versions " \
+                                "table with CoastGuard githash='%s' and " \
+                                "PSRCHIVE githash='%s'!" % \
+                                (len(rows), coastguard_githash, psrchive_githash))
+        # Add version ID to cache
+        versionid_cache[(coastguard_githash, psrchive_githash)] = version_id
+    return version_id
+
+
+def get_githash(repodir=None):
+    """Get the git hash of a repository.
 
         Inputs:
-            None
+            repodir: Directory containing repository to check.
 
         Output:
             githash: The githash
     """
-    if is_gitrepo_dirty():
-        warnings.warn("Git repository has uncommitted changes!", \
-                        errors.CoastGuardWarning)
-    codedir = os.path.split(__file__)[0]
-    stdout, stderr = execute("git rev-parse HEAD", dir=codedir)
+    if repodir is None:
+        # Use directory containing this file
+        repodir = os.path.split(__file__)[0]
+    if is_gitrepo_dirty(repodir):
+        warnings.warn("Git repository (%s) has uncommitted changes!" % \
+                        repodir, errors.LoggedCoastGuardWarning)
+    stdout, stderr = execute("git rev-parse HEAD", dir=repodir)
     githash = stdout.strip()
     return githash
 
 
-def is_gitrepo_dirty():
+def is_gitrepo(repodir):
+    """Return True if the given dir is a git repository.
+
+        Input:
+            repodir: The location of the git repository.
+
+        Output:
+            is_git: True if directory is part of a git repository. False otherwise.
+    """
+    print_info("Checking if directory '%s' contains a Git repo..." % repodir, 2)
+    try:
+        cmd = ["git", "rev-parse"]
+        stdout, stderr = execute(cmd, dir=repodir, \
+                                    stderr=open(os.devnull))
+    except errors.SystemCallError:
+        # Exit code is non-zero
+        return False
+    else:
+        # Success error code (i.e. dir is in a git repo)
+        return True
+
+
+def is_gitrepo_dirty(repodir=None):
     """Return True if the git repository has local changes.
 
         Inputs:
-            None
+            repodir: Directory containing repository to check.
 
         Output:
             is_dirty: True if git repository has local changes. False otherwise.
     """
-    codedir = os.path.split(__file__)[0]
+    if repodir is None:
+        # Use directory containing this file
+        repodir = os.path.split(__file__)[0]
     try:
-        stdout, stderr = execute("git diff --quiet", dir=codedir)
+        stdout, stderr = execute("git diff --quiet", dir=repodir)
     except errors.SystemCallError:
         # Exit code is non-zero
         return True
@@ -206,7 +479,7 @@ def get_header_vals(fn, hdritems):
     if '=' in hdrstr:
         raise ValueError("'hdritems' passed to 'get_header_vals' " \
                          "should not perform and assignments!")
-    cmd = "vap -n -c '%s' %s" % (hdrstr, fn)
+    cmd = ["vap", "-n", "-c", hdrstr, fn]
     outstr, errstr = execute(cmd)
     outvals = outstr.split()[1:] # First value is filename (we don't need it)
     if errstr:
@@ -224,7 +497,7 @@ def get_header_vals(fn, hdritems):
         elif val == "*" or val == "UNDEF":
             warnings.warn("The vap header key '%s' is not " \
                             "defined in this file (%s)" % (key, fn), \
-                            errors.CoastGuardWarning)
+                            errors.LoggedCoastGuardWarning)
             params[key] = None
         elif val == '*error*':
             raise errors.SystemCallError("The vap header key '%s' returned " \
@@ -288,24 +561,28 @@ def execute(cmd, stdout=subprocess.PIPE, stderr=sys.stderr, dir=None):
     else:
         shell=False
     pipe = subprocess.Popen(cmd, shell=shell, cwd=dir, \
-                            stdout=stdout, stderr=stderr)
+                            stdout=stdout, stderr=subprocess.PIPE)
     (stdoutdata, stderrdata) = pipe.communicate()
-    retcode = pipe.returncode 
-    if retcode < 0:
-        raise errors.SystemCallError("Execution of command (%s) terminated by signal (%s)!" % \
-                                (cmd, -retcode))
-    elif retcode > 0:
-        raise errors.SystemCallError("Execution of command (%s) failed with status (%s)!" % \
-                                (cmd, retcode))
-    else:
-        # Exit code is 0, which is "Success". Do nothing.
-        pass
     
     # Close file objects, if any
     if stdoutfile:
         stdout.close()
     if stderrfile:
+        stderr.write(stderrdata)
         stderr.close()
+    
+    retcode = pipe.returncode 
+    if retcode < 0:
+        raise errors.SystemCallError("Execution of command (%s) " \
+                                    "terminated by signal (%s)!" % \
+                                (cmd, -retcode))
+    elif retcode > 0:
+        raise errors.SystemCallError("Execution of command (%s) failed " \
+                                "with status (%s)!\nError output:\n%s" % \
+                                (cmd, retcode, stderrdata))
+    else:
+        # Exit code is 0, which is "Success". Do nothing.
+        pass
 
     return (stdoutdata, stderrdata)
 
@@ -464,49 +741,111 @@ def get_files_from_glob(option, opt_str, value, parser):
     glob_file_list.extend(glob.glob(value))
 
 
-def get_prefname(psrname):
+def get_spectral_index(name):
+    """Use 'psrcat' program to find the spectral index of the given pulsar.
+
+        Input:
+            name: Name of the pulsar.
+
+        Output:
+            spindex: Spectral of the pulsar.
+    """
+    search = name
+    if not name[0] in ('J', 'B') and len(name)==7:
+        # Could be B-name, or truncated J-name. Add wildcard at end just in case.
+        search += '*'
+    try:   
+        cmd = ['psrcat', '-nohead', '-nonumber', '-c', 'SPINDX', \
+                        '-o', 'short', '-null', '', search]
+        stdout, stderr = execute(cmd)
+        lines = [line for line in stdout.split('\n') \
+                    if line.strip() and not line.startswith("WARNING:")]
+        spinds = [float(line.strip()) for line in lines]
+    except errors.SystemCallError:
+        warnings.warn("Error occurred while trying to run 'psrcat' " \
+                        "to get prefname for '%s'" % name, \
+                        errors.CoastGuardWarning)
+        spinds = []
+    
+    if len(spinds) == 1:
+        spindex = spinds[0]
+    elif len(spinds) == 0:
+        warnings.warn("No spectral index found in psrcat for %s. " % name, \
+                        errors.CoastGuardWarning)
+        spindex = None
+    elif len(names) > 1:
+        warnings.warn("Pulsar name '%s' is ambiguous. It has " \
+                        "multiple matches (%d) in psrcat " \
+                        "(search pattern used: '%s'):\n%s" % \
+                (srcname, len(names), search, '\n'.join(lines)), \
+                                errors.CoastGuardWarning)
+        spindex = None
+    return spindex
+
+
+def get_prefname(name):
     """Use 'psrcat' program to find the preferred name of the given pulsar.
         NOTE: B-names are preferred over J-names.
 
         Input:
-            psrname: Name of the pulsar.
+            name: Name of the pulsar.
 
         Output:
             prefname: Preferred name of the pulsar.
     """
     global prefname_cache
-
-    if psrname in prefname_cache:
-        prefname = prefname_cache[psrname]
+        
+    # Strip '_R' tail if present. It is added back on just before
+    # returning the preferred name
+    if name.endswith("_R"):
+        # Is a calibration observation
+        tail = "_R"
+        srcname = name[:-2]
     else:
-        search = psrname
-        if not psrname[0] in ('J', 'B') and len(psrname)==7:
+        # Is not a cal obs
+        tail = ""
+        srcname = name
+
+    if srcname in prefname_cache:
+        prefname = prefname_cache[srcname]
+    else:
+        search = srcname
+        if not srcname[0] in ('J', 'B') and len(srcname)==7:
             # Could be B-name, or truncated J-name. Add wildcard at end just in case.
             search += '*'
         try:   
-            cmd = "psrcat -nohead -nonumber -c 'PSRJ PSRB' -o short -null '' '%s'" % search
+            cmd = ['psrcat', '-nohead', '-nonumber', '-c', 'PSRJ PSRB', \
+                            '-o', 'short', '-null', '', search]
             stdout, stderr = execute(cmd)
-
-            names = [line.strip().split() for line in stdout.split('\n') \
-                            if line.strip() and not line.startswith("WARNING:")]
+            lines = [line for line in stdout.split('\n') \
+                        if line.strip() and not line.startswith("WARNING:")]
+            names = [line.strip().split() for line in lines]
         except errors.SystemCallError:
             warnings.warn("Error occurred while trying to run 'psrcat' " \
-                            "to get prefname for '%s'" % psrname, \
+                            "to get prefname for '%s'" % srcname, \
                             errors.CoastGuardWarning)
             names = []
     
         if len(names) == 1:
             prefname = names[0][-1]
         elif len(names) == 0:
-            prefname = psrname
+            prefname = srcname
             warnings.warn("Pulsar name '%s' cannot be found in psrcat. " \
-                            "No preferred name available." % psrname, \
+                            "No preferred name available." % srcname, \
                             errors.CoastGuardWarning)
-        else:
-            raise errors.BadPulsarNameError("Pulsar name '%s' has a bad number of " \
-                                    "matches (%d) in psrcat" % (psrname, len(names)))
-        prefname_cache[psrname] = prefname
-    return prefname
+        elif len(names) > 1:
+            prefname = srcname
+            warnings.warn("Pulsar name '%s' is ambiguous. It has " \
+                            "multiple matches (%d) in psrcat " \
+                            "(search pattern used: '%s'):\n%s" % \
+                    (srcname, len(names), search, '\n'.join(lines)), \
+                                    errors.CoastGuardWarning)
+        prefname_cache[srcname] = prefname
+    return prefname+tail
+
+
+def is_fluxcal_source(name):
+    raise NotImplementedError
 
 
 def get_outfn(fmtstr, arf):
@@ -532,6 +871,30 @@ def get_outfn(fmtstr, arf):
         raise errors.BadFile("Interpolated file name (%s) shouldn't " \
                                  "contain the character '%%'!" % outfn)
     return outfn
+
+
+def locate_cal(ar, calfrac=0.5):
+    """Locate the profile bins that contain the cal signal.
+
+        Inputs:
+            ar: A psrchive.Archive object.
+            calfrac: The fraction of phase bins occupied by the cal.
+                (Default: 0.5)
+
+        Output:
+            is_cal: A list of boolean values (on for each phase bin).
+                True values contain the cal signal.
+    """
+    prof = ar.get_data()[:,0,:].sum(axis=1).sum(axis=0)
+    nn = len(prof)
+    box = np.zeros(nn)
+    ncalbins = int(nn*calfrac + 0.5)
+    box[:ncalbins] = 1
+    corr = np.fft.irfft(np.conj(np.fft.rfft(box))*np.fft.rfft(prof))
+    calstart = corr.argmax()
+    print_debug("Cal starts at bin %d" % calstart, 'clean')
+    calbins = np.roll(box, calstart).astype(bool)
+    return calbins
 
 
 def correct_asterix_header(arfn):
@@ -621,44 +984,81 @@ def mjd_to_datetime(mjd):
     mus = (ss % 1.0)*1e6
     date = datetime.datetime(int(yy), int(mm), int(dd), int(hh), int(mins), int(ss), int(mus))
     return date
-        
+
+
+def sort_by_keys(tosort, keys):
+    """Sort a list of dictionaries, or database rows
+        by the list of keys provided. Keys provided
+        later in the list take precedence over earlier
+        ones. If a key ends in '_r' sorting by that key
+        will happen in reverse.
+
+        Inputs:
+            tosort: The list to sort.
+            keys: The keys to use for sorting.
+
+        Outputs:
+            None - sorting is done in-place.
+    """
+    if not tosort:
+        return tosort
+    print_info("Sorting by keys (%s)" % " then ".join(keys), 3)
+    for sortkey in keys:
+        if sortkey.endswith("_r"):
+            sortkey = sortkey[:-2]
+            rev = True
+            print_info("Reverse sorting by %s..." % sortkey, 2)
+        else:
+            rev = False
+            print_info("Sorting by %s..." % sortkey, 2)
+        if type(tosort[0][sortkey]) is types.StringType:
+            tosort.sort(key=lambda x: x[sortkey].lower(), reverse=rev)
+        else:
+            tosort.sort(key=lambda x: x[sortkey], reverse=rev)
+
+
+PERMS = {"w": stat.S_IWGRP,
+         "r": stat.S_IRGRP,
+         "x": stat.S_IXGRP}
+def add_group_permissions(fn, perms=""):
+    mode = os.stat(fn)
+    for perm in perms:
+        mode |= PERMS[perm]
+    os.chmod(fn, mode)
 
 
 class ArchiveFile(object):
     def __init__(self, fn):
-        self.fn = os.path.abspath(fn)
+        self.fn = str(os.path.abspath(fn)) # Cast to string in case fn is unicode
         self.ar = None
         if not os.path.isfile(self.fn):
             raise errors.BadFile("Archive file could not be found (%s)!" % \
-                                    self.fn) 
+                                 self.fn)
         
         self.hdr = get_header_vals(self.fn, ['freq', 'length', 'bw', 'mjd', 
                                             'intmjd', 'fracmjd', 'backend', 
                                             'rcvr', 'telescop', 'name', 
                                             'nchan', 'asite', 'period', 'dm',
                                             'nsub', 'nbin', 'npol'])
-        if self.hdr['name'].endswith("_R"):
-            # Is a calibration observation
-            tail = "_R"
-            srcname = self.hdr['name'][:-2]
-        else:
-            # Is not a cal obs
-            tail = ""
-            srcname = self.hdr['name']
-        try:
-            # Normalise names of cal and non-cal observations
-            prefname = get_prefname(srcname) # Use preferred name
-            self.hdr['name'] = prefname+tail # Re-append "_R" if appropriate
-        except errors.BadPulsarNameError:
-            warnings.warn("No preferred name found in 'psrcat'. " \
-                            "Will continue using '%s'" % self.hdr['name'], \
-                            errors.CoastGuardWarning)
+        self.hdr['name'] = get_prefname(self.hdr['name']) # Use preferred name
         self.hdr['secs'] = int(self.hdr['fracmjd']*24*3600+0.5) # Add 0.5 so we actually round
         self.datetime = mjd_to_datetime(self.hdr['mjd'])
         self.hdr['yyyymmdd'] = self.datetime.strftime("%Y%m%d")
         self.hdr['pms'] = self.hdr['period']*1000.0
         self.hdr['inputfn'] = os.path.split(self.fn)[-1]
         self.hdr['inputbasenm'] = os.path.splitext(self.hdr['inputfn'])[0]
+        if self.hdr['freq'] < 1000:
+            self.hdr['band'] = 'Pband'
+        elif self.hdr['freq'] < 2000:
+            self.hdr['band'] = 'Lband'
+        elif self.hdr['freq'] < 4000:
+            self.hdr['band'] = 'Sband'
+        elif self.hdr['freq'] < 8000:
+            self.hdr['band'] = 'Cband'
+        elif self.hdr['freq'] < 12000:
+            self.hdr['band'] = 'Xband'
+        else:
+            self.hdr['band'] = 'Kband'
 
     def __getitem__(self, key):
         filterfunc = lambda x: x # A do-nothing filter
@@ -810,6 +1210,8 @@ class DefaultArguments(argparse.ArgumentParser):
             self.add_standard_group()
             self.add_debug_group()
         args = argparse.ArgumentParser.parse_args(self, *args, **kwargs)
+        if not self._subparsers:
+            set_warning_mode(args.warnmode)
         return args
 
     def add_file_selection_group(self):
@@ -857,6 +1259,10 @@ class DefaultArguments(argparse.ArgumentParser):
                             action=self.SetVerbosity, type=int, \
                             help="Set verbosity level. (Default: " \
                                  "verbosity level = %d)." % config.verbosity)
+        group.add_argument('--set-log-verbosity', nargs=1, dest='loglevel', \
+                            action=self.SetLogVerbosity, type=int, \
+                            help="Set verbosity level for logging. (Default: " \
+                                 "verbosity level = %d)." % config.log_verbosity)
         group.add_argument('--toggle-colour', action=self.ToggleConfigAction, \
                           dest='colour', nargs=0, \
                           help="Toggle colourised output. " \
@@ -867,6 +1273,15 @@ class DefaultArguments(argparse.ArgumentParser):
                           help="Toggle excessive verbosity. " \
                                 "(Default: excessive verbosity is %s)" % \
                                 ((config.excessive_verbosity and "on") or "off"))
+        group.add_argument('-W', '--warning-mode', dest='warnmode', type=str, \
+                            help="Set a filter that applies to all warnings. " \
+                                "The behaviour of the filter is determined " \
+                                "by the action provided. 'error' turns " \
+                                "warnings into errors, 'ignore' causes " \
+                                "warnings to be not printed. 'always' " \
+                                "ensures all warnings are printed. " \
+                                "(Default: print the first occurence of " \
+                                "each warning.)")
         self.added_std_group = True
 
     def add_debug_group(self):
@@ -912,6 +1327,10 @@ class DefaultArguments(argparse.ArgumentParser):
         def __call__(self, parser, namespace, values, option_string):
             config.verbosity = values[0]
 
+    class SetLogVerbosity(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string):
+            config.log_verbosity = values[0]
+
     class SetDebugMode(argparse.Action): 
         def __call__(self, parser, namespace, values, option_string):
             config.debug.set_mode_on(values[0])
@@ -942,7 +1361,7 @@ class DefaultArguments(argparse.ArgumentParser):
         def __call__(self, parser, namespace, values, option_string):
             config.cfg.set_override_config(self.dest, True)
 
-    class UnetOverrideConfigAction(argparse.Action):
+    class UnsetOverrideConfigAction(argparse.Action):
         def __call__(self, parser, namespace, values, option_string):
             config.cfg.set_override_config(self.dest, False)
 

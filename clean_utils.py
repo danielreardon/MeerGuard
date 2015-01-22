@@ -133,6 +133,47 @@ def get_robust_std(data, weights, trimfrac=0.1):
     #return scipy.stats.mstats.std(scipy.stats.mstats.trimboth(mdata, trimfrac))
 
 
+def fit_poly(ydata, xdata, order=1):
+    """Fit a polynomial to data using scipy.linalg.lstsq().
+        
+        Inputs:
+            ydata: A 1D array to be detrended.
+            xdata: A 1D array of x-values to use
+            order: Order of polynomial to use (Default: 1)
+        
+        Outputs:
+            x: An array of polynomial order+1 coefficients
+            poly_ydata: A array of y-values of the polynomial evaluated 
+                at the input xvalues.
+    """
+    # Convert inputs to masked arrays 
+    # Note these arrays still reference the original data/arrays
+    xmasked = np.ma.asarray(xdata)
+    ymasked = np.ma.asarray(ydata)
+    if not np.ma.count(ymasked):
+        # No unmasked values!
+        raise ValueError("Cannot fit polynomial to data. " \
+                        "There are no unmasked values!")
+    ycomp = ymasked.compressed()
+    xcomp = xmasked.compressed()
+
+    powers = np.arange(order+1)
+ 
+    A = np.repeat(xcomp, order+1)
+    A.shape = (xcomp.size, order+1)
+    A = A**powers
+
+    x, resids, rank, s = scipy.linalg.lstsq(A, ycomp)
+    
+    # Generate decompressed detrended array
+    A = np.repeat(xmasked.data, order+1)
+    A.shape = (len(xmasked.data), order+1)
+    A = A**powers
+
+    poly_ydata = np.dot(A, x).squeeze()
+    
+    return x, poly_ydata
+
 def detrend(ydata, xdata=None, order=1, bp=[], numpieces=None):
     """Detrend 'data' using a polynomial of given order.
     
@@ -161,28 +202,16 @@ def detrend(ydata, xdata=None, order=1, bp=[], numpieces=None):
     if numpieces is None:
         edges = [0]+bp+[len(ydata)]
     else:
-        edges = np.round(np.linspace(0, len(ydata), numpieces+1, endpoint=1)).astype(int)
+        # Determine indices to split at based on desired numbers of pieces
+        isplit = np.linspace(0, len(ydata), numpieces+1, endpoint=1)
+        edges = np.round(isplit).astype(int)
     for start, stop in zip(edges[:-1], edges[1:]):
         if not np.ma.count(ymasked[start:stop]):
             # No unmasked values, skip this segment.
             # It will be masked in the output anyway.
             continue
-        ycomp = ymasked[start:stop].compressed()
-        xcomp = xdata[start:stop].compressed()
- 
-        powers = np.arange(order+1)
- 
-        A = np.repeat(xcomp, order+1)
-        A.shape = (xcomp.size, order+1)
-        A = A**powers
-
-        x, resids, rank, s = scipy.linalg.lstsq(A, ycomp)
-        
-        # Generate decompressed detrended array
-        A = np.repeat(xdata.data[start:stop], order+1)
-        A.shape = ((stop-start), order+1)
-        A = A**powers
-        detrended.data[start:stop] -= np.dot(A, x).squeeze()
+        x, poly_ydata = fit_poly(ymasked[start:stop], xdata[start:stop], order)
+        detrended.data[start:stop] -= poly_ydata
     if np.ma.isMaskedArray(ydata):
         return detrended
     else:
@@ -265,6 +294,7 @@ def scale_chans(data, nchans=16, chanweights=None):
         the data.
 
         Inputs:
+            
             data: The channel data to scale.
             nchans: The number of channels to combine together for
                 each subband (Default: 16)
@@ -384,7 +414,6 @@ def remove_profile(data, nsubs, nchans, template, nthreads=None):
     if nthreads is None:
         nthreads = config.cfg.nthreads
     if nthreads == 1:
-        print "Single threaded..."
         for isub, ichan in np.ndindex(nsubs, nchans):
             data[isub, ichan] = remove_profile1d(data[isub, ichan], \
                                             isub, ichan, template)[1]
@@ -424,7 +453,6 @@ def remove_profile_inplace(ar, template, nthreads=1):
     if nthreads is None:
         nthreads = config.cfg.nthreads
     if nthreads == 1:
-        print "Single threaded (inplace)..."
         for isub, ichan in np.ndindex(ar.get_nsubint(), ar.get_nchan()):
             amps = remove_profile1d(data[isub, ichan], isub, ichan, template)[1]
             prof = ar.get_Profile(isub, 0, ichan)

@@ -843,6 +843,30 @@ def preprocess_archive_file(arf, rmbaseline=None, dedisp=None, \
     return clean_utils.apply_weights(data, ar.get_weights())
 
 
+def make_polprofile_plot(arf, preproc='C,D,F,T', outfn=None):
+    utils.print_info("Creating polarization profile plot for %s" % arf.fn, 3)
+    if outfn is None:
+        outfn = "%s.Scyl.ps" % arf.fn
+    utils.print_info("Output plot name: %s" % outfn, 2)
+    suffix = os.path.splitext(outfn)[-1]
+    handle, tmpfn = tempfile.mkstemp(suffix=suffix)
+    
+    if suffix == '.ps':
+        grdev = "%s/CPS" % tmpfn
+    elif suffix == '.png':
+        grdev = "%s/PNG" % tmpfn
+    else:
+        raise errors.InputError("Output file name extension for " \
+                        "polarization profile plot (%s) is not " \
+                        "recognized. Valid " \
+                        "extensions are '.png' and '.ps'." % outfn)
+
+    utils.execute(['psrplot', '-p', 'Scyl', '-j', preproc, \
+                            arf.fn, '-D', grdev])
+    # Rename tmpfn to requested output filename
+    shutil.move(tmpfn, outfn)
+
+
 def make_composite_summary_plot(ar, preproc='C,D', outfn=None):
     utils.print_info("Creating composite summary plot for %s" % ar.fn, 3)
     if outfn is None:

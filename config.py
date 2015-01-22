@@ -1,18 +1,16 @@
 import sys
 import copy
-import os.path
 import os
 
 import utils
-import debug
 import errors
-
+import debug  # Imported for convenience!!
 
 base_config_dir = os.getenv("COASTGUARD_CFG", None)
 if base_config_dir is None:
-    raise ValueError("COASTGUARD_CFG environment variable must be set. " \
-                        "(It should point to the CoastGuard configurations " \
-                        "directory to use.)")
+    raise ValueError("COASTGUARD_CFG environment variable must be set. "
+                     "(It should point to the CoastGuard configurations "
+                     "directory to use.)")
 execfile(os.path.join(base_config_dir, "global.cfg"), {}, locals())
 
 
@@ -33,12 +31,12 @@ def read_file(fn, required=False):
     cfgdict = ConfigDict()
     if os.path.isfile(fn):
         if not fn.endswith('.cfg'):
-            raise ValueError("Coast Guard configuration files must " \
+            raise ValueError("Coast Guard configuration files must "
                              "end with the extention '.cfg'.")
         key = os.path.split(fn)[-1][:-4]
         execfile(fn, {}, cfgdict)
     elif required:
-            raise ValueError("Configuration file (%s) doesn't exist " \
+            raise ValueError("Configuration file (%s) doesn't exist "
                              "and is required!" % fn)
     return cfgdict
 
@@ -66,7 +64,7 @@ class CoastGuardConfigs(object):
             utils.print_debug("Config '%s' found in Default" % key, 'config', stepsback=3)
             val = self.defaults[key]
         else:
-            raise errors.ConfigurationError("The configuration '%s' " \
+            raise errors.ConfigurationError("The configuration '%s' "
                                             "cannot be found!" % key)
         return val
 
@@ -107,27 +105,27 @@ class CoastGuardConfigs(object):
         """
         self.clear_obsconfigs()
         
-        config_files = [] # A list of configuration files to look for
+        config_files = []  # A list of configuration files to look for
 
         telescope = utils.site_to_telescope[arfn['telescop'].lower()]
-        config_files.append(os.path.join(self.base_config_dir, 'telescopes', \
-                                "%s.cfg" % telescope.lower()))
-        config_files.append(os.path.join(self.base_config_dir, 'receivers', \
-                                "%s.cfg" % arfn['rcvr'].lower()))
-        config_files.append(os.path.join(self.base_config_dir, 'backends', \
-                                "%s.cfg" % arfn['backend'].lower()))
-        config_files.append(os.path.join(self.base_config_dir, 'pulsars', \
-                                "%s.cfg" % arfn['name'].upper()))
-        config_files.append(os.path.join(self.base_config_dir, 'observations', \
-                                "%s.cfg" % os.path.split(arfn.fn)[-1]))
+        config_files.append(os.path.join(self.base_config_dir, 'telescopes',
+                            "%s.cfg" % telescope.lower()))
+        config_files.append(os.path.join(self.base_config_dir, 'receivers',
+                            "%s.cfg" % arfn['rcvr'].lower()))
+        config_files.append(os.path.join(self.base_config_dir, 'backends',
+                            "%s.cfg" % arfn['backend'].lower()))
+        config_files.append(os.path.join(self.base_config_dir, 'pulsars',
+                            "%s.cfg" % arfn['name'].upper()))
+        config_files.append(os.path.join(self.base_config_dir, 'observations',
+                            "%s.cfg" % os.path.split(arfn.fn)[-1]))
  
-        msg = "\n    ".join(["Checking for the following configurations:"] + \
-                                config_files)
-        utils.print_debug(msg, 'config')
+        #msg = "\n    ".join(["Checking for the following configurations:"] + \
+        #                        config_files)
+        #utils.print_debug(msg, 'config')
         
         for fn in config_files:
             self.obsconfigs += read_file(fn)
-        utils.print_debug("Current configurations:\n%s" % self, 'config')
+        #utils.print_debug("Current configurations:\n%s" % self, 'config')
 
 
 class ConfigManager(object):
@@ -148,21 +146,28 @@ class ConfigManager(object):
         name = os.getpid()
         if name not in self:
             self.configs[name] = CoastGuardConfigs()
+        utils.print_debug("Getting configs for process %s" % name, 'config')
         return self.configs[name]
    
     def load_configs_for_archive(self, arf):
+        utils.print_debug("Loading configs for %s" % arf.fn, 'config')
         self.get().load_configs_for_archive(arf)
 
     def __getattr__(self, key):
-        return self.get()[key]
+        val = self.get()[key]
+        utils.print_debug("Getting config %s = %s" % (key, val), 'config')
+        return val 
+
 
 cfg = ConfigManager()
 
+
 def main():
-    arf = utils.ArchiveFile(sys.argv[1])
-    cfg.set_override_config("something", 'newvalue!')
-    cfg.load_configs_for_archive(arf)
-    print cfg
+    if len(sys.argv) > 1:
+        arf = utils.ArchiveFile(sys.argv[1])
+        cfg.set_override_config("something", 'newvalue!')
+        cfg.load_configs_for_archive(arf)
+    print cfg.get()
 
 
 if __name__ == '__main__':
