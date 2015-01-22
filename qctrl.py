@@ -360,6 +360,7 @@ class QualityControl(qtgui.QWidget):
                       'stage': 'cleaned',
                       'note': "Manually zapped",
                       'qcpassed': True,
+                      'snr': utils.get_archive_snr(out),
                       'md5sum': utils.get_md5sum(out),
                       'filesize': os.path.getsize(out),
                       'parent_file_id': self.file_id}
