@@ -35,7 +35,9 @@ OBSLOG_FIELDS = (('localdate', rs.utils.parse_datestr),
 
 RCVR_INFO = {'P217-3': 'rcvr:name=P217-3,rcvr:hand=-1,rcvr:basis=cir',
              'S110-1': 'rcvr:name=S110-1,rcvr:hand=-1,rcvr:basis=cir',
-             'P200-3': 'rcvr:name=P200-3,rcvr:hand=-1,rcvr:basis=cir'}
+             'P200-3': 'rcvr:name=P200-3,rcvr:hand=-1,rcvr:basis=cir',
+             'S60-2':  'rcvr:name=S60-2,rcvr:hand=-1,rcvr:basis=cir', # Not sure about handedness
+             'S36-5':  'rcvr:name=S36-5,rcvr:hand=-1,rcvr:basis=cir'} # Not sure about handedness
 
 
 def get_coordinates(arf, obsinfo=None):
@@ -85,10 +87,13 @@ def correct_header(arfn, obsinfo=None, outfn=None, backend='asterix'):
     note = ""
     # Load archive
     arf = utils.ArchiveFile(arfn)
-    if arf['freq'] > 2000: 
-        # S-band
+    if arf['band'] == 'Cband':
+        rcvr = 'S60-2'
+    elif arf['band'] == 'Xband':
+        rcvr = 'S36-5'
+    elif arf['band'] == 'Sband':
         rcvr = 'S110-1'
-    else:
+    elif arf['band'] == 'Lband':
         # L-band
         ar = arf.get_archive()
         nchan = ar.get_nchan()
@@ -108,6 +113,9 @@ def correct_header(arfn, obsinfo=None, outfn=None, backend='asterix'):
             rcvr = 'P217-3'
         else:
             raise errors.HeaderCorrectionError("Cannot determine receiver.")
+    else:
+        raise errors.HeaderCorrectionError("Not set up to correct headers for "
+                                           "%s observations." % arf['band'])
     if arf['rcvr'] != rcvr:
         note += "Receiver is wrong (%s) setting to '%s'. " % \
                 (arf['rcvr'], rcvr)
@@ -129,7 +137,10 @@ def correct_header(arfn, obsinfo=None, outfn=None, backend='asterix'):
         if any([arf['name'].startswith(fluxcal) for fluxcal
                 in utils.read_fluxcal_names(config.fluxcal_cfg)]):
             # Flux calibrator
-            pass
+            if arf['name'].endswith("_S_R") or arf['name'].endswith("_N_R"):
+                corrstr += ",type=FluxCal-Off"
+            elif arf['name'].endswith("_O_R"): 
+                corrstr += ",type=FluxCal-On"
         else:
             # Polarization calibrator
             corrstr += ",type=PolnCal"
