@@ -16,27 +16,32 @@ def main():
 
     db = database.Database()
     with db.transaction() as conn:
-        select = db.select([db.files.c.filepath, 
-                            db.files.c.filename]).\
-                    where(db.files.c.added > datestr)
+        select = db.select([db.files.c.filepath,
+                            db.files.c.filename,
+                            db.files.c.file_id]).\
+                    where(db.files.c.added > datestr).\
+                    order_by(db.files.c.added.desc())
         results = conn.execute(select)
         filerows = results.fetchall()
         results.close()
 
         select = db.select ([db.directories.c.path]).\
-                        where(db.directories.c.added > datestr)
+                    where(db.directories.c.added > datestr).\
+                    order_by(db.directories.c.added.desc())
         results = conn.execute(select)
         dirrows = results.fetchall()
         results.close()
 
         select = db.select ([db.obs.c.obs_id]).\
-                        where(db.obs.c.added > datestr)
+                        where(db.obs.c.added > datestr).\
+                        order_by(db.obs.c.added.desc())
         results = conn.execute(select)
         obsrows = results.fetchall()
         results.close()
 
         select = db.select ([db.logs.c.log_id]).\
-                        where(db.logs.c.added > datestr)
+                        where(db.logs.c.added > datestr).\
+                        order_by(db.logs.c.added.desc())
         results = conn.execute(select)
         logsrows = results.fetchall()
         results.close()
@@ -56,11 +61,11 @@ def main():
                     os.remove(ff)
                 except:
                     pass
-            # Remove file entries
-            delete = db.files.delete().\
-                        where(db.files.c.added > datestr)
-            results = conn.execute(delete)
-            results.close()
+                # Remove file entries
+                delete = db.files.delete().\
+                            where(db.files.c.file_id == row['file_id'])
+                results = conn.execute(delete)
+                results.close()
             # Remove log entries
             delete = db.logs.delete().\
                         where(db.logs.c.added > datestr)
