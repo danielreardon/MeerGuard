@@ -11,18 +11,18 @@ import glob
 import sys
 import os
 
-import config
-import utils
-import diagnose
-import cleaners
-import combine
-import database
-import errors
-import debug
-import log
-import correct
-import calibrate
-
+from coast_guard import config
+from coast_guard import utils
+from coast_guard import diagnose
+from coast_guard import cleaners
+from coast_guard import combine
+from coast_guard import database
+from coast_guard import errors
+from coast_guard import debug
+from coast_guard import log
+from coast_guard import correct
+from coast_guard import calibrate
+ 
 import pyriseset as rs
 
 import toaster.config
@@ -179,6 +179,7 @@ def load_groups(dirrow):
             except OSError:
                 # Directory already exists
                 pass
+
             logoutdir = os.path.join(config.output_location, 'logs', arf['name'])
 
             try:
@@ -201,7 +202,8 @@ def load_groups(dirrow):
             else:
                 obstype = 'pulsar'
             obsinfo.append({'sourcename': arf['name'],
-                            'start_mjd': arf['mjd'],
+                            'start_mjd': arf['intmjd']+arf['fracmjd'],
+                            'length': arf['length'],
                             'obstype': obstype})
 
             values.append({'filepath': listpath,
@@ -417,6 +419,7 @@ def load_corrected_file(filerow):
         archivefn = (config.outfn_template+".corr") % arf
         try:
             os.makedirs(archivedir)
+            utils.add_group_permissions(archivedir, "rwx")
         except OSError:
             # Directory already exists
             pass
@@ -553,6 +556,7 @@ def load_cleaned_file(filerow):
         # Make sure output directory exists
         try:
             os.makedirs(archivedir)
+            utils.add_group_permissions(archivedir, "rwx")
         except OSError:
             # Directory already exists:
             pass
@@ -1465,6 +1469,10 @@ def make_summary_plots(arf):
         preproc += ",T %d" % (arf['length']/60)
     lowresfn = arf.fn+".scrunched.png"
     diagnose.make_composite_summary_plot(arf, preproc, outfn=lowresfn)
+    
+    # Make sure plots are group-readable
+    utils.add_group_permissions(fullresfn, "r")
+    utils.add_group_permissions(lowresfn, "r")
 
     return fullresfn, lowresfn
 
@@ -1489,6 +1497,10 @@ def make_polprofile_plots(arf):
     lowresfn = arf.fn+".Scyl.scrunched.png"
     diagnose.make_polprofile_plot(arf, preproc, outfn=lowresfn)
 
+    # Make sure plots are group-readable
+    utils.add_group_permissions(fullresfn, "r")
+    utils.add_group_permissions(lowresfn, "r")
+
     return fullresfn, lowresfn
 
 
@@ -1512,6 +1524,9 @@ def make_stokes_plot(arf):
                   arf.fn, '-D', grdev])
     # Rename tmpfn to requested output filename
     shutil.move(tmpfn, outfn)
+
+    # Make sure plot is group-readable
+    utils.add_group_permissions(outfn, "r")
     return outfn
 
 
