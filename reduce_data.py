@@ -5,11 +5,18 @@ import traceback
 import warnings
 import tempfile
 import datetime
+import hashlib
 import shutil
 import time
 import glob
 import sys
 import os
+
+
+import toaster.config
+import toaster.debug
+import toaster.errors
+from toaster.toolkit.rawfiles import load_rawfile
 
 from coast_guard import config
 from coast_guard import utils
@@ -22,13 +29,8 @@ from coast_guard import debug
 from coast_guard import log
 from coast_guard import correct
 from coast_guard import calibrate
- 
-import pyriseset as rs
 
-import toaster.config
-import toaster.debug
-import toaster.errors
-from toaster.toolkit.rawfiles import load_rawfile
+import pyriseset as rs
 
 # A lock for each calibrator database file
 # The multiprocessing.Lock objects are created on demand
@@ -39,7 +41,7 @@ STAGE_TO_EXT = {'combined': '.cmb',
                 'cleaned': '.clean',
                 'corrected': '.corr'}
 
-TWO_HRS_IN_DAYS = 2.0/24.0
+MINUTES_PER_DAY = 60.0*24.0
 
 SOURCELISTS = {'epta': ['J0030+0451', 'J0218+4232', 'J0613-0200', 
                         'J0621+1002', 'J0751+1807', 'J1012+5307', 
@@ -77,19 +79,133 @@ SOURCELISTS = {'epta': ['J0030+0451', 'J0218+4232', 'J0613-0200',
                         'J2145-0750', 'J2317+1439'], 
                 'mou': [#'J1946+3414', 'J1832-0836', 'J2205+6015', 
                         'J1125+7819', 'J0742+6620', 'J1710+4923', 
-                        'J0636+5128', 'J2234+0611', 'J0931-1902']}
+                        'J0636+5128', 'J2234+0611', 'J0931-1902'],
+       'asterixpaper': ['J0030+0451', 'J0034-0534', 'J0218+4232', 
+                        'J0348+0432', 
+                        'J0610-2100', 'J0613-0200', 'J0621+1002', 
+                        #'J0737-3039A',
+                        'J0751+1807', 'J0900-3144', 'J1012+5307', 
+                        'J1022+1001', 'J1024-0719', 'J1455-3330', 
+                        'J1518+4904',
+                        'J1600-3053', 'J1640+2224', 'J1643-1224', 
+                        'J1713+0747', 'J1721-2457', 'J1730-2304', 
+                        'J1738+0333', 'J1741+1351', 'J1744-1134', 
+                        'J1751-2857', 'J1801-1417', 'J1802-2124',
+                        'J1804-2717', 'J1843-1113', 'J1853+1303', 
+                        'J1857+0943', 'J1909-3744', 'J1910+1256', 
+                        'J1911-1114', 'J1911+1347', 'J1918-0642', 
+                        'J1939+2134', 'J1955+2908', 'J2010-1323', 
+                        'J2019+2425', 'J2033+1734', 'J2145-0750', 
+                        'J2229+2643', 'J2317+1439', 'J2322+2057', 
+                        'J0340+4129', 'J2017+0603', 'J2043+1711', 
+                        'J2124-3358', 'J2234+0944', 'J0023+0923']}
 
-PARFILES = {'J0737-3039A': '/media/part1/plazarus/timing/asterix/'
-                           'testing/parfiles/to_install/0737-3039A.par'}
+PARFILES = {
+            'J0030+0451': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J0030+0451.par-ML',
+            'J0034-0534': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J0034-0534.par-ML',
+            'J0218+4232': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J0218+4232.par-ML',
+            'J0340+4129': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/to_install/J0340+4129.par',
+            'J0610-2100': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J0610-2100.par-ML',
+            'J0613-0200': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J0613-0200.par-ML',
+            'J0621+1002': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J0621+1002.par-ML',
+            'J0737-3039A': '/media/part1/plazarus/timing/asterix/'
+                           'testing/parfiles/to_install/0737-3039A.par',
+            'J0751+1807': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J0751+1807.par-ML',
+            'J0900-3144': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J0900-3144.par-ML',
+            'J1012+5307': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1012+5307.par-ML',
+            'J1022+1001': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1022+1001.par-ML',
+            'J1024-0719': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1024-0719.par-ML',
+            'J1455-3330': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1455-3330.par-ML',
+            'J1600-3053': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1600-3053.par-ML',
+            'J1640+2224': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1640+2224.par-ML',
+            'J1643-1224': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1643-1224.par-ML',
+            'J1713+0747': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1713+0747.par-ML',
+            'J1721-2457': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1721-2457.par-ML',
+            'J1730-2304': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1730-2304.par-ML',
+            'J1738+0333': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1738+0333.par-ML',
+            'J1744-1134': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1744-1134.par-ML',
+            'J1751-2857': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1751-2857.par-ML',
+            'J1801-1417': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1801-1417.par-ML',
+            'J1802-2124': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1802-2124.par-ML',
+            'J1804-2717': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1804-2717.par-ML',
+            'J1811-1736': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/to_install/J1811-1736.atnf.par',
+            'J1843-1113': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1843-1113.par-ML',
+            'J1853+1303': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1853+1303.par-ML',
+            'J1857+0943': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1857+0943.par-ML',
+            'J1909-3744': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1909-3744.par-ML',
+            'J1910+1256': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1910+1256.par-ML',
+            'J1911-1114': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1911-1114.par-ML',
+            'J1911+1347': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1911+1347.par-ML',
+            'J1918-0642': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1918-0642.par-ML',
+            'J1939+2134': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1939+2134.par-ML',
+            'J1955+2908': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J1955+2908.par-ML',
+            'J2010-1323': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J2010-1323.par-ML',
+            'J2017+0603': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/to_install/J2017+0603.atnf.par',
+            'J2019+2425': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J2019+2425.par-ML',
+            'J2033+1734': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J2033+1734.par-ML',
+            'J2043+1711': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/to_install/J2043+1711.par',
+            'J2124-3358': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J2124-3358.par-ML',
+            'J2145-0750': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J2145-0750.par-ML',
+            'J2229+2643': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J2229+2643.par-ML',
+            'J2317+1439': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J2317+1439.par-ML',
+            'J2322+2057': '/media/part1/plazarus/timing/asterix/testing/'
+                          'parfiles/epta-v2.2-parfiles/J2322+2057.par-ML',
+            }
 
-
-def load_directories(db, *args, **kwargs):
+def load_directories(db, force=False, *args, **kwargs):
     """Search for directories containing asterix data.
         For each newly found entry, insert a row in the
         database.
 
         Input:
             db: Database object to use.
+            force: Attempt to load all directories regardless
+                of modification times. (Default: False)
             ** Additional arguments are passed on to 'get_rawdata_dirs' **
 
         Output:
@@ -112,7 +228,7 @@ def load_directories(db, *args, **kwargs):
     dirs = get_rawdata_dirs(*args, **kwargs)
     nn = len(dirs)
     for ii, path in utils.show_progress(enumerate(dirs), tot=nn, width=50):
-        if os.path.getmtime(path) > most_recent_addtime:
+        if force or (os.path.getmtime(path) > most_recent_addtime):
             # Only try to add new entries
             try:
                 with db.transaction() as conn:
@@ -183,7 +299,9 @@ def load_groups(dirrow):
             logoutdir = os.path.join(config.output_location, 'logs', arf['name'])
 
             try:
+                oldumask = os.umask(0007)
                 os.makedirs(logoutdir)
+                os.umask(oldumask)
             except OSError:
                 # Directory already exists
                 pass
@@ -201,15 +319,25 @@ def load_groups(dirrow):
                 obstype = 'cal'
             else:
                 obstype = 'pulsar'
+            try:
+                ephem = utils.extract_parfile(os.path.join(dirs[0], fns[0]))
+                ephem_md5sum = hashlib.md5(ephem).hexdigest()
+            except errors.InputError, exc:
+                warnings.warn(exc.get_message(), errors.CoastGuardWarning)
+                ephem_md5sum = None
             obsinfo.append({'sourcename': arf['name'],
                             'start_mjd': arf['intmjd']+arf['fracmjd'],
-                            'length': arf['length'],
-                            'obstype': obstype})
+                            'obstype': obstype,
+                            'nsubbands': len(dirs),
+                            'nsubints': len(fns), 
+                            'obsband': arf['band']})
 
             values.append({'filepath': listpath,
                            'filename': listname,
                            'stage': 'grouped',
                            'md5sum': utils.get_md5sum(listfn),
+                           'ephem_md5sum': ephem_md5sum,
+                           'coords': arf['coords'],
                            'filesize': os.path.getsize(listfn)})
     except Exception as exc:
         utils.print_info("Exception caught while working on Dir ID %d" %
@@ -247,6 +375,11 @@ def load_groups(dirrow):
                             values(obs_id=obs_id)
                 result = conn.execute(insert, vals)
                 file_id = result.inserted_primary_key[0]
+                # Update obs to have current_file_id set
+                update = db.obs.update().\
+                            where(db.obs.c.obs_id == obs_id).\
+                            values(current_file_id=file_id)
+                result = conn.execute(update)
                 # Insert log
                 shutil.copy(tmplogfn, logfn)
                 insert = db.logs.insert().\
@@ -326,8 +459,14 @@ def load_combined_file(filerow):
                              (cmbfn, arf['nchan'], new_nchan), 2)
             # Scrunch channels
             utils.execute(['pam', '-m', '--setnchn', "%d" % new_nchan, cmbfn])
+            # Re-load archive file
+            arf = utils.ArchiveFile(cmbfn)
         else:
             note = None
+
+        # Make diagnostic plots
+        fullresfn, lowresfn = make_summary_plots(arf)
+
         values = {'filepath': cmbdir,
                   'filename': os.path.basename(cmbfn),
                   'stage': 'combined',
@@ -335,7 +474,18 @@ def load_combined_file(filerow):
                   'filesize': os.path.getsize(cmbfn),
                   'parent_file_id': parent_file_id,
                   'note': note,
+                  'coords': arf['coords'],
                   'snr': arf['snr']}
+        try:
+            ephem = utils.extract_parfile(cmbfn)
+            values['ephem_md5sum'] = hashlib.md5(ephem).hexdigest()
+        except errors.InputError, exc:
+            warnings.warn(exc.get_message(), errors.CoastGuardWarning)
+        diagvals = [{'diagnosticpath': os.path.dirname(fullresfn),
+                     'diagnosticname': os.path.basename(fullresfn)},
+                    {'diagnosticpath': os.path.dirname(lowresfn),
+                     'diagnosticname': os.path.basename(lowresfn)}
+                   ]
     except Exception as exc:
         utils.print_info("Exception caught while working on File ID %d" %
                          parent_file_id, 0)
@@ -364,11 +514,23 @@ def load_combined_file(filerow):
                             obs_id=obs_id)
             result = conn.execute(insert, values)
             new_file_id = result.inserted_primary_key[0]
+            # Insert diagnostic entries
+            insert = db.diagnostics.insert().\
+                    values(file_id=new_file_id)
+            result = conn.execute(insert, diagvals)
             # Update status of parent file's entry
             update = db.files.update(). \
                         where(db.files.c.file_id==parent_file_id).\
                         values(status='processed', \
                                 last_modified=datetime.datetime.now())
+            conn.execute(update)
+            # Update observation length
+            update = db.obs.update().\
+                        where(db.obs.c.obs_id==obs_id).\
+                        values(length=arf['length'],
+                               bw=arf['bw'],
+                               current_file_id=new_file_id,
+                               last_modified=datetime.datetime.now())
             conn.execute(update)
     return new_file_id
 
@@ -409,7 +571,28 @@ def load_corrected_file(filerow):
                         (parent_file_id, filerow['status'], filerow['stage']))
     infn = os.path.join(filerow['filepath'], filerow['filename'])
     try:
-        corrfn, corrstr, note = correct.correct_header(infn)
+        global mjd_to_receiver
+        if (filerow['obsband'] == 'Lband') and (mjd_to_receiver is not None):
+            imjd = int(filerow['start_mjd'])
+            rcvr = mjd_to_receiver.get(imjd, 'X')
+            if rcvr == '?':
+                raise errors.HeaderCorrectionError("Using MJD to receiver mapping "
+                                                   "but receiver is unknown (%s)" % rcvr)
+            elif rcvr == 'X':
+                raise errors.HeaderCorrectionError("Using MJD to receiver mapping "
+                                                   "but MJD (%d) has no entry" % imjd)
+            elif rcvr == '1':
+                # Single pixel receiver
+                rcvr = "P200-3"
+            elif rcvr == '7':
+                # 7-beam receiver
+                rcvr = "P217-3"
+            else:
+                raise errors.HeaderCorrectionError("Using MJD to receiver mapping "
+                                                   "but receiver is invalid (%s)" % rcvr)
+        else:
+            rcvr = None # Receiver will be determined automatically
+        corrfn, corrstr, note = correct.correct_header(infn, receiver=rcvr)
 
         arf = utils.ArchiveFile(corrfn)
 
@@ -441,7 +624,13 @@ def load_corrected_file(filerow):
                   'md5sum': utils.get_md5sum(corrfn),
                   'filesize': os.path.getsize(corrfn),
                   'parent_file_id': parent_file_id,
+                  'coords': arf['coords'],
                   'snr': arf['snr']}
+        try:
+            ephem = utils.extract_parfile(corrfn)
+            values['ephem_md5sum'] = hashlib.md5(ephem).hexdigest()
+        except errors.InputError, exc:
+            warnings.warn(exc.get_message(), errors.CoastGuardWarning)
         diagvals = [{'diagnosticpath': os.path.dirname(fullresfn),
                      'diagnosticname': os.path.basename(fullresfn)},
                     {'diagnosticpath': os.path.dirname(lowresfn),
@@ -485,6 +674,7 @@ def load_corrected_file(filerow):
             update = db.obs.update().\
                         where(db.obs.c.obs_id == obs_id).\
                         values(rcvr=arf['rcvr'],
+                               current_file_id=file_id,
                                last_modified=datetime.datetime.now())
             conn.execute(update)
             # Update parent file
@@ -574,7 +764,13 @@ def load_cleaned_file(filerow):
                   'md5sum': utils.get_md5sum(cleanfn),
                   'filesize': os.path.getsize(cleanfn),
                   'parent_file_id': parent_file_id,
+                  'coords': arf['coords'],
                   'snr': arf['snr']}
+        try:
+            ephem = utils.extract_parfile(cleanfn)
+            values['ephem_md5sum'] = hashlib.md5(ephem).hexdigest()
+        except errors.InputError, exc:
+            warnings.warn(exc.get_message(), errors.CoastGuardWarning)
         diagvals = [{'diagnosticpath': os.path.dirname(fullresfn),
                      'diagnosticname': os.path.basename(fullresfn)},
                     {'diagnosticpath': os.path.dirname(lowresfn),
@@ -609,6 +805,12 @@ def load_cleaned_file(filerow):
                             obs_id=obs_id)
             result = conn.execute(insert, values)
             file_id = result.inserted_primary_key[0]
+            # Update current file ID for obs
+            update = db.obs.update().\
+                        where(db.obs.c.obs_id == obs_id).\
+                        values(current_file_id=file_id,
+                               last_modified=datetime.datetime.now())
+            conn.execute(update)
             # Insert diagnostic entries
             insert = db.diagnostics.insert().\
                     values(file_id=file_id)
@@ -672,6 +874,17 @@ def load_calibrated_file(filerow, lock):
                             filerow['stage'], filerow['qcpassed']))
     infn = os.path.join(filerow['filepath'], filerow['filename'])
     try:
+        # Check if file has already been calibrated and failed
+        cal_already_failed = False
+        with db.transaction() as conn:
+            family = get_all_obs_files(filerow['file_id'], db)
+            for member in family:
+                if (member['stage'] == 'calibrated') and (member['qcpassed'] == False):
+                    cal_already_failed = True
+                    raise errors.CalibrationError("Obs (ID: %d) has previously been calibrated "
+                                                  "and failed (file ID: %d). Will not try again." % 
+                                                  (filerow['obs_id'], filerow['file_id']))
+
         arf = utils.ArchiveFile(infn)
         # Reduce data to the equivalent of 128 channels over 200 MHz
         # That is f_chan = 1.5625 MHz
@@ -697,12 +910,13 @@ def load_calibrated_file(filerow, lock):
             values['status'] = 'done'
         else:
             # Pulsar scan. Calibrate it.
-            caldbrow = get_caldb(db, name)
+            caldbrow = calibrate.get_caldb(db, name)
             if caldbrow is None:
                 raise errors.DataReductionFailed("No matching calibrator "
                                                  "database row for %s." % name)
             caldbpath = os.path.join(caldbrow['caldbpath'],
                                         caldbrow['caldbname'])
+            utils.print_debug("Calibration DB: %s" % caldbpath, 'calibrate')
             try:
                 lock.acquire()
                 calfn = calibrate.calibrate(infn, caldbpath, nchans=nchans)
@@ -751,6 +965,12 @@ def load_calibrated_file(filerow, lock):
         values['filepath'], values['filename'] = os.path.split(outpath)
         values['md5sum'] = utils.get_md5sum(outpath)
         values['filesize'] = os.path.getsize(outpath)
+        values['coords'] = arf['coords']
+        try:
+            ephem = utils.extract_parfile(outpath)
+            values['ephem_md5sum'] = hashlib.md5(ephem).hexdigest()
+        except errors.InputError, exc:
+            warnings.warn(exc.get_message(), errors.CoastGuardWarning)
     except Exception as exc:
         utils.print_info("Exception caught while working on File ID %d" %
                          parent_file_id, 0)
@@ -765,7 +985,7 @@ def load_calibrated_file(filerow, lock):
         if filerow['obstype'] == 'cal':
             status = 'failed'
             note = 'Calibration failed! %s: %s' % (type(exc).__name__, msg)
-        elif can_calibrate(db, obs_id):
+        elif (not cal_already_failed) and can_calibrate(db, obs_id):
             # Calibration of this file will be reattempted when 
             # the calibration database is updated
             status = 'calfail'
@@ -790,6 +1010,12 @@ def load_calibrated_file(filerow, lock):
                             obs_id=obs_id)
             result = conn.execute(insert, values)
             file_id = result.inserted_primary_key[0]
+            # Update current file ID for obs
+            update = db.obs.update().\
+                        where(db.obs.c.obs_id == obs_id).\
+                        values(current_file_id=file_id,
+                               last_modified=datetime.datetime.now())
+            conn.execute(update)
             if diagvals:
                 # Insert diagnostic entries
                 insert = db.diagnostics.insert().\
@@ -805,10 +1031,56 @@ def load_calibrated_file(filerow, lock):
             # Update the calibrator database
             try:
                 lock.acquire()
-                update_caldb(db, arf['name'], force=True)
+                calibrate.update_caldb(db, arf['name'], force=True)
+                reattempt_calibration(db, name)
             finally:
                 lock.release()
     return file_id
+
+
+def reattempt_calibration(db, sourcename):
+    """Mark files that have failed calibration to be reattempted.
+
+        Inputs:
+            db: A Database object.
+            sourcename: The name of the source to match.
+                (NOTE: '_R' will be removed from the sourcename, if present)
+            
+        Outputs:
+            None
+    """
+    name = utils.get_prefname(sourcename)
+    if name.endswith('_R'):
+        name = name[:-2]
+
+    db = database.Database()
+    with db.transaction() as conn:
+        # Get rows that need to be updated
+        # The update is a two-part process because
+        # a join is required. (Can updates include joins?)
+        select = db.select([db.files],
+                    from_obj=[db.files.\
+                        outerjoin(db.obs,
+                            onclause=db.files.c.obs_id ==
+                                    db.obs.c.obs_id)]).\
+                    where((db.files.c.status == 'calfail') &
+                            (db.files.c.stage == 'cleaned') &
+                            (db.files.c.qcpassed == True) &
+                            (db.obs.c.sourcename == name))
+        result = conn.execute(select)
+        rows = result.fetchall()
+        result.close()
+        # Now update rows
+        for row in rows:
+            update = db.files.update().\
+                    where(db.files.c.file_id == row['file_id']).\
+                    values(status='new',
+                            note='Reattempting calibration',
+                            last_modified=datetime.datetime.now())
+            conn.execute(update)
+        utils.print_info("Resetting status to 'new' (from 'calfail') "
+                         "for %d files with sourcename='%s'" %
+                         (len(rows), name), 2)
 
 
 def load_to_toaster(filerow):
@@ -835,7 +1107,7 @@ def load_to_toaster(filerow):
         with db.transaction() as conn:
             update = db.files.update().\
                         where(db.files.c.file_id == file_id).\
-                        values(status='failed',
+                        values(status='done',
                                 note='Could not be loaded into TOASTER.',
                                 last_modified=datetime.datetime.now())
             conn.execute(update)
@@ -853,7 +1125,7 @@ def load_to_toaster(filerow):
 
 
 def can_calibrate(db, obs_id):
-    """Return True is observation can be calibrated.
+    """Return True if observation can be calibrated.
         NOTE: It is still possible the observation cannot
             be calibrated _now_ even if this function returns
             True. This might be the case if the calibration
@@ -866,18 +1138,33 @@ def can_calibrate(db, obs_id):
         Outputs:
             can_cal: True if the observation can be calibrated.
     """
+    return bool(get_potential_polcal_scans(db, obs_id))
+
+
+def get_potential_polcal_scans(db, obs_id):
+    """Return list of potential polarization calibration scans
+        for the given observation.
+
+        NOTE: Scans that have not completed processing or 
+            quality control are still considered to be 
+            potential calibration scans.
+
+        Inputs:
+            db: A database object.
+            obs_id: The ID number of an entry in the database.
+
+        Outputs:
+            cals: List of potential calibrator scans.
+    """
     obsrow = get_obs(db, obs_id)
     if obsrow['obstype'] != 'pulsar':
         raise errors.InputError("Only observations of type 'pulsar' "
                                 "can be calibrated. Obstype for obs_id %d: %s" %
                                 (obs_id, obsrow['obstype']))
-    mjdnow = rs.utils.mjdnow()
-    if (mjdnow - obsrow['start_mjd']) < 7:
-        # Observation is less than 1 week old.
-        # Let's hold out hope that it can be calibrated.
-        return True
-    mjdrange = (obsrow['start_mjd']-TWO_HRS_IN_DAYS,
-                obsrow['start_mjd']+TWO_HRS_IN_DAYS)
+    psrchive_cfg = utils.get_psrchive_configs()
+    polcal_validity_minutes = float(psrchive_cfg.get("Database::short_time_scale", 120))
+    mjdrange = (obsrow['start_mjd']-polcal_validity_minutes/MINUTES_PER_DAY,
+                obsrow['start_mjd']+polcal_validity_minutes/MINUTES_PER_DAY)
     # Now try to find a compatible calibrator scan
     with db.transaction() as conn:
         select = db.select([db.files],
@@ -890,19 +1177,114 @@ def can_calibrate(db, obs_id):
                                     obsrow['sourcename']) &
                             ((db.obs.c.rcvr == obsrow['rcvr']) |
                                 (db.obs.c.rcvr.is_(None))) &
-                            db.obs.c.start_mjd.between(*mjdrange))
+                            db.obs.c.start_mjd.between(*mjdrange) &
+                            (db.obs.c.bw == obsrow['bw']) &
+                            (db.obs.c.freq == obsrow['freq'])).\
+                    order_by(db.files.c.added.asc())
         results = conn.execute(select)
         rows = results.fetchall()
         results.close()
-    obs = {}
-    utils.sort_by_keys(rows, ['file_id'])
-    for row in rows:
-        can_cal = obs.setdefault(row['obs_id'], True)
-        obs[row['obs_id']] &= (not (row['qcpassed'] == False))
-    can_cal = obs.values()
-    utils.print_info("Found %d potential calibrators for obs ID %d" %
-                    (sum(can_cal), obs_id), 2)
-    return any(can_cal)
+    # Only keep most recently added file for each
+    # observation. Rows are sorted in the query above.
+    obs_ids = []
+    for ii in reversed(range(len(rows))):
+        if rows[ii]['obs_id'] in obs_ids:
+            rows.pop(ii)
+        else:
+            obs_ids.append(rows[ii]['obs_id'])
+    # Throw away observations that failed processing or quality control
+    rows = [row for row in rows if (row['status'] != "failed") and 
+                                   (row['qcpassed'] != False)]
+    mjdnow = rs.utils.mjdnow()
+    if not rows and ((mjdnow - obsrow['start_mjd']) < 7):
+        # Observation is less than 1 week old.
+        # Let's hold out hope that it can be calibrated.
+        return ["Obs is less than 7 days old... maybe data still need to be copied"]
+    return rows
+
+
+def get_parent(file_id, db=None):
+    # Connect to database if db is None
+    db = db or database.Database()
+
+    with db.transaction() as conn:
+        select = db.select([db.files.c.parent_file_id]).\
+                    where(db.files.c.file_id == file_id)
+        result = conn.execute(select)
+        rows = result.fetchall()
+        result.close()
+        if len(rows) == 1:
+            row = rows[0]
+            if row['parent_file_id'] is not None:
+                select = db.select([db.files]).\
+                            where(db.files.c.file_id == row['parent_file_id'])
+                result = conn.execute(select)
+                parent = result.fetchone()
+                result.close()
+            else:
+                parent = None
+        else:
+            raise errors.DatabaseError("Bad number of files (%d) with ID=%d!" % (len(rows), file_id))
+    return parent
+
+
+def get_all_obs_files(file_id, db=None):
+    # Connect to database if db is None
+    db = db or database.Database()
+   
+    with db.transaction() as conn:
+        select = db.select([db.files.c.obs_id]).\
+                    where(db.files.c.file_id == file_id)
+        result = conn.execute(select)
+        rows = result.fetchall()
+        result.close()
+        if len(rows) == 1:
+            select = db.select([db.files]).\
+                        where(db.files.c.obs_id == rows[0]['obs_id']).\
+                        order_by(db.files.c.file_id.desc())
+            result = conn.execute(select)
+            obsfiles = result.fetchall()
+            result.close()
+        else:
+            raise errors.DatabaseError("Bad number of files (%d) with ID=%d!" % (len(rows), file_id))
+    return obsfiles
+
+
+def get_all_ancestors(file_id, db=None):
+    # Connect to database if db is None
+    db = db or database.Database()
+
+    ancestors = [] 
+    parent = get_parent(file_id)
+    if parent:
+        ancestors.append(parent)
+        ancestors.extend(get_all_ancestors(parent['file_id'], db))
+    return ancestors
+    
+
+def get_all_descendents(file_id, db=None):
+    # Connect to database if db is None
+    db = db or database.Database()
+
+    decendents = [] 
+    children = get_children(file_id)
+    decendents.extend(children)
+    for child in children:
+        decendents.extend(get_all_descendents(child['file_id'], db))
+    return decendents
+
+
+def get_children(file_id, db=None):
+    # Connect to database if db is None
+    db = db or database.Database()
+
+    with db.transaction() as conn:
+        select = db.select([db.files]).\
+                    where(db.files.c.parent_file_id == file_id)
+        result = conn.execute(select)
+        rows = result.fetchall()
+        result.close()
+    return rows
 
 
 def get_obs(db, obs_id):
@@ -959,185 +1341,6 @@ def get_files(db, obs_id):
         rows = result.fetchall()
         result.close()
     return rows
-
-
-def get_caldb(db, sourcename):
-    """Given a sourcename return the corresponding entry in the
-        caldb table.
-
-        Inputs:
-            db: A Database object.
-            sourcename: The name of the source to match.
-                (NOTE: '_R' will be removed from the sourcename, if present)
-
-        Output:
-            caldbrow: The caldb's DB row, or None if no caldb entry exists.
-    """
-    name = utils.get_prefname(sourcename)
-    if name.endswith('_R'):
-        name = name[:-2]
-
-    with db.transaction() as conn:
-        select = db.select([db.caldbs]).\
-                    where(db.caldbs.c.sourcename == name)
-        results = conn.execute(select)
-        rows = results.fetchall()
-        results.close()
-
-    if len(rows) == 1:
-        return rows[0]
-    elif len(rows) == 0:
-        return None
-    else:
-        raise errors.DatabaseError("Bad number of caldb rows (%d) "
-                                   "with sourcename='%s'!" %
-                                   (len(rows), name))
-
-
-def update_caldb(db, sourcename, force=False):
-    """Check for new calibrator scans. If found update the calibrator database.
-
-        Inputs:
-            db: A Database object.
-            sourcename: The name of the source to match.
-                (NOTE: '_R' will be removed from the sourcename, if present)
-            force: Forcefully update the caldb
-        
-        Outputs:
-            caldb: The path to the updated caldb.
-    """
-    name = utils.get_prefname(sourcename)
-    if name.endswith('_R'):
-        name = name[:-2]
-
-    # Get the caldb
-    caldb = get_caldb(db, name)
-    if caldb is None:
-        lastupdated = datetime.datetime.min
-        outdir = os.path.join(config.output_location, 'caldbs')
-        try:
-            os.makedirs(outdir)
-        except OSError:
-            # Directory already exists
-            pass
-        outfn = '%s.caldb.txt' % name.upper()
-        outpath = os.path.join(outdir, outfn)
-        insert_new = True
-        values = {'sourcename': name,
-                  'caldbpath': outdir,
-                  'caldbname': outfn}
-    else:
-        lastupdated = caldb['last_modified']
-        outpath = os.path.join(caldb['caldbpath'], caldb['caldbname'])
-        insert_new = False
-        values = {}
-
-    with db.transaction() as conn:
-        if not insert_new:
-            # Mark update of caldb as in-progress
-            update = db.caldbs.update().\
-                        values(status='updating',
-                                last_modified=datetime.datetime.now()).\
-                        where(db.caldbs.c.caldb_id == caldb['caldb_id'])
-            conn.execute(update)
-
-        select = db.select([db.files],
-                    from_obj=[db.files.\
-                        outerjoin(db.obs,
-                            onclause=db.files.c.obs_id ==
-                                    db.obs.c.obs_id)]).\
-                    where((db.files.c.status == 'new') &
-                            (db.files.c.stage == 'calibrated') &
-                            (db.obs.c.obstype == 'cal'))
-        results = conn.execute(select)
-        rows = results.fetchall()
-        results.close()
-
-        numnew = 0
-        for row in rows:
-            if row['added'] > lastupdated:
-                numnew += 1
-
-        utils.print_info("Found %d suitable calibrators for %s. "
-                         "%d are new." %
-                         (len(rows), name, numnew), 2)
-
-        values['numentries'] = len(rows)
-
-        try:
-            if numnew or force:
-                # Create an updated version of the calibrator database 
-                basecaldir = os.path.join(config.output_location,
-                                            name.upper()+"_R")
-                utils.execute(['pac', '-w', '-u', '.pcal.T', '-k', outpath],
-                                dir=basecaldir)
-        except:
-            values['status'] = 'failed'
-            if insert_new:
-                action = db.caldbs.insert()
-            else:
-                action = db.caldbs.update().\
-                            values(note='%d new entries added' % numnew,
-                                    last_modifed=datetime.datetime.now()).\
-                            where(db.caldbs.c.caldb_id == caldb['caldb_id'])
-            conn.execute(action, values)
-        else:
-            if insert_new:
-                action = db.caldbs.insert()
-            else:
-                action = db.caldbs.update().\
-                            values(status='ready',
-                                    note='%d new entries added' % numnew,
-                                    last_modified=datetime.datetime.now()).\
-                            where(db.caldbs.c.caldb_id == caldb['caldb_id'])
-            conn.execute(action, values)
-    reattempt_calibration(db, name)
-    return outpath
-
-
-def reattempt_calibration(db, sourcename):
-    """Mark files that have failed calibration to be reattempted.
-
-        Inputs:
-            db: A Database object.
-            sourcename: The name of the source to match.
-                (NOTE: '_R' will be removed from the sourcename, if present)
-            
-        Outputs:
-            None
-    """
-    name = utils.get_prefname(sourcename)
-    if name.endswith('_R'):
-        name = name[:-2]
-
-    db = database.Database()
-    with db.transaction() as conn:
-        # Get rows that need to be updated
-        # The update is a two-part process because
-        # a join is required. (Can updates include joins?)
-        select = db.select([db.files],
-                    from_obj=[db.files.\
-                        outerjoin(db.obs,
-                            onclause=db.files.c.obs_id ==
-                                    db.obs.c.obs_id)]).\
-                    where((db.files.c.status == 'calfail') &
-                            (db.files.c.stage == 'cleaned') &
-                            (db.files.c.qcpassed == True) &
-                            (db.obs.c.sourcename == name))
-        result = conn.execute(select)
-        rows = result.fetchall()
-        result.close()
-        # Now update rows
-        for row in rows:
-            update = db.files.update().\
-                    where(db.files.c.file_id == row['file_id']).\
-                    values(status='new',
-                            note='Reattempting calibration',
-                            last_modified=datetime.datetime.now())
-            conn.execute(update)
-        utils.print_info("Resetting status to 'new' (from 'calfail') "
-                         "for %d files with sourcename='%s'" %
-                         (len(rows), name), 2)
 
 
 def get_log(db, obs_id):
@@ -1371,7 +1574,7 @@ def make_groups(path):
     return usedirs_list, groups_list
 
 
-def make_combined_file(subdirs, subints, outdir, parfn=None):
+def make_combined_file(subdirs, subints, outdir, parfn=None, effix=False):
     """Given lists of directories and subints combine them.
 
         Inputs:
@@ -1384,6 +1587,8 @@ def make_combined_file(subdirs, subints, outdir, parfn=None):
             outdir: Directory to copy combined file to.
             parfn: Parfile to install when creating combined file
                 (Default: don't install a new ephemeris)
+            effix: Change observation site to eff_psrix to correct 
+                for asterix clock offsets. (Default: False)
 
         Outputs:
             outfn: The name of the combined archive.
@@ -1393,8 +1598,9 @@ def make_combined_file(subdirs, subints, outdir, parfn=None):
                               dir=config.tmp_directory)
     try:
         # Prepare subints
-        preppeddirs = prepare_subints(subdirs, subints,
-                                      baseoutdir=os.path.join(tmpdir, 'data'))
+        preppeddirs = combine.prepare_subints(subdirs, subints,
+                                      baseoutdir=os.path.join(tmpdir, 'data'),
+                                      trimpcnt=6.25, effix=effix)
         cmbfn = combine.combine_subints(preppeddirs, subints,
                                         parfn=parfn, outdir=outdir)
     except:
@@ -1406,45 +1612,6 @@ def make_combined_file(subdirs, subints, outdir, parfn=None):
             utils.print_info("Removing temporary directory (%s)" % tmpdir, 2)
             shutil.rmtree(tmpdir)
     return cmbfn
-
-
-def prepare_subints(subdirs, subints, baseoutdir):
-    """Prepare subints by
-           - Moving them to the temporary working directory
-           - De-weighting 6.25% from each sub-band edge
-           - Converting archive format to PSRFITS
-
-        Inputs:
-            subdirs: List of sub-band directories containing 
-                sub-ints to combine
-            subints: List of subint files to be combined.
-                (NOTE: These are the file name only (i.e. no path)
-                    Each file listed should appear in each of the
-                    subdirs.)
-            baseoutdir: Directory containing the sub-directories
-                of preprared files.
-
-        Outputs:
-            prepsubdirs: The sub-directories containing prepared files.
-    """
-    devnull = open(os.devnull)
-    tmpsubdirs = []
-    for subdir in utils.show_progress(subdirs, width=50):
-        freqdir = os.path.split(os.path.abspath(subdir))[-1]
-        freqdir = os.path.join(baseoutdir, freqdir)
-        try:
-            os.makedirs(freqdir)
-        except OSError:
-            # Directory already exists
-            pass
-        fns = [os.path.join(subdir, fn) for fn in subints]
-        utils.execute(['paz', '-j', 'convert psrfits',
-                       '-E', '6.25', '-O', freqdir] + fns,
-                      stderr=devnull)
-        tmpsubdirs.append(freqdir)
-    utils.print_info("Prepared %d subint fragments in %d freq sub-dirs" %
-                    (len(subints), len(subdirs)), 3)
-    return tmpsubdirs
 
 
 def make_summary_plots(arf):
@@ -1459,7 +1626,7 @@ def make_summary_plots(arf):
             lowresfn: The name of the low-resolution summary plot file.
     """
     fullresfn = arf.fn+".png"
-    diagnose.make_composite_summary_plot(arf, outfn=fullresfn)
+    diagnose.make_composite_summary_plot_psrplot(arf, outfn=fullresfn)
 
     # 6.25 MHz channels
     nchans = arf['bw']/6.25
@@ -1468,7 +1635,7 @@ def make_summary_plots(arf):
         # one minute subintegrations
         preproc += ",T %d" % (arf['length']/60)
     lowresfn = arf.fn+".scrunched.png"
-    diagnose.make_composite_summary_plot(arf, preproc, outfn=lowresfn)
+    diagnose.make_composite_summary_plot_psrplot(arf, preproc, outfn=lowresfn)
     
     # Make sure plots are group-readable
     utils.add_group_permissions(fullresfn, "r")
@@ -1564,11 +1731,14 @@ def get_toload(db):
                             db.obs.c.sourcename,
                             db.obs.c.obstype,
                             db.obs.c.start_mjd],
-                    from_obj=[db.files.\
-                        outerjoin(db.obs,
-                            onclause=db.files.c.obs_id ==
-                                    db.obs.c.obs_id)]).\
-                            where(db.files.c.status == 'toload')
+                    from_obj=[db.obs.\
+                        outerjoin(db.files,
+                            onclause=db.files.c.file_id ==
+                                    db.obs.c.current_file_id)]).\
+                            where((db.files.c.status == 'toload') |
+                                  ((db.files.c.status == 'new') & 
+                                   (db.files.c.qcpassed == True) &
+                                   (db.files.c.stage == 'calibrated')))
         results = conn.execute(select)
         rows = results.fetchall()
         results.close()
@@ -1612,12 +1782,15 @@ def get_todo(db, action, priorities=None):
                             db.obs.c.dir_id,
                             db.obs.c.sourcename,
                             db.obs.c.obstype,
+                            db.obs.c.obsband,
                             db.obs.c.start_mjd],
-                    from_obj=[db.files.\
-                        outerjoin(db.obs,
-                            onclause=db.files.c.obs_id ==
-                                    db.obs.c.obs_id)]).\
+                    from_obj=[db.obs.\
+                        outerjoin(db.files,
+                            onclause=db.files.c.file_id ==
+                                    db.obs.c.current_file_id)]).\
                             where(whereclause)
+        if action == 'calibrate':
+            select = select.order_by(db.obs.c.obstype.desc())
         results = conn.execute(select)
         rows = results.fetchall()
         results.close()
@@ -1692,7 +1865,7 @@ def prioritize_pulsar(db, psrname):
         Outputs:
             sqlquery: A sqlquery object.
     """
-    return db.obs.c.sourcename.like(psrname)
+    return db.obs.c.sourcename.like(utils.get_prefname(psrname))
 
 
 def prioritize_mjdrange(db, mjdrangestr):
@@ -1769,6 +1942,18 @@ def main():
         except toaster.errors.BadDebugMode:
             pass
 
+    if args.only_action is not None:
+        actions_to_perform = [args.only_action]
+    else:
+        actions_to_perform = [act for act in ACTIONS.keys() \
+                              if act not in args.actions_to_exclude]
+
+    global mjd_to_receiver
+    if args.lband_rcvr_map is not None:
+        mjd_to_receiver = correct.read_receiver_file(args.lband_rcvr_map)
+    else:
+        mjd_to_receiver = None
+
     inprogress = []
     try:
         priority_list = []
@@ -1778,7 +1963,7 @@ def main():
 
         # Load raw data directories
         print "Loading directories..."
-        ndirs = load_directories(db)
+        ndirs = load_directories(db, force=args.reattempt_dirs)
         # Group data immediately
         dirrows = get_togroup(db)
         print "Grouping subints..."
@@ -1796,20 +1981,14 @@ def main():
             nfree = args.numproc - len(inprogress)
             nsubmit = 0
             if nfree:
-                # Load files to TOASTER
-                toload = get_toload(db)[:nfree]
-                for row in toload:
-                    proc = launch_task(db, 'load', row)
-                    inprogress.append(proc)
-                nnew = len(toload)
-                nfree -= nnew
-                nsubmit += nnew
-                if nnew:
-                    utils.print_info("Launched %d 'load' tasks" % nnew, 0)
-
-                for action in ('calibrate', 'clean', 'correct', 'combine'):
-                    rows = get_todo(db, action,
-                                    priorities=priority_list)[:nfree]
+                utils.print_info("Will perform the following actions: %s" % 
+                                 ", ".join(actions_to_perform), 1)
+                for action in actions_to_perform:
+                    if action == 'load':
+                        rows = get_toload(db)[:nfree]
+                    else:
+                        rows = get_todo(db, action,
+                                        priorities=priority_list)[:nfree]
                     for row in rows:
                         proc = launch_task(db, action, row)
                         inprogress.append(proc)
@@ -1855,5 +2034,30 @@ if __name__ == '__main__':
     parser.add_argument("--prioritize", action='append',
                         default=[], dest='priority',
                         help="A rule for prioritizing observations.")
+    actgroup = parser.add_mutually_exclusive_group()
+    actgroup.add_argument("-x", "--exclude", choices=ACTIONS.keys(),
+                          default=[], metavar="ACTION", 
+                          action='append', dest="actions_to_exclude",
+                          help="Action to not perform. Multiple -x/--exclude "
+                               "arguments may be provided. Must be one of '%s'. "
+                               "(Default: perform all actions.)" %
+                               "', '".join(ACTIONS.keys()))
+    actgroup.add_argument("--only", choices=ACTIONS.keys(),
+                          default=None, metavar="ACTION", 
+                          dest="only_action",
+                          help="Only perform the given action. Must be one of '%s'. "
+                               "(Default: perform all actions.)" %
+                               "', '".join(ACTIONS.keys()))
+    parser.add_argument("--lband-rcvr-map", dest='lband_rcvr_map', type=str,
+                        default=None,
+                        help="A text file containing MJD to receiver mapping. "
+                             "(Default: Try to determine the receiver "
+                             "automatically from observations.)")
+    parser.add_argument("--reattempt-dirs", dest="reattempt_dirs",
+                        action="store_true",
+                        help="Try to reload all directories regardless of "
+                             "modification time. Exisiting DB entries will "
+                             "not be modified or duplicated. (Default: "
+                             "only load recently modified directories.)")
     args = parser.parse_args()
     main()
