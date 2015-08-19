@@ -237,6 +237,55 @@ def read_listing(infn):
     return subdirs, subints
 
 
+def prepare_subints(subdirs, subints, baseoutdir, trimpcnt=6.25, effix=False):
+    """Prepare subints by
+           - Copying them to the temporary working directory
+           - De-weighting a percentage from each sub-band edge
+           - Converting archive format to PSRFITS
+
+        Inputs:
+            subdirs: List of sub-band directories containing 
+                sub-ints to combine
+            subints: List of subint files to be combined.
+                (NOTE: These are the file name only (i.e. no path)
+                    Each file listed should appear in each of the
+                    subdirs.)
+            baseoutdir: Directory containing the sub-directories
+                of preprared files.
+            trimpcnt: Percentage (ie between 0-100) of subband
+                to trim from _each_ edge of the band. 
+                (Default: 6.25%)
+            effix: Change observation site to eff_psrix to correct 
+                for asterix clock offsets. (Default: False)
+
+        Outputs:
+            prepsubdirs: The sub-directories containing prepared files.
+    """
+    devnull = open(os.devnull)
+    tmpsubdirs = []
+    for subdir in utils.show_progress(subdirs, width=50):
+        freqdir = os.path.split(os.path.abspath(subdir))[-1]
+        freqdir = os.path.join(baseoutdir, freqdir)
+        try:
+            os.makedirs(freqdir)
+        except OSError:
+            # Directory already exists
+            pass
+        fns = [os.path.join(subdir, fn) for fn in subints]
+        preproc = 'convert psrfits'
+        if effix:
+            preproc += ',edit site=eff_psrix'
+        utils.execute(['paz', '-j', preproc,
+                       '-E', '%f' % trimpcnt, '-O', freqdir] + fns,
+                      stderr=devnull)
+        tmpsubdirs.append(freqdir)
+    utils.print_info("Prepared %d subint fragments in %d freq sub-dirs" %
+                    (len(subints), len(subdirs)), 3)
+    return tmpsubdirs
+
+
+
+
 def combine_subints(subdirs, subints, parfn=None, outdir=None):
     """Combine sub-ints from various freq sub-band directories.
         The input lists are as created by
