@@ -443,20 +443,32 @@ def main():
     else:
         raise errors.InputError("No sub-band directories to combine!")
 
-    # Group
-    usedirs, groups = group_subband_dirs(args.subdirs, \
-                maxspan=args.combine_maxspan, 
-                maxgap=args.combine_maxgap, \
-                filetype=args.filetype)
+    if args.group_file is not None:
+        usedirs, subints = read_listing(args.group_file)
+        groups = [subints]
+    else:
+        # Group directories
+        usedirs, groups = group_subband_dirs(args.subdirs, \
+                    maxspan=args.combine_maxspan, 
+                    maxgap=args.combine_maxgap, \
+                    filetype=args.filetype)
+    
+    # Work in a temporary directory
+    tmpdir = tempfile.mkdtemp(suffix="_combine",
+                              dir=config.tmp_directory)
     # Combine files
     outfns = []
     for subints in groups:
         if not args.no_combine:
-            outfn = combine_subints(usedirs, subints)
+            preppeddirs = prepare_subints(usedirs, subints,
+                                          baseoutdir=os.path.join(tmpdir, 'data'),
+                                          trimpcnt=6.25)
+            outfn = combine_subints(preppeddirs, subints,
+                                    outdir=os.getcwd())
             outfns.append(outfn)
         if args.write_listing:
             write_listing(usedirs, subints, "list.txt")
-
+    shutil.rmtree(tmpdir)
     if outfns:
         print "Created %d combined files" % len(outfns)
         for outfn in outfns:
@@ -471,6 +483,10 @@ if __name__=="__main__":
                                     "combined archives.")
     parser.add_argument('subdirs', nargs='*', help="Sub-band directories " \
                             "containing subints to combine.")
+    parser.add_argument('-f', '--group-file', dest='group_file', type=str,
+                        help="Combine files/directories listed in group file. "
+                             "These files can be output by combine.py. "
+                             "(Default: Combine directories listed on command line.)")
 #    parser.add_argument('-o', '--outname', dest='outfn', type=str, \
 #                        help="The output (combined) file's name. " \
 #                            "(Default: '%%(name)s_%%(yyyymmdd)s_%%(secs)05d_combined.ar')", \
