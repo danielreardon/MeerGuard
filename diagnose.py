@@ -867,7 +867,123 @@ def make_polprofile_plot(arf, preproc='C,D,F,T', outfn=None):
     shutil.move(tmpfn, outfn)
 
 
-def make_composite_summary_plot(ar, preproc='C,D', outfn=None):
+def make_composite_summary_plot(arf, outfn=None):
+    utils.print_info("Creating composite summary plot for %s" % arf.fn, 3)
+    if outfn is None:
+        outfn = "%s.ps" % arf.fn
+    utils.print_info("Output plot name: %s" % outfn, 2)
+    
+    data = preprocess_archive_file(arf, True, True, False, False)
+    nsubs, nchans, nbins = data.shape
+
+    # Create figure
+    plt.figure(figsize=(10.5, 8))
+    if (arf['nsub'] > 1) and (arf['nchan'] > 1):
+        __plot_all(arf, data)
+    elif (arf['nsub'] > 1) and (arf['nchan'] == 1):
+        assert nchans == 1
+        __plot_nofreq(arf, data)
+    elif (arf['nsub'] == 1) and (arf['nchan'] > 1):
+        assert nsubs == 1
+        __plot_notime(arf, data)
+    elif  (arf['nsub'] == 1) and (arf['nchan'] == 1):
+        assert nsubs == 1, nchans == 1
+        __plot_profonly(arf, data)
+    else:
+        raise errors.FileError("Not sure how to plot diagnostic for file. " \
+                                "(nsub: %d; nchan: %d)" % \
+                                (ar['nsub'], ar['nchan']))
+    # Save figure
+    plt.savefig(outfn, papertype='a4', orientation='landscape')
+
+
+def __add_text_info(arf):
+    plt.figtext(0.02, 0.975, "%s\n%s    %s (%s)\n" 
+                             "Length=%.1f s    BW=%.1f MHz\n" 
+                             "N$_\mathrm{bin}$=%d    " 
+                             "N$_\mathrm{chan}$=%d    "
+                             "N$_\mathrm{sub}$=%d" % \
+                             (os.path.split(arf.fn)[-1], \
+                              arf['telescop'], arf['rcvr'], \
+                              arf['backend'], arf['length'], arf['bw'],
+                              arf['nbin'], arf['nchan'], arf['nsub']),
+                size='small', ha='left', va='top')
+
+def __add_prof(arf, data):
+    nsubs, nchans, nbins = data.shape
+    ph = np.linspace(0, 2, 2*nbins, endpoint=False)
+    prof = data.sum(axis=1).sum(axis=0)
+    plt.plot(ph, np.tile(prof, 2), 'k-')
+    plt.xlabel("Phase")
+    plt.ylabel("Intensity")
+
+
+def __add_time(arf, data):
+    nsubs, nchans, nbins = data.shape
+    ph = np.linspace(0, 2, 2*nbins, endpoint=False)
+    time = data.sum(axis=1)
+    plt.imshow(np.tile(time, (1,2)), origin='bottom', aspect='auto',
+               extent=(0, 2, 0, nsubs), cmap='Blues_r',
+               interpolation='nearest')
+    plt.xlabel("Phase")
+    plt.ylabel("Sub-Integration")
+
+
+def __add_freq(arf, data):
+    nsubs, nchans, nbins = data.shape
+    ph = np.linspace(0, 2, 2*nbins, endpoint=False)
+    freq = data.sum(axis=0)
+    plt.imshow(np.tile(freq, (1,2)), origin='bottom', aspect='auto',
+               extent=(0, 2, 0, nchans), cmap='Blues_r',
+               interpolation='nearest')
+    plt.xlabel("Phase")
+    plt.ylabel("Channel")
+
+
+def __plot_profonly(arf, data):
+    ax = plt.axes([0.075, 0.15, 0.875, 0.55])
+    __add_prof(arf, data)
+    __add_text_info(arf)
+    
+
+def __plot_nofreq(arf, data):
+    # Plot profile
+    ax = plt.axes([0.075, 0.5, 0.875, 0.2])
+    plt.setp(ax.xaxis.get_ticklabels(), visible=False)
+    __add_prof(arf, data)
+    # Plot time vs phase
+    plt.axes([0.075, 0.15, 0.875, 0.35])
+    __add_time(arf, data)
+    __add_text_info(arf)
+    
+
+def __plot_notime(arf, data):
+    # Plot profile
+    ax = plt.axes([0.075, 0.5, 0.875, 0.2])
+    plt.setp(ax.xaxis.get_ticklabels(), visible=False)
+    __add_prof(arf, data)
+    # Plot freq vs phase
+    plt.axes([0.075, 0.15, 0.875, 0.35])
+    __add_freq(arf, data)
+    __add_text_info(arf)
+    info = __get_info(ar)
+    
+
+def __plot_all(arf, data):
+    # Plot profile
+    ax = plt.axes([0.575, 0.75, 0.4, 0.2])
+    plt.setp(ax.xaxis.get_ticklabels(), visible=False)
+    __add_prof(arf, data)
+    # Plot freq vs phase
+    plt.axes([0.075, 0.075, 0.4, 0.8])
+    __add_freq(arf, data)
+    # Plot time vs phase
+    plt.axes([0.575, 0.075, 0.4, 0.675])
+    __add_time(arf, data)
+    __add_text_info(arf)
+
+
+def make_composite_summary_plot_psrplot(ar, preproc='C,D', outfn=None):
     utils.print_info("Creating composite summary plot for %s" % ar.fn, 3)
     if outfn is None:
         outfn = "%s.ps" % ar.fn
@@ -885,13 +1001,13 @@ def make_composite_summary_plot(ar, preproc='C,D', outfn=None):
                         "extensions are '.png' and '.ps'." % outfn)
 
     if (ar['nsub'] > 1) and (ar['nchan'] > 1):
-        __plot_all(grdev, ar, preproc)
+        __plot_all_psrplot(grdev, ar, preproc)
     elif (ar['nsub'] > 1) and (ar['nchan'] == 1):
-        __plot_nofreq(grdev, ar, preproc)
+        __plot_nofreq_psrplot(grdev, ar, preproc)
     elif (ar['nsub'] == 1) and (ar['nchan'] > 1):
-        __plot_notime(grdev, ar, preproc)
+        __plot_notime_psrplot(grdev, ar, preproc)
     elif  (ar['nsub'] == 1) and (ar['nchan'] == 1):
-        __plot_profonly(grdev, ar, preproc)
+        __plot_profonly_psrplot(grdev, ar, preproc)
     else:
         raise errors.FileError("Not sure how to plot diagnostic for file. " \
                                 "(nsub: %d; nchan: %d)" % \
@@ -911,7 +1027,7 @@ def __get_info(ar):
                      ar['backend'], ar['length'], ar['bw'])
     return info
 
-def __plot_profonly(grdev, ar, preproc="D"):
+def __plot_profonly_psrplot(grdev, ar, preproc="D"):
     info = __get_info(ar)
     cmd = ["psrplot", "-O", "-j", preproc, "-c", "above:c=,x:range=0:2", \
             ar.fn, "-D", grdev, \
@@ -924,7 +1040,7 @@ def __plot_profonly(grdev, ar, preproc="D"):
                                      "%s" % info]
     utils.execute(cmd)
     
-def __plot_nofreq(grdev, ar, preproc="D"):
+def __plot_nofreq_psrplot(grdev, ar, preproc="D"):
     info = __get_info(ar)
     cmd = ["psrplot", "-O", "-j", preproc, "-c", "above:c=,x:range=0:2", \
             ar.fn, "-D", grdev, \
@@ -944,7 +1060,7 @@ def __plot_nofreq(grdev, ar, preproc="D"):
                                     "cmap:map=plasma"]
     utils.execute(cmd)
     
-def __plot_notime(grdev, ar, preproc="D"):
+def __plot_notime_psrplot(grdev, ar, preproc="D"):
     info = __get_info(ar)
     cmd = ["psrplot", "-O", "-j", preproc, "-c", "above:c=,x:range=0:2", \
             ar.fn, "-D", grdev, \
@@ -964,7 +1080,7 @@ def __plot_notime(grdev, ar, preproc="D"):
                                    "cmap:map=plasma"]
     utils.execute(cmd)
     
-def __plot_all(grdev, ar, preproc="D"):
+def __plot_all_psrplot(grdev, ar, preproc="D"):
     info = __get_info(ar)
     cmd = ["psrplot", "-O", "-j", preproc, "-c", "above:c=,x:range=0:2", \
             ar.fn, "-D", grdev, \
