@@ -19,8 +19,9 @@ modes = [('syscalls', 'Print commands being executed as system calls.'), \
          ('reduce', 'Print debugging information relevant to automated data reduction.'), \
          ('queries', 'Print database queries being executed.'), \
          ('database', "Display DB connection/transaction info."), \
-         ('logmatch', "Print debugging information about matching observations "
-                      "against Efflesberg observing logs. (Relevant for correct.py)"), \
+         ('correct', "Print debugging information about correcting header information "
+                     "using Efflesberg observing logs. (Relevant for correct.py)"), \
+         ('calibrate', "Print debugging information about calibration."),\
         ]
 
 modes.sort()
