@@ -22,10 +22,10 @@ import stat
 
 import numpy as np
 
-import config
-import errors
-import colour
-import log
+from coast_guard import config
+from coast_guard import errors
+from coast_guard import colour
+from coast_guard import log
 
 header_param_types = {'freq': float, \
                       'length': float, \
@@ -73,17 +73,41 @@ site_to_telescope = {'i': 'WSRT',
                      'ao':'Arecibo',
                      'ao 305m':'Arecibo', 
                      '3':'Arecibo',
-                     'lofar':'LOFAR'}
+                     'lofar':'LOFAR',
+                     'v': 'eff_psrix',
+                     'ex': 'eff_psrix',
+                     'effix': 'eff_psrix',
+                     'psrix': 'eff_psrix',
+                     'asterix': 'eff_psrix',
+                     'eff_psrix': 'eff_psrix'}
 
+# A cache for pulsar J-names
+jname_cache = {}
 # A cache for pulsar preferred names
 prefname_cache = {}
 # A cache for version IDs
 versionid_cache = {}
 # A cache for fluxcal names
 __fluxcals = None
+# A cache for psrchive configurations
+__psrchive_configs = None
 
+def get_psrchive_configs():
+    global __psrchive_configs
+    if __psrchive_configs is None:
+        __psrchive_configs = {}
+        cmd = ['psrchive_config']
+        stdout, stderr = execute(cmd)
+        for line in stdout.split('\n'):
+            line, sep, comment = line.partition('#')
+            line = line.strip()
+            if not line:
+                continue
+            key, val = line.split('=')
+            __psrchive_configs[key.strip()] = val.strip()
+    return __psrchive_configs
 
-def read_fluxcal_names(fluxcalfn):
+def read_fluxcal_names(fluxcalfn=None):
     """Read names of flux calibrators from PSRCHIVE configuration
         file and return a list.
 
@@ -94,6 +118,8 @@ def read_fluxcal_names(fluxcalfn):
             fluxcals: A list of names of flux calibrators.
                 Aliases are included.
     """
+    if fluxcalfn is None:
+        fluxcalfn = config.fluxcal_cfg
     global __fluxcals
     if __fluxcals is None:
         __fluxcals = []
@@ -250,6 +276,24 @@ def print_debug(msg, category, stepsback=1):
         sys.stderr.flush()
 
 
+def extract_parfile(arfn):
+    """Given an archive file extract its ephemeris and return
+        it as a string
+
+        Input:
+            arfn: Name of archive file.
+
+        Output:
+            parfn: Name of (temporary) parfile.
+    """
+    cmd = ['vap', '-E', arfn]
+    stdoutstr, stderrstr = execute(cmd)
+    if "has no ephemeris" in stdoutstr:
+        raise errors.InputError("Input archive (%s) has no parfile. " % arfn)
+    print_info("Extracted parfile from %s" % arfn, 3)
+    return stdoutstr
+
+
 def get_norm_parfile(arfn):
     """Given an archive file extract its ephemeris and normalise it
         by removing empty lines, fit-flags, uncertainties, and
@@ -261,20 +305,14 @@ def get_norm_parfile(arfn):
         Output:
             parfn: Name of (temporary) parfile.
     """
-    cmd = ['vap', '-E', arfn]
-    stdoutstr, stderrstr = execute(cmd)
-    if "has no ephemeris" in stdoutstr:
-        raise errors.InputError("Input archive (%s) has no parfile. "
-                                "Cannot return normalised parfile." % arfn)
-    print_info("Extracted parfile from %s" % arfn, 3)
-    return normalise_parfile(stdoutstr)
+    return normalise_parfile(extract_parfile(arfn))
 
 
 def normalise_parfile(par):
     """Given a parfile normalise it by removing empty
-        lines, fit-flags, uncertainties, and
+        lines, fit-flags, uncertainties, 
         polyco-creation related lines (ie "TZ*")
-
+        JUMPs, EFACs, EQUADs, DM models and Red noise models.
         Input:
             par: This can be either:
                 a) path to parfile
@@ -295,9 +333,11 @@ def normalise_parfile(par):
     else:
         # Assume input is list of lines
         lines = par
-    parlines = ["% -15s%s" % tuple(line.split()[:2]) for line
+    parlines = ["% -15s %s" % tuple(line.split()[:2]) for line
                 in lines
-                if line.strip() and ("TZ" not in line)]
+                if line.strip() and ("TZ" not in line)
+                    and (not line.startswith("TN"))
+                    and (not line.startswith("JUMP"))]
     
     # Make a temporary file for the parfile
     tmpfd, tmpfn = tempfile.mkstemp(suffix='.par', dir=config.tmp_directory)
@@ -741,6 +781,52 @@ def get_files_from_glob(option, opt_str, value, parser):
     glob_file_list.extend(glob.glob(value))
 
 
+def get_flux_density(name):
+    """Use 'psrcat' program to find the flux density of the given pulsar.
+
+        Input:
+            name: Name of the pulsar.
+
+        Output:
+            flux: Flux density of the pulsar.
+    """
+    search = name
+    if not name[0] in ('J', 'B') and len(name)==7:
+        # Could be B-name, or truncated J-name. Add wildcard at end just in case.
+        search += '*'
+    try:   
+        cmd = ['psrcat', '-nohead', '-nonumber', '-c', 'S1400', \
+                        '-null', '', search]
+        stdout, stderr = execute(cmd)
+        lines = [line for line in stdout.split('\n') \
+                    if line.strip() and not line.startswith("WARNING:")]
+        fluxes = [line.strip().split() for line in lines]
+    except errors.SystemCallError:
+        warnings.warn("Error occurred while trying to run 'psrcat' " \
+                        "to get L-band flux density for '%s'" % \
+                        name, \
+                        errors.CoastGuardWarning)
+        fluxes = []
+    
+    if len(fluxes) == 1:
+        if len(fluxes[0]) != 3:
+            raise ValueError("There aren't 3 elements returned by psrcat when looking for S1400 for %s:\n%s" % (search, fluxes))
+        flux = (fluxes[0][0], fluxes[0][1], fluxes[0][2])
+    elif len(fluxes) == 0:
+        warnings.warn("No L-band flux density found in psrcat for %s. " % \
+                        name, \
+                        errors.CoastGuardWarning)
+        flux = None
+    elif len(names) > 1:
+        warnings.warn("Pulsar name '%s' is ambiguous. It has " \
+                        "multiple matches (%d) in psrcat " \
+                        "(search pattern used: '%s'):\n%s" % \
+                (srcname, len(names), search, '\n'.join(lines)), \
+                                errors.CoastGuardWarning)
+        flux = None
+    return flux
+
+
 def get_spectral_index(name):
     """Use 'psrcat' program to find the spectral index of the given pulsar.
 
@@ -781,6 +867,66 @@ def get_spectral_index(name):
                                 errors.CoastGuardWarning)
         spindex = None
     return spindex
+
+
+def get_jname(name):
+    """Use 'psrcat' program to find the J-name of the given pulsar.
+
+        Input:
+            name: Name of the pulsar.
+
+        Output:
+            jname: J-name of the pulsar.
+    """
+    global jname_cache
+        
+    # Strip '_R' tail if present. It is added back on just before
+    # returning the J-name
+    if name.endswith("_R"):
+        # Is a calibration observation
+        tail = "_R"
+        srcname = name[:-2]
+    else:
+        # Is not a cal obs
+        tail = ""
+        srcname = name
+
+    if srcname in jname_cache:
+        jname = jname_cache[srcname]
+    else:
+        search = srcname
+        if not srcname[0] in ('J', 'B') and len(srcname)==7:
+            # Could be B-name, or truncated J-name. Add wildcard at end just in case.
+            search += '*'
+        try:   
+            cmd = ['psrcat', '-nohead', '-nonumber', '-c', 'PSRJ', \
+                            '-o', 'short', '-null', '', search]
+            stdout, stderr = execute(cmd)
+            lines = [line for line in stdout.split('\n') \
+                        if line.strip() and not line.startswith("WARNING:")]
+            names = [line.strip().split() for line in lines]
+        except errors.SystemCallError:
+            warnings.warn("Error occurred while trying to run 'psrcat' " \
+                            "to get J-name for '%s'" % srcname, \
+                            errors.CoastGuardWarning)
+            names = []
+    
+        if len(names) == 1:
+            jname = names[0][-1]
+        elif len(names) == 0:
+            jname = srcname
+            warnings.warn("Pulsar name '%s' cannot be found in psrcat. " \
+                            "No J-name available." % srcname, \
+                            errors.CoastGuardWarning)
+        elif len(names) > 1:
+            jname = srcname
+            warnings.warn("Pulsar name '%s' is ambiguous. It has " \
+                            "multiple matches (%d) in psrcat " \
+                            "(search pattern used: '%s'):\n%s" % \
+                    (srcname, len(names), search, '\n'.join(lines)), \
+                                    errors.CoastGuardWarning)
+        jname_cache[srcname] = jname
+    return jname+tail
 
 
 def get_prefname(name):
@@ -978,11 +1124,8 @@ def mjd_to_datetime(mjd):
             date: The datetime object.
     """
     yy, mm, dd = mjd_to_date(mjd)
-    hh = (dd % 1.0)*24
-    mins = (hh % 1.0)*60
-    ss = (mins % 1.0)*60
-    mus = (ss % 1.0)*1e6
-    date = datetime.datetime(int(yy), int(mm), int(dd), int(hh), int(mins), int(ss), int(mus))
+    date = datetime.datetime(int(yy), int(mm), int(dd)) + \
+            datetime.timedelta(days=(mjd%1))
     return date
 
 
@@ -1021,7 +1164,7 @@ PERMS = {"w": stat.S_IWGRP,
          "r": stat.S_IRGRP,
          "x": stat.S_IXGRP}
 def add_group_permissions(fn, perms=""):
-    mode = os.stat(fn)
+    mode = os.stat(fn)[stat.ST_MODE]
     for perm in perms:
         mode |= PERMS[perm]
     os.chmod(fn, mode)
@@ -1039,7 +1182,9 @@ class ArchiveFile(object):
                                             'intmjd', 'fracmjd', 'backend', 
                                             'rcvr', 'telescop', 'name', 
                                             'nchan', 'asite', 'period', 'dm',
-                                            'nsub', 'nbin', 'npol'])
+                                            'nsub', 'nbin', 'npol',
+                                            'ra', 'dec'])
+        self.hdr['origname'] = self.hdr['name'] # Original file name
         self.hdr['name'] = get_prefname(self.hdr['name']) # Use preferred name
         self.hdr['secs'] = int(self.hdr['fracmjd']*24*3600+0.5) # Add 0.5 so we actually round
         self.datetime = mjd_to_datetime(self.hdr['mjd'])
@@ -1047,6 +1192,7 @@ class ArchiveFile(object):
         self.hdr['pms'] = self.hdr['period']*1000.0
         self.hdr['inputfn'] = os.path.split(self.fn)[-1]
         self.hdr['inputbasenm'] = os.path.splitext(self.hdr['inputfn'])[0]
+        self.hdr['telname'] = site_to_telescope[self.hdr['telescop'].lower()]
         if self.hdr['freq'] < 1000:
             self.hdr['band'] = 'Pband'
         elif self.hdr['freq'] < 2000:
@@ -1059,6 +1205,12 @@ class ArchiveFile(object):
             self.hdr['band'] = 'Xband'
         else:
             self.hdr['band'] = 'Kband'
+
+        rastr = self.hdr['ra']
+        decstr = self.hdr['dec']
+        if decstr[0] not in ('+', '-'):
+            decstr = "+%s" % decstr
+        self.hdr['coords'] = "%s%s" % (rastr, decstr)
 
     def __getitem__(self, key):
         filterfunc = lambda x: x # A do-nothing filter
@@ -1091,6 +1243,16 @@ class ArchiveFile(object):
             import psrchive
             self.ar = psrchive.Archive_load(self.fn)
         return self.ar
+
+    def get_usable_bw(self):
+        ar = self.get_archive()
+        clone = ar.clone()
+        clone.pscrunch()
+        clone.tscrunch()
+        data = np.flipud(clone.get_data().squeeze())
+        data = np.ma.masked_where(data==0, data)
+        usebw = self['bw']*np.ma.count(data.sum(1))/float(data.shape[0])
+        return usebw
 
 
 class DefaultOptions(optparse.OptionParser):
