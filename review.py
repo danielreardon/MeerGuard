@@ -55,7 +55,7 @@ class FailedFilesModel(qtcore.QAbstractTableModel):
         col = index.column()
         if role in (qtcore.Qt.DisplayRole, qtcore.Qt.EditRole):
             val = self.__files[row][col]
-            if col == 11:
+            if col == 12:
                 with open(val, 'r') as logfile:
                     val = logfile.read()
         elif role == qtcore.Qt.BackgroundRole:
@@ -79,11 +79,12 @@ class FailedFilesModel(qtcore.QAbstractTableModel):
         self.__reattempted.append(row)
 
     def fetch_data_from_database(self):
-        whereclause = (self.db.files.c.status.in_(['running', \
+        whereclause = (self.db.files.c.status.in_(['submitted',
+                                                   'running',
                                                    'failed', 
-                                                   'calfailed']))# & \
-#                      ((self.db.files.c.qcpassed.is_(None)) | \
-#                       (self.db.files.c.qcpassed == False))
+                                                   'calfail']))& \
+                      ((self.db.files.c.qcpassed.is_(None)) | \
+                       (self.db.files.c.qcpassed == True))
         if self.priorities:
             priority_list = []
             for pr in self.priorities:
@@ -95,6 +96,7 @@ class FailedFilesModel(qtcore.QAbstractTableModel):
             whereclause &= tmp
         with self.db.transaction() as conn:
             select = self.db.select([self.db.files.c.file_id,
+                                     self.db.files.c.obs_id,
                                      self.db.obs.c.sourcename,
                                      self.db.obs.c.rcvr,
                                      self.db.files.c.stage,
@@ -107,10 +109,10 @@ class FailedFilesModel(qtcore.QAbstractTableModel):
                                      self.db.files.c.note,
                                      self.db.logs.c.logpath + '/' +
                                      self.db.logs.c.logname],
-                        from_obj=[self.db.files.
-                            outerjoin(self.db.obs,
-                                onclause=self.db.files.c.obs_id ==
-                                        self.db.obs.c.obs_id).
+                        from_obj=[self.db.obs.
+                            outerjoin(self.db.files,
+                                onclause=self.db.files.c.file_id ==
+                                        self.db.obs.c.current_file_id).
                             outerjoin(self.db.logs,
                                 onclause=self.db.obs.c.obs_id ==
                                         self.db.logs.c.obs_id)]).\
@@ -137,20 +139,20 @@ class Reviewer(qtgui.QWidget, ui_reviewer.Ui_Reviewer):
         # Initialize
         self.tableview.setModel(self.__model)
         self.tableview.setUpdatesEnabled(True)
-        for icol in range(8, self.__model.columnCount()):
+        for icol in range(9, self.__model.columnCount()):
             self.tableview.setColumnHidden(icol, True)
 
         # Set up data-widget mapping
         self.mapper = qtgui.QDataWidgetMapper()
         self.mapper.setModel(self.__model)
-        self.mapper.addMapping(self.psr_text, 1)
-        self.mapper.addMapping(self.rcvr_text, 2)
-        self.mapper.addMapping(self.stage_text, 3)
-        self.mapper.addMapping(self.mjd_text, 4)
-        self.mapper.addMapping(self.obstype_text, 5)
-        self.mapper.addMapping(self.file_text, 9)
-        self.mapper.addMapping(self.notes_text, 10)
-        self.mapper.addMapping(self.log_text, 11)
+        self.mapper.addMapping(self.psr_text, 2)
+        self.mapper.addMapping(self.rcvr_text, 3)
+        self.mapper.addMapping(self.stage_text, 4)
+        self.mapper.addMapping(self.mjd_text, 5)
+        self.mapper.addMapping(self.obstype_text, 6)
+        self.mapper.addMapping(self.file_text, 10)
+        self.mapper.addMapping(self.notes_text, 11)
+        self.mapper.addMapping(self.log_text, 12)
 
         # Link tableview's selection to the data-widget mapper
         self.selection = self.tableview.selectionModel()
