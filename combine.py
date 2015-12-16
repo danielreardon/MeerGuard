@@ -237,7 +237,8 @@ def read_listing(infn):
     return subdirs, subints
 
 
-def prepare_subints(subdirs, subints, baseoutdir, trimpcnt=6.25, effix=False):
+def prepare_subints(subdirs, subints, baseoutdir, trimpcnt=6.25, effix=False,
+                    backend=None):
     """Prepare subints by
            - Copying them to the temporary working directory
            - De-weighting a percentage from each sub-band edge
@@ -257,6 +258,7 @@ def prepare_subints(subdirs, subints, baseoutdir, trimpcnt=6.25, effix=False):
                 (Default: 6.25%)
             effix: Change observation site to eff_psrix to correct 
                 for asterix clock offsets. (Default: False)
+            backend: Name of the backend. (Default: leave as is)
 
         Outputs:
             prepsubdirs: The sub-directories containing prepared files.
@@ -275,6 +277,13 @@ def prepare_subints(subdirs, subints, baseoutdir, trimpcnt=6.25, effix=False):
         preproc = 'convert psrfits'
         if effix:
             preproc += ',edit site=eff_psrix'
+        if backend:
+            if ("," in backend) or ("=" in backend) or (' ' in backend):
+                raise errors.UnrecognizedValueError("Backend value (%s) is "
+                                                    "invalid. It cannot "
+                                                    "contain ',' or '=' or "
+                                                    "' '" % backend)
+            preproc += ',edit be:name=%s' % backend
         utils.execute(['paz', '-j', preproc,
                        '-E', '%f' % trimpcnt, '-O', freqdir] + fns,
                       stderr=devnull)
@@ -440,8 +449,8 @@ def main():
     
     if len(args.subdirs):
         print "Number of input sub-band directories: %d" % len(args.subdirs)
-    else:
-        raise errors.InputError("No sub-band directories to combine!")
+    elif args.group_file is None:
+        raise errors.InputError("No sub-band directories to combine and no group file provided!")
 
     if args.group_file is not None:
         usedirs, subints = read_listing(args.group_file)
