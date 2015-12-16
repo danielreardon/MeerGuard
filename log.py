@@ -1,5 +1,6 @@
 import os
 import logging
+import stat
 
 
 levels = {'debug': logging.DEBUG, \
@@ -7,6 +8,16 @@ levels = {'debug': logging.DEBUG, \
           'warning': logging.WARNING, \
           'error': logging.ERROR, \
           'critical': logging.CRITICAL}
+
+
+PERMS = {"w": stat.S_IWGRP,                 
+         "r": stat.S_IRGRP,                 
+         "x": stat.S_IXGRP}                 
+def add_group_permissions(fn, perms=""):    
+    mode = os.stat(fn)[stat.ST_MODE]
+    for perm in perms:
+        mode |= PERMS[perm]
+    os.chmod(fn, mode)
 
 
 def get_logger():
@@ -47,6 +58,10 @@ def setup_logger(logfn):
                 fmt="%(levelname)s - %(asctime)s\n%(message)s\n")
     logfile.setFormatter(formatter)
     logger.addHandler(logfile)
+    try:
+        add_group_permissions(logfn, "rw")
+    except:
+        pass
 
 
 def disconnect_logger():
