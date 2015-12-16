@@ -82,7 +82,7 @@ def make_template(outdir, psrname, stage, rcvr, max_span=1, min_snr=0):
     else:
         raise errors.InputError("Output directory (%s) doesn't exist!" %
                                 outdir)
-    filerows = list_files.get_files(psrname, stage, rcvr)
+    filerows = list_files.get_files([psrname], stage, rcvr)
     print "Found %d matching files" % len(filerows)
     fns = get_files_to_combine(filerows, max_span, min_snr)
     if not fns:
