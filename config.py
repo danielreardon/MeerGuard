@@ -2,7 +2,6 @@ import sys
 import copy
 import os
 
-import utils
 import errors
 import debug  # Imported for convenience!!
 
@@ -55,13 +54,13 @@ class CoastGuardConfigs(object):
 
     def __getitem__(self, key):
         if key in self.overrides:
-            utils.print_debug("Config '%s' found in Overrides" % key, 'config', stepsback=3)
+            #utils.print_debug("Config '%s' found in Overrides" % key, 'config', stepsback=3)
             val = self.overrides[key]
         elif key in self.obsconfigs:
-            utils.print_debug("Config '%s' found in Observation configs" % key, 'config', stepsback=3)
+            #utils.print_debug("Config '%s' found in Observation configs" % key, 'config', stepsback=3)
             val = self.obsconfigs[key]
         elif key in self.defaults:
-            utils.print_debug("Config '%s' found in Default" % key, 'config', stepsback=3)
+            #utils.print_debug("Config '%s' found in Default" % key, 'config', stepsback=3)
             val = self.defaults[key]
         else:
             raise errors.ConfigurationError("The configuration '%s' "
@@ -107,18 +106,26 @@ class CoastGuardConfigs(object):
         
         config_files = []  # A list of configuration files to look for
 
-        telescope = utils.site_to_telescope[arfn['telescop'].lower()]
-        config_files.append(os.path.join(self.base_config_dir, 'telescopes',
-                            "%s.cfg" % telescope.lower()))
-        config_files.append(os.path.join(self.base_config_dir, 'receivers',
-                            "%s.cfg" % arfn['rcvr'].lower()))
-        config_files.append(os.path.join(self.base_config_dir, 'backends',
-                            "%s.cfg" % arfn['backend'].lower()))
-        config_files.append(os.path.join(self.base_config_dir, 'pulsars',
-                            "%s.cfg" % arfn['name'].upper()))
-        config_files.append(os.path.join(self.base_config_dir, 'observations',
-                            "%s.cfg" % os.path.split(arfn.fn)[-1]))
- 
+        telescope = arfn['telname']
+        precedence = [arfn['telname'].lower(),
+                      arfn['rcvr'].lower(),
+                      arfn['backend'].lower()]
+        
+        cfgdir = self.base_config_dir
+        for dirname in precedence:
+            cfgdir = os.path.join(cfgdir, dirname)
+            config_files.append(os.path.join(cfgdir, 'configs.cfg'))
+        
+        #config_files.append(os.path.join(self.base_config_dir, 'telescopes',
+        #                    "%s.cfg" % telescope.lower()))
+        #config_files.append(os.path.join(self.base_config_dir, 'receivers',
+        #                    "%s.cfg" % arfn['rcvr'].lower()))
+        #config_files.append(os.path.join(self.base_config_dir, 'backends',
+        #                    "%s.cfg" % arfn['backend'].lower()))
+        #config_files.append(os.path.join(self.base_config_dir, 'pulsars',
+        #                    "%s.cfg" % arfn['name'].upper()))
+        #config_files.append(os.path.join(self.base_config_dir, 'observations',
+        #                    "%s.cfg" % os.path.split(arfn.fn)[-1]))
         #msg = "\n    ".join(["Checking for the following configurations:"] + \
         #                        config_files)
         #utils.print_debug(msg, 'config')
@@ -146,16 +153,16 @@ class ConfigManager(object):
         name = os.getpid()
         if name not in self:
             self.configs[name] = CoastGuardConfigs()
-        utils.print_debug("Getting configs for process %s" % name, 'config')
+        #utils.print_debug("Getting configs for process %s" % name, 'config')
         return self.configs[name]
    
     def load_configs_for_archive(self, arf):
-        utils.print_debug("Loading configs for %s" % arf.fn, 'config')
+        #utils.print_debug("Loading configs for %s" % arf.fn, 'config')
         self.get().load_configs_for_archive(arf)
 
     def __getattr__(self, key):
         val = self.get()[key]
-        utils.print_debug("Getting config %s = %s" % (key, val), 'config')
+        #utils.print_debug("Getting config %s = %s" % (key, val), 'config')
         return val 
 
 
@@ -163,6 +170,7 @@ cfg = ConfigManager()
 
 
 def main():
+    import utils
     if len(sys.argv) > 1:
         arf = utils.ArchiveFile(sys.argv[1])
         cfg.set_override_config("something", 'newvalue!')
