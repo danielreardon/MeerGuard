@@ -16,11 +16,14 @@ while (( "$#" )); do
     echo "Filename: ${fn}"
     echo "Output directory: ${outdir}"
     mkdir -p ${outdir}
-    if [ -f ${outdir}/$(echo ${fn} | sed -e 's/[^.]*$/DTFp/') ]; then
+    basefn=$(basename ${fn}) 
+    ext=$(echo ${basefn} | awk -F'.' '{print $NF}')
+    outfn=${outdir}/${basefn}.DTFp
+    if [ -f ${outfn} ]; then
         echo "Skipping ${fn}"
     else
-        echo "Digesting ${fn} into ${outdir}"
-        pam -u ${outdir} -e DTFp -T -F -p -D ${fn}
+        echo "Digesting ${fn} into ${outfn}"
+        pam -u ${outdir} -e ${ext}.DTFp -T -F -p -D ${fn}
     fi
     shift
 
