@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 
-import reduce_data
-import database
-import utils
+from coast_guard import calibrate
+from coast_guard import database
+from coast_guard import utils
 
 def main():
     db = database.Database()
-    reduce_data.update_caldb(db, args.sourcename, force=True)
+    caldbfn = calibrate.update_caldb(db, args.sourcename, force=True)
+    print "Updated %s" % caldbfn
 
 
 if __name__ == '__main__':
