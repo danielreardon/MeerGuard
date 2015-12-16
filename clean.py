@@ -19,12 +19,12 @@ import numpy as np
 import scipy.stats
 import matplotlib.pyplot as plt
 
-import config
-import utils
-import clean_utils
-import errors
-import cleaners
-import colour
+from coast_guard import config
+from coast_guard import utils
+from coast_guard import clean_utils
+from coast_guard import errors
+from coast_guard import cleaners
+from coast_guard import colour
 
 def dummy(ar):
     """A do-nothing dummy cleaning function.
