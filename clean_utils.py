@@ -337,7 +337,15 @@ def get_chans(ar, remove_prof=False, use_weights=True):
                                 template)
     data = data.sum(axis=0)
     return data
-    
+   
+
+def get_frequencies(ar):
+    integ = ar.get_first_Integration()
+    nchan = ar.get_nchan()
+    freqs = np.empty(nchan)
+    for ichan in xrange(nchan):
+        freqs[ichan] = integ.get_Profile(0, ichan).get_centre_frequency()
+    return freqs
 
 def get_subints(ar, remove_prof=False, use_weights=True):
     clone = ar.clone()
@@ -400,15 +408,18 @@ def fit_template(prof, template):
 def remove_profile1d(prof, isub, ichan, template):
     #err = lambda (amp, phs): amp*fft_rotate(template, phs) - prof
     #params, status = scipy.optimize.leastsq(err, [1, 0])
+    
     err = lambda amp: amp*template - prof
-    params, status = scipy.optimize.leastsq(err, [1])
+    #obj_func = lambda amp: np.sum(err(amp)**2)
+    #params = scipy.optimize.fmin(obj_func, [1.0], ftol=1e-12, xtol=1e-12)
+    params, status = scipy.optimize.leastsq(err, [1.0])
     if status not in (1,2,3,4):
         warnings.warn("Bad status for least squares fit when " \
                             "removing profile", errors.CoastGuardWarning)
         return (isub, ichan), np.zeros_like(prof)
     else:
         return (isub, ichan), err(params)
-
+    #return (isub, ichan), err(params)
 
 def remove_profile(data, nsubs, nchans, template, nthreads=None):
     if nthreads is None:
@@ -598,3 +609,109 @@ def get_hot_bins(data, normstat_thresh=6.3, max_num_hot=None, \
         prev_stat = curr_stat
 
 
+def write_psrsh_script(arf, outfn=None):
+    """Write a psrsh script that applies the same weighting 
+        as in the given ArchiveFile.
+
+        Inputs:
+            arf: An ArchiveFile object
+            outfn: The name of the file to write to.
+                (default: return psrsh commands as a single string)
+
+        Outputs:
+            outfn: The name of the file written.
+    """
+    lines = ["#!/usr/bin/env psrsh",
+             "",
+             "# Run with psrsh -e <ext> <script.psh> <archive.ar>",
+             ""]
+    # First write zapped channels
+    zapped_chans = (get_chan_weights(arf.get_archive())==0)
+    ma = np.ma.array(zapped_chans, mask=~zapped_chans)
+    if any(zapped_chans):
+        line = "zap chan "
+        for interval in np.ma.flatnotmasked_contiguous(ma):
+            lo = interval.start
+            hi = interval.stop-1
+            if lo==hi:
+                line += "%d " % lo
+            elif lo < hi:
+                line += "%d-%d " % (lo, hi)
+            else:
+                raise ValueError("Interval start (%d) > end (%d)" % (lo, hi))
+        lines.append(line)
+    # Now write zapped subints
+    zapped_ints = (get_subint_weights(arf.get_archive())==0)
+    ma = np.ma.array(zapped_ints, mask=~zapped_ints)
+    if any(zapped_ints):
+        line = "zap subint "
+        for interval in np.ma.flatnotmasked_contiguous(ma):
+            lo = interval.start
+            hi = interval.stop-1
+            if lo==hi:
+                line += "%d " % lo
+            elif lo < hi:
+                line += "%d-%d " % (lo, hi)
+            else:
+                raise ValueError("Interval start (%d) > end (%d)" % (lo, hi))
+        lines.append(line)
+    # Now write zapped pairs
+    zapped = arf.get_archive().get_weights()==0
+    nsub, nchan = zapped.shape
+    npairs = 0
+    line = "zap such "
+    for isub in xrange(nsub):
+        if zapped_ints[isub]:
+            continue
+        for ichan in xrange(nchan):
+            if zapped_chans[ichan]:
+                continue
+            if zapped[isub, ichan]:
+                line += "%d,%d " % (isub, ichan)
+                npairs += 1
+    if npairs:
+        lines.append(line)
+    if outfn is None:
+        return "\n".join(lines)
+    else:
+        # Write file
+        with open(outfn, 'w') as ff:
+            ff.write("\n".join(lines))
+
+def write_ebpp_chan_zap_script(arf, outfn=None):
+    """Write a psrsh script that applies the same channel zapping
+        as the EBPP archive provided.
+
+        Inputs:
+            arf: An EBPP ArchiveFile object
+            outfn: The name of the file to write to.
+                (default: return psrsh commands as a single string)
+
+        Outputs:
+            outfn: The name of the file written.
+    """
+    lines = ["#!/usr/bin/env psrsh",
+             "",
+             "# Run with psrsh -e <ext> <script.psh> <archive.ar>",
+             ""]
+    ar = arf.get_archive().clone()
+    ar.tscrunch()
+    # First write zapped channels
+    zapped_chans = (get_chan_weights(ar)==0)
+    freqs = get_frequencies(ar)
+    chbw = np.mean(np.diff(freqs))
+    # Trim band to EBPP band
+    lines.append("zap freq >%f" % (np.max(freqs)+0.5*chbw))
+    lines.append("zap freq <%f" % (np.min(freqs)-0.5*chbw))
+
+    # Zap individual channels
+    for ii, (iszapped, freq) in enumerate(zip(zapped_chans, freqs)):
+        if iszapped:
+            lines.append("zap freq %f:%f" % (freq-0.5*chbw, freq+0.5*chbw))
+
+    if outfn is None:
+        return "\n".join(lines)
+    else:
+        # Write file
+        with open(outfn, 'w') as ff:
+            ff.write("\n".join(lines))
