@@ -32,13 +32,80 @@ def get_cleaned_whereclause():
     return whereclause
 
 
+def get_corrected_whereclause():
+    db = database.Database()
+    whereclause = (db.files.c.stage == 'corrected')
+    return whereclause
+
+
 FILETYPE_TO_WHERE = {'loaded': get_loaded_whereclause,
-                     'all': get_all_whereclause,
+                     'recent': get_all_whereclause,
+                     'corrected': get_corrected_whereclause,
                      'calibrated': get_calibrated_whereclause,
                      'cleaned': get_cleaned_whereclause}
 
 
-def get_files(psrnames, filetype, rcvr=None):
+def get_current_files(psrnames, rcvr=None):
+    """Get a list of data base rows containing
+        file and obs information for the given pulsar,
+        filetype and receiver.
+
+        Inputs:
+            psrnames: The names of the pulsar to match.
+            rcvr: The name of the receiver to match.
+                (Default: Match all)
+
+        Outputs:
+            rows: A list of rows containing file and obs
+                information for each matching file.
+    """
+    db = database.Database()
+
+    # Select psrs to whereclause
+    psrname = utils.get_prefname(psrnames[0])
+    tmp = (db.obs.c.sourcename == psrname)
+    for psrname in psrnames[1:]:
+        psrname = utils.get_prefname(psrname)
+        tmp |= (db.obs.c.sourcename == psrname)
+    
+    whereclause = tmp
+    if rcvr is not None:
+        whereclause &= (db.obs.c.rcvr == rcvr)
+
+    with db.transaction() as conn:
+        select = db.select([db.files, 
+                            db.obs.c.dir_id,
+                            db.obs.c.sourcename,
+                            db.obs.c.obstype,
+                            db.obs.c.start_mjd,
+                            db.obs.c.length,
+                            db.obs.c.bw,
+                            db.obs.c.freq,
+                            db.obs.c.nsubints,
+                            db.obs.c.nsubbands,
+                            db.obs.c.obsband,
+                            db.obs.c.rcvr],
+                    from_obj=[db.obs.\
+                        outerjoin(db.files,
+                            onclause=(db.files.c.file_id ==
+                                        db.obs.c.current_file_id))]).\
+                    where(whereclause).\
+                    order_by(db.files.c.added.asc())
+        result = conn.execute(select)
+        rows = result.fetchall()
+        result.close()
+    return rows
+
+
+def get_files(psrnames, filetype='current', rcvr=None):
+    if filetype in ('all', 'current'):
+        rows = get_current_files(psrnames, rcvr)
+    else:
+        rows = get_files_by_type(psrnames, filetype, rcvr)
+    return rows
+
+
+def get_files_by_type(psrnames, filetype, rcvr=None):
     """Get a list of data base rows containing
         file and obs information for the given pulsar,
         filetype and receiver.
@@ -74,6 +141,12 @@ def get_files(psrnames, filetype, rcvr=None):
                             db.obs.c.sourcename,
                             db.obs.c.obstype,
                             db.obs.c.start_mjd,
+                            db.obs.c.length,
+                            db.obs.c.bw,
+                            db.obs.c.freq,
+                            db.obs.c.nsubints,
+                            db.obs.c.nsubbands,
+                            db.obs.c.obsband,
                             db.obs.c.rcvr],
                     from_obj=[db.files.\
                         outerjoin(db.obs,
@@ -96,8 +169,51 @@ def get_files(psrnames, filetype, rcvr=None):
     return rows
 
 
+def get_files_by_id(file_ids):
+    """Get a list of data base rows containing
+        file and obs information for the given,
+        file IDs.
+
+        Inputs:
+            file_ids: A list of file IDs to match
+
+        Outputs:
+            rows: A list of rows containing file and obs
+                information for each matching file.
+    """
+    db = database.Database()
+
+    with db.transaction() as conn:
+        select = db.select([db.files, 
+                            db.obs.c.dir_id,
+                            db.obs.c.sourcename,
+                            db.obs.c.obstype,
+                            db.obs.c.start_mjd,
+                            db.obs.c.length,
+                            db.obs.c.bw,
+                            db.obs.c.freq,
+                            db.obs.c.nsubints,
+                            db.obs.c.nsubbands,
+                            db.obs.c.obsband,
+                            db.obs.c.rcvr],
+                    from_obj=[db.files.\
+                        outerjoin(db.obs,
+                            onclause=(db.files.c.obs_id ==
+                                        db.obs.c.obs_id))]).\
+                    where(db.files.c.file_id.in_(args.file_ids)).\
+                    order_by(db.files.c.added.asc())
+        result = conn.execute(select)
+        rows = result.fetchall()
+        result.close()
+   
+    return rows
+
+
 def main():
-    rows = get_files(args.psrnames, args.type)
+    if args.file_ids:
+        rows = get_files_by_id(args.file_ids)
+    else:
+        rows = get_files(args.psrnames, args.type)
     info = {}
     
     utils.sort_by_keys(rows, args.sortkeys)
@@ -131,6 +247,10 @@ if __name__ == '__main__':
     parser.add_argument('--type', dest='type', type=str,
                         help='Type of files to list. Options are:'
                              '%s' % sorted(set(FILETYPE_TO_WHERE.keys())))
+    parser.add_argument('-F', '--file-id', action='append', dest='file_ids',
+                        default=[],
+                        help="File ID to match. Multiple -F/--file-id options "
+                             "may be provided.")
     parser.add_argument('--sort', dest='sortkeys', metavar='SORTKEY', \
                         action='append', default=['added'], \
                         help="DB column to sort raw data files by. Multiple " \
