@@ -32,6 +32,9 @@ from coast_guard import calibrate
 
 import pyriseset as rs
 
+# Set umask so that all group members can access files/directories created
+os.umask(0007)
+
 # A lock for each calibrator database file
 # The multiprocessing.Lock objects are created on demand
 CALDB_LOCKS = {}
@@ -197,6 +200,20 @@ PARFILES = {
                           'parfiles/epta-v2.2-parfiles/J2322+2057.par-ML',
             }
 
+
+PATH_TO_BACKEND = {'/media/part2/TIMING/Asterix/': 'ASTERIX',
+                   '/media/part2/TIMING/Asterix_V2/': 'ASTERIXv2'}
+
+
+def get_backend_from_dir(path):
+    backend = None
+    for key in PATH_TO_BACKEND:
+        if path.startswith(key):
+            backend = PATH_TO_BACKEND[key]
+            break
+    return backend
+
+
 def load_directories(db, force=False, *args, **kwargs):
     """Search for directories containing asterix data.
         For each newly found entry, insert a row in the
@@ -299,9 +316,7 @@ def load_groups(dirrow):
             logoutdir = os.path.join(config.output_location, 'logs', arf['name'])
 
             try:
-                oldumask = os.umask(0007)
                 os.makedirs(logoutdir)
-                os.umask(oldumask)
             except OSError:
                 # Directory already exists
                 pass
@@ -330,7 +345,8 @@ def load_groups(dirrow):
                             'obstype': obstype,
                             'nsubbands': len(dirs),
                             'nsubints': len(fns), 
-                            'obsband': arf['band']})
+                            'obsband': arf['band'],
+                            'backend': get_backend_from_dir(path)})
 
             values.append({'filepath': listpath,
                            'filename': listname,
@@ -446,12 +462,13 @@ def load_combined_file(filerow):
             parfn = PARFILES[arf['name']]
         else:
             parfn = None
-        cmbfn = make_combined_file(subdirs, subints, outdir=cmbdir, parfn=parfn)
+        cmbfn = make_combined_file(subdirs, subints, outdir=cmbdir, parfn=parfn, 
+                                   backend=filerow['backend'])
 
         # Pre-compute values to insert because some might be
         # slow to generate
         arf = utils.ArchiveFile(cmbfn)
-        if arf['nchan'] > 512:
+        if (arf['backend'] == 'ASTERIX') and (arf['nchan'] > 512):
             factor = 0.015625*arf['nchan']/len(subdirs)
             new_nchan = arf['nchan']/factor
             note = "Scrunched from %d to %g channels" % (arf['nchan'], new_nchan)
@@ -1173,8 +1190,8 @@ def get_potential_polcal_scans(db, obs_id):
                             onclause=(db.files.c.obs_id ==
                                         db.obs.c.obs_id))]).\
                     where((db.obs.c.obstype == 'cal') &
-                            (db.obs.c.sourcename == "%s_R" %
-                                    obsrow['sourcename']) &
+                            (db.obs.c.sourcename == ("%s_R" %
+                                    obsrow['sourcename'])) &
                             ((db.obs.c.rcvr == obsrow['rcvr']) |
                                 (db.obs.c.rcvr.is_(None))) &
                             db.obs.c.start_mjd.between(*mjdrange) &
@@ -1226,6 +1243,21 @@ def get_parent(file_id, db=None):
         else:
             raise errors.DatabaseError("Bad number of files (%d) with ID=%d!" % (len(rows), file_id))
     return parent
+
+
+def get_file(file_id, db=None):
+    # Connect to database if db is None
+    db = db or database.Database()
+   
+    with db.transaction() as conn:
+        select = db.select([db.files]).\
+                    where(db.files.c.file_id == file_id)
+        result = conn.execute(select)
+        rows = result.fetchall()
+        result.close()
+        if len(rows) != 1:
+            raise errors.DatabaseError("Bad number of files (%d) with ID=%d!" % (len(rows), file_id))
+    return rows[0] 
 
 
 def get_all_obs_files(file_id, db=None):
@@ -1331,6 +1363,7 @@ def get_files(db, obs_id):
                             db.obs.c.dir_id,
                             db.obs.c.sourcename,
                             db.obs.c.obstype,
+                            db.obs.c.backend,
                             db.obs.c.start_mjd],
                     from_obj=[db.files.\
                         outerjoin(db.obs,
@@ -1502,27 +1535,29 @@ def move_file(db, file_id, destdir, destfn=None):
                              "has been updated accordingly." % (src, dest), 2)
 
 
-def get_rawdata_dirs(basedir=None, priority=[]):
+def get_rawdata_dirs(basedirs=None, priority=[]):
     """Get a list of directories likely to contain asterix data.
         Directories 2 levels deep with a name "YYYYMMDD" are returned.
 
         Input:
-            basedir: Root of the directory tree to search.
+            basedirs: Roots of the directory trees to search.
             priority: List of directories to prioritize.
                 (Default: No priorities)
 
         Output:
             outdirs: List of likely raw data directories.
     """
-    if basedir is None:
-        basedir = config.base_rawdata_dir
+    if basedirs is None:
+        basedirs = config.base_rawdata_dirs
     outdirs = []
-    if priority:
-        indirs = []
+    indirs = []
+    for basedir in basedirs:
+        if not priority:
+            # Not prioritizing any specific pulsars
+            # use wildcard to match all
+            priority = ["*"]
         for name in priority:
             indirs.extend(glob.glob(os.path.join(basedir, name)))
-    else:
-        indirs = glob.glob(os.path.join(basedir, "*"))
     for path in indirs:
         subdirs = glob.glob(os.path.join(path, "*"))
         for subdir in subdirs:
@@ -1558,9 +1593,9 @@ def make_groups(path):
     usedirs_list = []
     groups_list = []
 
-    # Try L-band and S-band
+    # Try L-band, S-band, and C-band
     for band, subdir_pattern in \
-                    zip(['Lband', 'Sband'], ['1'+'[0-9]'*3, '2'+'[0-9]'*3]):
+                    zip(['Lband', 'Sband', 'Cband'], ['1'+'[0-9]'*3, '2'+'[0-9]'*3, '[45]'+'[0-9]'*3]):
         subdirs = glob.glob(os.path.join(path, subdir_pattern))
         if subdirs:
             utils.print_info("Found %d freq sub-band dirs for %s in %s. "
@@ -1574,7 +1609,7 @@ def make_groups(path):
     return usedirs_list, groups_list
 
 
-def make_combined_file(subdirs, subints, outdir, parfn=None, effix=False):
+def make_combined_file(subdirs, subints, outdir, parfn=None, effix=False, backend=None):
     """Given lists of directories and subints combine them.
 
         Inputs:
@@ -1589,6 +1624,7 @@ def make_combined_file(subdirs, subints, outdir, parfn=None, effix=False):
                 (Default: don't install a new ephemeris)
             effix: Change observation site to eff_psrix to correct 
                 for asterix clock offsets. (Default: False)
+            backend: Name of the backend. (Default: leave as is)
 
         Outputs:
             outfn: The name of the combined archive.
@@ -1600,7 +1636,8 @@ def make_combined_file(subdirs, subints, outdir, parfn=None, effix=False):
         # Prepare subints
         preppeddirs = combine.prepare_subints(subdirs, subints,
                                       baseoutdir=os.path.join(tmpdir, 'data'),
-                                      trimpcnt=6.25, effix=effix)
+                                      trimpcnt=6.25, effix=effix, 
+                                      backend=backend)
         cmbfn = combine.combine_subints(preppeddirs, subints,
                                         parfn=parfn, outdir=outdir)
     except:
@@ -1783,6 +1820,8 @@ def get_todo(db, action, priorities=None):
                             db.obs.c.sourcename,
                             db.obs.c.obstype,
                             db.obs.c.obsband,
+                            db.obs.c.rcvr,
+                            db.obs.c.backend,
                             db.obs.c.start_mjd],
                     from_obj=[db.obs.\
                         outerjoin(db.files,
