@@ -90,6 +90,10 @@ class TemplateGenerationError(CoastGuardError):
     pass
 
 
+class CalibrationError(CoastGuardError):
+    pass
+
+
 # Fatal class of errors. These should not be caught.
 class FatalCoastGuardError(Exception):
     def __init__(self, msg):
@@ -100,7 +104,7 @@ class FatalCoastGuardError(Exception):
         return colour.cstring(super(FatalCoastGuardError, self).__str__(), 'error')
 
     def get_message(self):
-        return super(CoastGuardError, self).__str__()
+        return super(FatalCoastGuardError, self).__str__()
 
 
 class BadColumnNameError(FatalCoastGuardError):
