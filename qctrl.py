@@ -18,18 +18,18 @@ import warnings
 from PyQt4 import QtGui as qtgui
 from PyQt4 import QtCore as qtcore
 
-import config
-import database
-import utils
-import errors
-import reduce_data
-
+from coast_guard import config
+from coast_guard import database
+from coast_guard import utils
+from coast_guard import errors
+from coast_guard import reduce_data
+from coast_guard import add_missing_summary_plots as amsp
 
 class QualityControl(qtgui.QWidget):
     """Quality control window.
     """
 
-    def __init__(self, priorities=None, stage='cleaned'):
+    def __init__(self, priorities=None, stage='cleaned', re_eval=False):
         super(QualityControl, self).__init__()
         # Set up the window
         self.__setup()
@@ -42,6 +42,7 @@ class QualityControl(qtgui.QWidget):
         # Initialize
         self.priorities = priorities
         self.stage = stage
+        self.re_eval = re_eval
         self.idiag = 0
         self.file_id = None
         self.diagplots = []
@@ -152,12 +153,27 @@ class QualityControl(qtgui.QWidget):
                 values['note'] = "A weak detection."
             elif note == 'ephem':
                 values['note'] = "Ephemeris needs to be updated."
-                
+            else:
+                values['note'] = None
+
             with self.db.transaction() as conn:
+                now = datetime.datetime.now()
                 update = self.db.files.update().\
                             where(self.db.files.c.file_id == self.file_id).\
-                            values(last_modified=datetime.datetime.now())
+                            values(last_modified=now)
                 conn.execute(update, values)
+                note = values['note']
+                if note is None:
+                    note = "Passed QC"
+                insert = self.db.qctrl.insert().\
+                            values(file_id=self.file_id,
+                                   obs_id=self.fileinfo['obs_id'],
+                                   user=os.getlogin(),
+                                   qcpassed=True,
+                                   note=note,
+                                   added=now,
+                                   last_modified=now)
+                conn.execute(insert)
             self.advance_file()
 
     def set_file_as_bad(self, reason='rfi'):
@@ -174,20 +190,41 @@ class QualityControl(qtgui.QWidget):
                                                     "recognized: %s" %
                                                     reason)
             with self.db.transaction() as conn:
+                now = datetime.datetime.now()
                 update = self.db.files.update().\
                             where(self.db.files.c.file_id == self.file_id).\
                             values(qcpassed=False,
                                     status='failed',
                                     note=note,
-                                    last_modified=datetime.datetime.now())
+                                    last_modified=now)
                 conn.execute(update)
+                insert = self.db.qctrl.insert().\
+                            values(file_id=self.file_id,
+                                   obs_id=self.fileinfo['obs_id'],
+                                   user=os.getlogin(),
+                                   qcpassed=False,
+                                   note=note,
+                                   added=now,
+                                   last_modified=now)
+                conn.execute(insert)
                 if self.fileinfo['stage'] == 'calibrated':
+                    # Mark former cleaned file to be loaded
+                    ancestors = reduce_data.get_all_ancestors(self.file_id, self.db)
+                    for ancestor in ancestors:
+                        if ancestor['stage'] == 'cleaned':
+                            ancestor_file_id = ancestor['file_id']
+                            break
                     update = self.db.files.update().\
-                                where((self.db.files.c.file_id ==
-                                       self.fileinfo['parent_file_id'])).\
+                                where((self.db.files.c.file_id == ancestor_file_id)).\
                                 values(status='toload',
-                                        note="Derived calibrated file failed quality control.",
-                                        last_modified=datetime.datetime.now())
+                                       note="Derived calibrated file failed quality control.",
+                                       last_modified=datetime.datetime.now())
+                    conn.execute(update)
+                    # Update observation's current file
+                    update = self.db.obs.update().\
+                                where((self.db.obs.c.obs_id == self.fileinfo['obs_id'])).\
+                                values(current_file_id=ancestor_file_id,
+                                       last_modified=datetime.datetime.now())
                     conn.execute(update)
             self.advance_file()
 
@@ -224,6 +261,7 @@ class QualityControl(qtgui.QWidget):
 
     def set_file(self, file_id):
         if self.file_id != file_id:
+            amsp.make_and_load_diagnostics(file_id, self.db)
             with self.db.transaction() as conn:
                 # Get file information from DB
                 select = self.db.select([self.db.files]).\
@@ -305,21 +343,23 @@ class QualityControl(qtgui.QWidget):
                                        for row in rows])
             self.added_cal_plots = True
 
-    def get_files_to_check(self, priorities=None, stage=None):
+    def get_files_to_check(self, priorities=None, stage=None, re_eval=None):
         if stage is None:
             stage = self.stage
-        if stage == 'cleaned':
-            whereclause = (self.db.files.c.qcpassed.is_(None)) & \
-                          (self.db.files.c.stage == 'cleaned') & \
-                          (self.db.files.c.status == 'new')
-        elif stage == 'calibrated':
-            whereclause = (self.db.files.c.qcpassed.is_(None)) & \
-                          (self.db.files.c.stage == 'calibrated') & \
-                          (self.db.files.c.status == 'new') & \
-                          (self.db.obs.c.obstype == 'pulsar')
-            
+        if re_eval is None:
+            re_eval = self.re_eval
         if priorities is None:
             priorities = self.priorities
+        
+        whereclause = (self.db.files.c.status == 'new')
+        if stage == 'cleaned':
+            whereclause &= (self.db.files.c.stage == 'cleaned')
+        elif stage == 'calibrated':
+            whereclause &= (self.db.files.c.stage == 'calibrated') & \
+                           (self.db.obs.c.obstype == 'pulsar')
+        if not re_eval:
+            whereclause &= (self.db.files.c.qcpassed.is_(None))
+        
         if priorities:
             priority_list = []
             for pr in priorities:
@@ -331,23 +371,24 @@ class QualityControl(qtgui.QWidget):
             whereclause &= tmp
         with self.db.transaction() as conn:
             select = self.db.select([self.db.files.c.file_id],
-                        from_obj=[self.db.files.\
-                            outerjoin(self.db.obs,
-                                onclause=self.db.files.c.obs_id ==
-                                        self.db.obs.c.obs_id)]).\
-                        where(whereclause)
+                        from_obj=[self.db.obs.\
+                            outerjoin(self.db.files,
+                                onclause=self.db.files.c.file_id ==
+                                        self.db.obs.c.current_file_id)]).\
+                        where(whereclause).\
+                        order_by(self.db.obs.c.obstype.asc())
             result = conn.execute(select)
             rows = result.fetchall()
             result.close()
         self.files_to_check = [row['file_id'] for row in rows]
-        self.files_to_check.sort()
-        self.files_to_check.reverse()
+#        self.files_to_check.sort()
+#        self.files_to_check.reverse()
         self.advance_file()
 
     def zap_file_manually(self, reset_weights=False):
         arfn = os.path.join(self.fileinfo['filepath'],
                             self.fileinfo['filename'])
-       
+        arf = utils.ArchiveFile(arfn) 
         zapdialog = ZappingDialog()
         zapdialog.show()
         # This blocks input to the main quality control window
@@ -359,12 +400,18 @@ class QualityControl(qtgui.QWidget):
                       'filename': outfn,
                       'stage': 'cleaned',
                       'note': "Manually zapped",
-                      'qcpassed': True,
+                      'qcpassed': None,
+                      'status': 'new',
                       'snr': utils.get_archive_snr(out),
                       'md5sum': utils.get_md5sum(out),
+                      'coords': self.fileinfo['coords'],
+                      'ephem_md5sum': self.fileinfo['ephem_md5sum'],
                       'filesize': os.path.getsize(out),
                       'parent_file_id': self.file_id}
 
+            if self.fileinfo['stage'] == 'calibrated':
+                values['stage'] = 'calibrated'
+                values['cal_file_id'] = self.fileinfo['cal_file_id']
             with self.db.transaction() as conn:
                 version_id = utils.get_version_id(self.db)
                 # Insert new entry
@@ -381,6 +428,12 @@ class QualityControl(qtgui.QWidget):
                                 note="File had to be cleaned by hand.",
                                 last_modified=datetime.datetime.now())
                 result = conn.execute(update)
+                # Update current file for observation
+                update = self.db.obs.update().\
+                            where(self.db.obs.c.obs_id == self.fileinfo['obs_id']).\
+                            values(current_file_id=file_id,
+                                   last_modified=datetime.datetime.now())
+                conn.execute(update)
             self.advance_file()       
 
     def set_priorities(self):
@@ -505,6 +558,9 @@ class ZappingDialog(qtgui.QDialog):
                 # Append .zap to filename
                 archivefn = (os.path.basename(arfn)+".zap") % arf
                 outfn = os.path.join(archivedir, archivefn)
+                # Ensure group has write permission to this file
+                # NOT SURE THIS IS NECESSARY
+                #utils.add_group_permissions(tmpoutfn, 'w')
                 shutil.move(tmpoutfn, outfn)
                 return outfn
             else:
@@ -536,7 +592,8 @@ class ZappingDialog(qtgui.QDialog):
 def main():
     app = qtgui.QApplication(sys.argv)
     
-    qctrl_win = QualityControl(priorities=args.priority, stage=args.stage)
+    qctrl_win = QualityControl(priorities=args.priority, stage=args.stage,
+                               re_eval=args.re_eval)
     qctrl_win.get_files_to_check()
     # Display the window
     qctrl_win.show()
@@ -554,6 +611,9 @@ if __name__ == "__main__":
     parser.add_argument('-C', "--calibrated", dest='stage', action='store_const',
                         default='cleaned', const='calibrated',
                         help="Review calibrated pulsar observations.")
+    parser.add_argument('-R', "--re-eval", dest='re_eval', action='store_true',
+                        help="Review files with status 'new' even if they already "
+                             "have a quality control assessment.")
     args = parser.parse_args()
     main()
 
