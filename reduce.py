@@ -186,11 +186,11 @@ class ReductionJob(object):
             config.cfg.load_configs_for_archive(combinearf)
             # Create diagnostic plots for pre-cleaned data
             combinearf.get_archive().update()
-            diagnose.make_composite_summary_plot(combinearf)
+            diagnose.make_composite_summary_plot_psrplot(combinearf)
             preproc = 'C,D,B 128,F 32'
             if combinearf['nsub'] > 32:
                 preproc += ",T 32"
-            diagnose.make_composite_summary_plot(combinearf, preproc, \
+            diagnose.make_composite_summary_plot_psrplot(combinearf, preproc, \
                                             combinearf.fn+".scrunched.ps")
  
             # Clean the data
@@ -216,11 +216,11 @@ class ReductionJob(object):
             
             cleanarf = utils.ArchiveFile(self.outfn)
             # Re-create diagnostic plots for clean data
-            diagnose.make_composite_summary_plot(cleanarf)
+            diagnose.make_composite_summary_plot_psrplot(cleanarf)
             preproc = 'C,D,B 128,F 32'
             if cleanarf['nsub'] > 32:
                 preproc += ",T 32"
-            diagnose.make_composite_summary_plot(cleanarf, preproc, \
+            diagnose.make_composite_summary_plot_psrplot(cleanarf, preproc, \
                                             cleanarf.fn+".scrunched.ps")
 
             cleanarfs.append(cleanarf)
