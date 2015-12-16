@@ -16,6 +16,10 @@ from pyriseset import utils as rsutils
 BASE_MASER_URL = "http://effwww.mpifr-bonn.mpg.de/maser/"
 
 
+class NoMaserFileFound(Exception):
+    pass
+
+
 def get_maser_lines(day):
     """Get maser file from Effelsberg for a specific day.
        An error is raised if no file can be found for the given day.
@@ -62,11 +66,11 @@ def get_maser_lines(day):
             if e.getcode() != 404:
                 raise
     else:
-        raise errors.FatalCoastGuardError("Cannot find Effelsberg maser " 
-                                          "correction file for '%s'. "
-                                          "Checked the following URLs:\n"
-                                          "    %s" % 
-                                          (day, "\n    ".join(urls)))
+        raise NoMaserFileFound("Cannot find Effelsberg maser " 
+                               "correction file for '%s'. "
+                               "Checked the following URLs:\n"
+                               "    %s" % 
+                               (day, "\n    ".join(urls)))
     lines = data.readlines()
     return lines
     
@@ -140,22 +144,35 @@ def main():
     else:
         outfile = sys.stdout
 
-    mjds = get_mjds(args.start_mjd, args.end_mjd, 
+    end_mjd = args.end_mjd
+    if end_mjd is None:
+        end_mjd = rsutils.mjdnow()
+    mjds = get_mjds(args.start_mjd, end_mjd, 
                     args.interval, args.num_per_day)
     curr = None    
     for mjd in mjds:
         imjd = int(mjd)
-        if curr != imjd:
-            utils.print_info("Getting maser corrections for MJD %05d" % imjd, 1)
-            # Get corrections
-            data = get_maser_data(imjd)
-            get_correction = interpolate.interp1d(data[:,0], data[:,1], 
-                                                  kind='nearest')
-            curr = imjd
-        correction = get_correction(mjd)
-        if correction > 0.5:
-            correction -= 1
-        outfile.write("%.6f\t%.5e\n" % (mjd, correction))
+        try:
+            if curr != imjd:
+                utils.print_info("Getting maser corrections for MJD %05d" % imjd, 1)
+                # Get corrections
+                data = get_maser_data(imjd)
+                get_correction = interpolate.interp1d(data[:,0], data[:,1], 
+                                                      kind='nearest')
+                curr = imjd
+            correction = get_correction(mjd)
+            if correction > 0.5:
+                correction -= 1
+            elif correction < -0.5:
+                correction += 1
+                correction = -correction
+            outfile.write("%.6f\t%.5e\n" % (mjd, correction))
+        except NoMaserFileFound:
+            outfile.write("# Cannot determine clock correction for MJD %g: " \
+                          "No maser file found for MJD %d\n" % (mjd, imjd))
+        except ValueError, exc:
+            outfile.write("# Cannot determine clock correction for MJD %g: " \
+                          "%s\n" % (mjd, str(exc)))
 
     if args.outfn is not None:
         outfile.close()
