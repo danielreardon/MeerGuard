@@ -1,8 +1,10 @@
 import textwrap
 
-import utils
-import errors
-import colour
+from coast_guard import config
+from coast_guard.cleaners import config_types
+from coast_guard import utils
+from coast_guard import errors
+from coast_guard import colour
 
 registered_cleaners = ['hotbins', 'surgical', 'rcvrstd', 'bandwagon']
 
@@ -213,8 +215,9 @@ class Configurations(dict):
             # Add the config name and type
             self.types[name] = cfgtype(nullable=nullable)
         else:
-            raise ValueError("The provided 'cfgtype' is not a subclass of " \
-                                "ConfigType. (type=%s)" % type(cfgtype))
+            raise ValueError("The provided 'cfgtype' (name=%s) is not a subclass of " 
+                             "BaseConfigType. (type=%s)" % 
+                             (cfgtype.__name__, type(cfgtype)))
         # Add the aliases
         for alias in aliases:
             self.aliases[alias] = name

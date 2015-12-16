@@ -2,11 +2,11 @@ import types
 
 import numpy as np
 
-import config
-import cleaners
-import clean_utils
-import config_types
-import utils
+from coast_guard import config
+from coast_guard import cleaners
+from coast_guard.cleaners import config_types
+from coast_guard import clean_utils
+from coast_guard import utils
 
 class ReceiverBandCleaner(cleaners.BaseCleaner):
     name = 'rcvrstd'
@@ -133,15 +133,18 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                 None
         """
         if self.configs.badchans:
+            nremoved = 0
             for tozap in self.configs.badchans:
                 if type(tozap) is types.IntType:
                     # A single bad channel to zap
                     clean_utils.zero_weight_chan(ar, tozap)
+                    nremoved += 1
                 else:
                     # An (inclusive) interval of bad channels to zap
                     lochan, hichan = tozap
                     for xx in xrange(lochan, hichan):
                         clean_utils.zero_weight_chan(ar, tozap)
+                        nremoved += 1
             utils.print_debug("Removed %d channels due to bad chans " \
                             "(%s) in %s" % (nremoved, self.configs.badfreqs, \
                             ar.get_filename()), 'clean')
