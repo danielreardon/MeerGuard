@@ -8,6 +8,7 @@ from coast_guard import config
 from coast_guard import errors
 
 import schema
+import obslog
 from coast_guard import utils
 
 null = lambda x: x
@@ -31,6 +32,9 @@ def fancy_getitem(self, key):
         fmt = key[5:]
         key = 'start_mjd'
         filterfunc = lambda mjd: utils.mjd_to_datetime(mjd).strftime(fmt)
+    elif (type(key) in (type('str'), type(u'str'))) and (key == "secs"):
+        key = 'start_mjd'
+        filterfunc = lambda mjd: int((mjd % 1)*24*3600+0.5)
     if key in self:
         return filterfunc(super(self.__class__, self).__getitem__(key))
     else:
@@ -116,7 +120,7 @@ def on_sqlite_connect(dbapi_conn, conn_rec):
     cursor.close()
 
 
-def get_engine(url=None):
+def get_engine(url):
     """Given a DB URL string return the corresponding DB engine.
 
         Input:
@@ -125,26 +129,38 @@ def get_engine(url=None):
         Output:
             engine: The corresponding DB engine.
     """
-    if url is None:
-        url = config.dburl
-        # Create the database engine
-        engine = sa.create_engine(url)
-        if engine.name == 'sqlite':
-            sa.event.listen(engine, "connect", on_sqlite_connect)
-        sa.event.listen(engine, "before_cursor_execute",
-                            before_cursor_execute)
-        if config.debug.is_on('database'):
-            sa.event.listen(engine, "commit", on_commit)
-            sa.event.listen(engine, "rollback", on_rollback)
-            sa.event.listen(engine, "begin", on_begin)
+    # Create the database engine
+    engine = sa.create_engine(url)
+    if engine.name == 'sqlite':
+        sa.event.listen(engine, "connect", on_sqlite_connect)
+    sa.event.listen(engine, "before_cursor_execute",
+                        before_cursor_execute)
+    if config.debug.is_on('database'):
+        sa.event.listen(engine, "commit", on_commit)
+        sa.event.listen(engine, "rollback", on_rollback)
+        sa.event.listen(engine, "begin", on_begin)
     return engine
 
 
 class Database(object):
-    def __init__(self):
+    def __init__(self, db='effreduce'):
         """Set up a Database object using SQLAlchemy.
+
+            Inputs:
+                db: The name of the database to connect to.
+                    Options are 'effreduce' and 'obslog'
+                    (Default: effreduce)
         """
-        self.engine = get_engine()
+        if db == 'effreduce':
+            url = config.dburl
+            self.metadata = schema.metadata
+        elif db == 'obslog':
+            url = config.obslog_dburl
+            self.metadata = obslog.metadata
+        else:
+            raise errors.DatabaseError("Database (%s) is not recognized. "
+                                       "Cannot connect." % db)
+        self.engine = get_engine(url)
         if not self.is_created():
             raise errors.DatabaseError("The database (%s) does not appear " \
                                     "to have any tables. Be sure to run " \
@@ -152,8 +168,7 @@ class Database(object):
                                     "to connect to the database." % \
                                             self.engine.url.database)
 
-        # The database description (metadata)
-        self.metadata = schema.metadata
+        # The database description (in metadata)
         self.tables = self.metadata.tables
 
     def get_table(self, tablename):
