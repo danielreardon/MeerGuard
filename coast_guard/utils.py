@@ -761,7 +761,7 @@ def execute(cmd, stdout=subprocess.PIPE, stderr=sys.stderr, dir=None):
         stderr.write(stderrdata)
         stderr.close()
     
-    retcode = pipe.returncode 
+    retcode = pipe.returncode
     if retcode < 0:
         raise errors.SystemCallError("Execution of command (%s) " \
                                     "terminated by signal (%s)!" % \
@@ -1331,7 +1331,7 @@ class ArchiveFile(object):
         self.hdr = get_header_vals(self.fn, ['freq', 'length', 'bw', 'mjd', 
                                             'intmjd', 'fracmjd', 'backend', 
                                             'rcvr', 'telescop', 'name', 
-                                            'nchan', 'asite', 'period', 'dm',
+                                            'nchan', 'period', 'dm',
                                             'nsub', 'nbin', 'npol',
                                             'ra', 'dec'])
         self.hdr['origname'] = self.hdr['name'] # Original file name
