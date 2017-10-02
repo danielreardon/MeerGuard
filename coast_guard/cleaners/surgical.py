@@ -1,5 +1,4 @@
 import numpy as np
-
 from coast_guard import config
 from coast_guard import cleaners
 from coast_guard import clean_utils
