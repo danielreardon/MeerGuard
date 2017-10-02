@@ -138,7 +138,7 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
         if self.configs.badchans:
             nremoved = 0
             for tozap in self.configs.badchans:
-                if type(tozap) is types.IntType:  # E721 do not compare types, use 'isinstance()'
+                if type(tozap) is types.IntType:
                     # A single bad channel to zap
                     clean_utils.zero_weight_chan(ar, tozap)
                     nremoved += 1
@@ -165,7 +165,7 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                 hifreqs[ichan] = ctr + chanbw / 2.0
 
             for tozap in self.configs.badfreqs:
-                if type(tozap) is types.FloatType:  # E721 do not compare types, use 'isinstance()'
+                if type(tozap) is types.FloatType:
                     # A single bad freq to zap
                     for ichan in np.argwhere((lofreqs <= tozap) & (hifreqs > tozap)):
                         ichan = ichan.squeeze()

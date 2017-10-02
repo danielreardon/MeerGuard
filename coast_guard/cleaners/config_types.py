@@ -1,5 +1,6 @@
 import types
 
+
 class BaseConfigType(object):
     """The base class of ConfigType objects.
 
@@ -99,8 +100,7 @@ class BoolVal(BaseConfigType):
     """A configuration type for boolean values.
     """
     name = 'bool'
-    description = 'The following values are recognised (case insensitive): '
-                  'true, 1, y, yes, false, 0, n, no'
+    description = 'The following values are recognised (case insensitive): true, 1, y, yes, false, 0, n, no'
 
     def _string_to_value(self, paramstr):
         """Parse 'paramstr' as a boolean value. The following values
@@ -139,7 +139,7 @@ def _str_to_intlist(paramstr):
 
 def _str_to_int_pair(paramstr):
     # Convert ':' to ';' so we can re-use string-to-intlist function
-    intlist = _str_to_intlist(paramstr.replace(':',';'))
+    intlist = _str_to_intlist(paramstr.replace(':', ';'))
     if len(intlist) != 2:
         raise ValueError('Bad number of integer strings in "%s". Exactly 2 '
                          'expected. Integers should be separated by \':\'.'
@@ -216,8 +216,7 @@ class IntOrIntPairList(BaseConfigType):
     """A configuration type for a list of integer-or-integer-pairs.
     """
     name = 'list of integer-or-integer-pairs'
-    description = 'a list of integers or integer pairs '
-                  '(<int>|<int>:<int>)[;(<int>|<int>:<int>)...].'
+    description = 'a list of integers or integer pairs (<int>|<int>:<int>)[;(<int>|<int>:<int>)...].'
 
     def _string_to_value(self, paramstr):
         """Parse 'paramstr' as a list of integer-or-integer-pairs. The format
@@ -257,7 +256,7 @@ def _str_to_floatlist(paramstr):
 
 def _str_to_float_pair(paramstr):
     # Convert ':' to ';' so we can re-use string-to-floatlist function
-    floatlist = _str_to_floatlist(paramstr.replace(':',';'))
+    floatlist = _str_to_floatlist(paramstr.replace(':', ';'))
     if len(floatlist) != 2:
         raise ValueError('Bad number of float strings in "%s". Exactly 2 '
                          'expected. Floats should be separated by \':\'.'
@@ -325,8 +324,7 @@ class FloatOrFloatPairList(BaseConfigType):
     """A configuration type for a list of float-or-float-pairs.
     """
     name = 'list of float-or-float-pairs'
-    description = 'a list of floats or float pairs '
-                  '(<float>|<float>:<float>)[;(<float>|<float>:<float>)...].'
+    description = 'a list of floats or float pairs (<float>|<float>:<float>)[;(<float>|<float>:<float>)...].'
 
     def _string_to_value(self, paramstr):
         """Parse 'paramstr' as a list of float-or-float-pairs. The format
