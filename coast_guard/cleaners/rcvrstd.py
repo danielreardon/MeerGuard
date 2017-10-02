@@ -11,35 +11,36 @@ from coast_guard import utils
 class ReceiverBandCleaner(cleaners.BaseCleaner):
     name = 'rcvrstd'
     description = 'Prune, and tidy the observing band by trimming edges, ' \
-                    'and removing bad channels/freq ranges.'
+                  'and removing bad channels/freq ranges.'
 
     def _set_config_params(self):
         self.configs.add_param('response', config_types.FloatPair, \
-                        aliases=['resp'], nullable=True, \
-                        help='The range of frequencies between which the ' \
-                            'receiver has sensitivity. Any channels ' \
-                            'outside this range will be de-weighted.')
+                               aliases=['resp'], \
+                               nullable=True, \
+                               help='The range of frequencies between which the ' \
+                                    'receiver has sensitivity. Any channels ' \
+                                    'outside this range will be de-weighted.')
         self.configs.add_param('trimnum', config_types.IntVal, \
-                        help='The number of channels to de-weight at ' \
-                            'each edge of the band.')
+                               help='The number of channels to de-weight at ' \
+                                    'each edge of the band.')
         self.configs.add_param('trimfrac', config_types.FloatVal, \
-                        help='The fraction of each band-edge to ' \
-                            'de-weight (a floating-point number between 0 and 0.5).')
+                               help='The fraction of each band-edge to ' \
+                                    'de-weight (a floating-point number between 0 and 0.5).')
         self.configs.add_param('trimbw', config_types.FloatVal, \
-                        help='The bandwidth of each band-edge to ' \
-                            'de-weight (in MHz).')
+                               help='The bandwidth of each band-edge to ' \
+                                    'de-weight (in MHz).')
         self.configs.add_param('badsubints', config_types.IntOrIntPairList, \
-                        nullable=True, \
-                        help='Bad subints and/or (inclusive) subint-intervals ' \
-                            'to de-weight. Note: Subints are indexed starting at 0.')
+                               nullable=True, \
+                               help='Bad subints and/or (inclusive) subint-intervals ' \
+                                    'to de-weight. Note: Subints are indexed starting at 0.')
         self.configs.add_param('badchans', config_types.IntOrIntPairList, \
-                        nullable=True, \
-                        help='Bad channels and/or (inclusive) channel-intervals ' \
-                            'to de-weight. Note: Channels are indexed starting at 0.')
+                               nullable=True, \
+                               help='Bad channels and/or (inclusive) channel-intervals ' \
+                                    'to de-weight. Note: Channels are indexed starting at 0.')
         self.configs.add_param('badfreqs', config_types.FloatOrFloatPairList, \
-                        nullable=True, \
-                        help='Bad frequencies and/or (inclusive) frequency-intervals ' \
-                            'to de-weight.')
+                               nullable=True, \
+                               help='Bad frequencies and/or (inclusive) frequency-intervals ' \
+                                    'to de-weight.')
         self.parse_config_string(config.cfg.rcvrstd_default_params)
 
     def _clean(self, ar):
@@ -50,15 +51,15 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
 
     def __prune_band_edges(self, ar):
         """Prune the edges of the band. This is useful for
-            removing channels where there is no response.
-            The file is modified in-place. However, zero-weighting 
-            is used for pruning, so the process is reversible.
- 
-            Inputs:
-                ar: The psrchive archive object to clean.
+           removing channels where there is no response.
+           The file is modified in-place. However, zero-weighting
+           is used for pruning, so the process is reversible.
 
-            Outputs:
-                None
+           Inputs:
+               ar: The psrchive archive object to clean.
+
+           Outputs:
+               None
         """
         if self.configs.response is None:
             utils.print_info("No freq range specified for band pruning. Skipping...", 2)
@@ -78,16 +79,16 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                     clean_utils.zero_weight_chan(ar, ichan)
 
     def __trim_edge_channels(self, ar):
-        """Trim the edge channels of an input file to remove 
-            band-pass roll-off and the effect of aliasing. 
-            The file is modified in-place. However, zero-weighting 
-            is used for trimming, so the process is reversible.
+        """Trim the edge channels of an input file to remove
+           band-pass roll-off and the effect of aliasing.
+           The file is modified in-place. However, zero-weighting
+           is used for trimming, so the process is reversible.
 
-            Inputs:
-                ar: The psrchive archive object to clean.
+           Inputs:
+               ar: The psrchive archive object to clean.
 
-            Outputs:
-                None
+           Outputs:
+               None
         """
         nchan = ar.get_nchan()
         bw = float(ar.get_bandwidth())
@@ -103,14 +104,14 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
 
     def __remove_bad_subints(self, ar):
         """Zero-weights bad subints.
-            The file is modified in-place. However, zero-weighting 
-            is used for trimming, so the process is reversible.
+           The file is modified in-place. However, zero-weighting
+           is used for trimming, so the process is reversible.
 
-            Inputs:
-                ar: The psrchive archive object to clean.
-        
-            Outputs:
-                None
+           Inputs:
+               ar: The psrchive archive object to clean.
+
+           Outputs:
+               None
         """
         if self.configs.badsubints:
             for tozap in self.configs.badsubints:
@@ -123,14 +124,14 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
 
     def __remove_bad_channels(self, ar):
         """Zero-weight bad channels and channels containing bad
-            frequencies. However, zero-weighting 
-            is used for trimming, so the process is reversible.
+           frequencies. However, zero-weighting 
+           is used for trimming, so the process is reversible.
 
-            Inputs:
-                ar: The psrchive archive object to clean.
-        
-            Outputs:
-                None
+           Inputs:
+               ar: The psrchive archive object to clean.
+
+           Outputs:
+               None
         """
         if self.configs.badchans:
             nremoved = 0
@@ -160,7 +161,7 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                 ctr = prof.get_centre_frequency()
                 lofreqs[ichan] = ctr - chanbw/2.0
                 hifreqs[ichan] = ctr + chanbw/2.0
-            
+
             for tozap in self.configs.badfreqs:
                 if type(tozap) is types.FloatType:
                     # A single bad freq to zap
@@ -175,9 +176,9 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                         ichan = ichan.squeeze()
                         clean_utils.zero_weight_chan(ar, ichan)
                         nremoved += 1
+
             utils.print_debug("Removed %d channels due to bad freqs " \
                             "(%s) in %s" % (nremoved, self.configs.badfreqs, \
                             ar.get_filename()), 'clean')
-
 
 Cleaner = ReceiverBandCleaner

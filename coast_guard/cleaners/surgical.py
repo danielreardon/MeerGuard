@@ -1,5 +1,4 @@
 import numpy as np
-
 from coast_guard import config
 from coast_guard import cleaners
 from coast_guard import clean_utils
@@ -74,7 +73,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         patient = ar.clone()
         patient.pscrunch()
         patient.remove_baseline()
-        
+
         # Remove profile from dedispersed data
         patient.dedisperse()
         data = patient.get_data().squeeze()
@@ -82,18 +81,18 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         clean_utils.remove_profile_inplace(patient, template)
         # re-set DM to 0
         patient.dededisperse()
-        
+
         # Get weights
         weights = patient.get_weights()
         # Get data (select first polarization - recall we already P-scrunched)
         data = patient.get_data()[:,0,:,:]
         data = clean_utils.apply_weights(data, weights)
-       
+
         # Mask profiles where weight is 0
         mask_2d = np.bitwise_not(np.expand_dims(weights, 2).astype(bool))
         mask_3d = mask_2d.repeat(ar.get_nbin(), axis=2)
         data = np.ma.masked_array(data, mask=mask_3d)
-        
+
         # RFI-ectomy must be recommended by average of tests
         avg_test_results = clean_utils.comprehensive_stats(data, axis=2, \
                                     chanthresh=self.configs.chanthresh, \
@@ -110,7 +109,5 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             # not the clone we've been working with.
             integ = ar.get_Integration(int(isub))
             integ.set_weight(int(ichan), 0.0)
-      
 
 Cleaner = SurgicalScrubCleaner
-
