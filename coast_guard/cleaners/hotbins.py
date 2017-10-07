@@ -1,55 +1,57 @@
 import numpy as np
+from coast_guard import config
+from coast_guard import cleaners
+from coast_guard.cleaners import config_types
+from coast_guard import utils
 
-import config
-import cleaners
-import config_types
-import utils
 
 class HotbinsCleaner(cleaners.BaseCleaner):
     name = 'hotbins'
     description = 'Replace profile bins that are significantly brighter ' \
                     'than the profile average with white noise.'
 
+
     def _set_config_params(self):
         self.configs.add_param('threshold', config_types.FloatVal, \
-                         aliases=['thresh'], \
-                         help='The threshold (in number of sigmas) for a ' \
-                             'bin to be removed.')
+                               aliases=['thresh'], \
+                               help='The threshold (in number of sigmas) for a ' \
+                                    'bin to be removed.')
         self.configs.add_param('fscrunchfirst', config_types.BoolVal, \
-                         help='Determine which bins to removed by ' \
-                             'looking at frequency scrunched data. Remove ' \
-                             'the hot bins in all frequency channels.')
+                               help='Determine which bins to removed by ' \
+                                    'looking at frequency scrunched data. Remove ' \
+                                    'the hot bins in all frequency channels.')
         self.configs.add_param('tscrunchfirst', config_types.BoolVal, \
-                         help='Determine which bins to removed by ' \
-                             'looking at time scrunched data. Remove ' \
-                             'the hot bins in all sub-integrations.')
+                               help='Determine which bins to removed by ' \
+                                    'looking at time scrunched data. Remove ' \
+                                    'the hot bins in all sub-integrations.')
         self.configs.add_param('onpulse', config_types.IntPairList, \
-                         help='On-pulse regions to be ignored when ' \
-                             'computing profile statistics. A list ' \
-                             'of 2-tuples is expected.')
+                               help='On-pulse regions to be ignored when ' \
+                                    'computing profile statistics. A list ' \
+                                    'of 2-tuples is expected.')
         self.configs.add_param('iscal', config_types.BoolVal, \
-                         help='Whether or not the observations ' \
-                             'is a calibrator scan. If True, ' \
-                             'the "onpulse" config is ignored ' \
-                             'and the on-cal region is determined ' \
-                             'by correlating with a top-hat of ' \
-                             'width "calfrac".')
+                               help='Whether or not the observations ' \
+                                    'is a calibrator scan. If True, ' \
+                                    'the "onpulse" config is ignored ' \
+                                    'and the on-cal region is determined ' \
+                                    'by correlating with a top-hat of ' \
+                                    'width "calfrac".')
         self.configs.add_param('calfrac', config_types.FloatVal, \
-                         help='The duty cycle of the cal.')
+                                help='The duty cycle of the cal.')
         self.parse_config_string(config.cfg.hotbins_default_params)
+
 
     def _clean(self, ar):
         reference = ar.clone()
         reference.pscrunch()
         if self.configs.fscrunchfirst:
             if ar.get_dedispersed():
-                raise errors.CleanError("The 'hotbins' cleaner 'fscrunchfirst' " \
-                                "can only be used on non-dedispersed data.")
-            utils.print_debug("Determining hotbins based on f-scrunched data", 'clean')
+                raise errors.CleanError('The "hotbins" cleaner "fscrunchfirst"' \
+                                        'an only be used on non-dedispersed data.')
+            utils.print_debug('Determining hotbins based on f-scrunched data', 'clean')
             reference.set_dispersion_measure(0)
             reference.fscrunch()
         if self.configs.tscrunchfirst:
-            utils.print_debug("Determining hotbins based on t-scrunched data", 'clean')
+            utils.print_debug('Determining hotbins based on t-scrunched data', 'clean')
             reference.tscrunch()
 
         if self.configs.iscal:
@@ -63,6 +65,7 @@ class HotbinsCleaner(cleaners.BaseCleaner):
             for lobin, hibin in self.configs.onpulse:
                 offbins[lobin:hibin] = False
             self.__find_and_replace_hotbins(ar, reference, offbins)
+
 
     def __find_and_replace_hotbins(self, ar, reference, offbins):
         nbins = ar.get_nbin()
@@ -85,9 +88,9 @@ class HotbinsCleaner(cleaners.BaseCleaner):
                 igood = offbin_indices[~ioffbad]
                 nbad = np.sum(ioffbad)
                 utils.print_debug('isub: %d, ichan: %d, ipol: %d\n' \
-                            '    med: %g, mad: %g\n' \
-                            '    %d hotbins found (ibin: %s)' % \
-                            (isub, ichan, 0, med, mad, nbad, ibad), 'clean')
+                                  '    med: %g, mad: %g\n' \
+                                  '    %d hotbins found (ibin: %s)' % \
+                                 (isub, ichan, 0, med, mad, nbad, ibad), 'clean')
                 # Replace data in cleaned archive with noise
                 if self.configs.fscrunchfirst:
                     chans_to_clean = np.arange(ar.get_nchan())
@@ -112,9 +115,9 @@ class HotbinsCleaner(cleaners.BaseCleaner):
                                 noise = np.random.normal(avg, std, size=nbad).astype('float32')
                                 cleaneddata[ibad] = noise
 
+
     def __locate_cal(self, ar):
         return utils.locate_cal(ar, calfrac=self.configs.calfrac)
 
 
 Cleaner = HotbinsCleaner
-

@@ -1,5 +1,4 @@
 import textwrap
-
 from coast_guard import config
 from coast_guard.cleaners import config_types
 from coast_guard import utils
@@ -21,10 +20,10 @@ def load_cleaner(cleaner_name):
             clean: A cleaner instance.
     """
     if cleaner_name not in registered_cleaners:
-        raise errors.UnrecognizedValueError("The cleaner, '%s', " \
-                    "is not a registered cleaner. The following " \
-                    "are registered: '%s'" % \
-                    (cleaner_name, "', '".join(registered_cleaners)))
+        raise errors.UnrecognizedValueError('The cleaner, %s, ' \
+                                            'is not a registered cleaner. The following ' \
+                                            're registered: %s' % \
+                                           (cleaner_name, "', '".join(registered_cleaners)))
     mod = __import__(cleaner_name, globals())
     return mod.Cleaner()
 
@@ -38,13 +37,15 @@ class BaseCleaner(object):
     name = NotImplemented
     description = NotImplemented
 
+
     def __init__(self):
         self.configs = Configurations()
         self._set_config_params()
-   
+
+
     def __repr__(self):
-        return "<%s object -- params: %s>" % \
-                    (self.__class__.__name__, self.configs)
+        return '<%s object -- params: %s>' % (self.__class__.__name__, self.configs)
+
 
     def parse_config_string(self, cfgstr):
         """Parse a configuration string, setting the cleaner's
@@ -60,6 +61,7 @@ class BaseCleaner(object):
         """
         self.configs.set_from_string(cfgstr)
 
+
     def _clean(self, ar):
         """Clean an ArchiveFile object in-place.
 
@@ -69,8 +71,9 @@ class BaseCleaner(object):
             Outputs:
                 None - The ArchiveFile object in cleaned in-place.
         """
-        raise NotImplementedError("The '_clean' method of Cleaner "
-                                    "classes must be defined.")
+        raise NotImplementedError('The "_clean" method of Cleaner ' \
+                                  'classes must be defined.')
+
 
     def _set_config_params(self):
         """Set configuration parameters, aliases, defaults.
@@ -83,7 +86,8 @@ class BaseCleaner(object):
                 None
         """
         pass
-    
+
+
     def get_config_string(self):
         """Return a string of configurations.
             NOTE: Defaults will be included.
@@ -98,37 +102,38 @@ class BaseCleaner(object):
         """
         return self.configs.to_string()
 
+
     def get_help(self, full=False):
         helplines = []
-        wrapper = textwrap.TextWrapper(subsequent_indent=" "*(len(self.name)+4))
-        helplines.append("%s -- %s" % (colour.cstring(self.name, bold=True), 
-                                wrapper.fill(self.description)))
+        wrapper = textwrap.TextWrapper(subsequent_indent=' ' * (len(self.name) + 4))
+        helplines.append('%s -- %s' % (colour.cstring(self.name, bold=True), 
+                                       wrapper.fill(self.description)))
+        wrapper = textwrap.TextWrapper(initial_indent=' ' * 8, \
+                                       subsequent_indent=' ' * 12)
+        wrapper2 = textwrap.TextWrapper(initial_indent=' ' * 12, \
+                                        subsequent_indent=' ' * 16)
 
-        wrapper = textwrap.TextWrapper(initial_indent=" "*8, \
-                                        subsequent_indent=" "*12)
-        wrapper2 = textwrap.TextWrapper(initial_indent=" "*12, \
-                                        subsequent_indent=" "*16)
-                                        
         if full:
-            helplines.append("    Parameters:")
+            helplines.append('    Parameters:')
             for cfg in sorted(self.configs.types):
                 cfgtype = self.configs.types[cfg]
                 helpstr = self.configs.helpstrs[cfg]
-                helplines.append(wrapper.fill("%s -- %s" % (cfg, helpstr)))
-                helplines.append("")
+                helplines.append(wrapper.fill('%s -- %s' % (cfg, helpstr)))
+                helplines.append('')
                 helplines.append(wrapper2.fill(cfgtype.get_help()))
                 if cfg in self.configs.cfgstrs:
-                    helplines.append(wrapper2.fill("Default: %s" % \
-                                            self.configs.cfgstrs[cfg]))
+                    helplines.append(wrapper2.fill('Default: %s' % \
+                                     self.configs.cfgstrs[cfg]))
                 else:
-                    helplines.append(wrapper2.fill("Required"))
-                helplines.append("")
-        helptext = "\n".join(helplines)
+                    helplines.append(wrapper2.fill('Required'))
+                helplines.append('')
+        helptext = '\n'.join(helplines)
         return helptext
 
+
     def run(self, ar):
-        utils.print_info("Cleaning '%s' with %s" % (ar.get_filename(), self.name), 1)
-        utils.print_debug("Cleaning parameters: %s" % self.get_config_string(), 'clean')
+        utils.print_info('Cleaning %s with %s' % (ar.get_filename(), self.name), 1)
+        utils.print_debug('Cleaning parameters: %s' % self.get_config_string(), 'clean')
         self._clean(ar)
 
 
@@ -138,6 +143,8 @@ class Configurations(dict):
         Contains methods for parsing configuration strings, and writing 
         normalised configuration strings.
     """
+
+
     def __init__(self, *args, **kwargs):
         super(Configurations, self).__init__(*args, **kwargs)
         self.cfgstrs = {}
@@ -150,8 +157,10 @@ class Configurations(dict):
         self.helpstrs = {} # dictionary where keys are configuration names
                            # and values are help strings.
 
+
     def __str__(self):
         return self.to_string()
+
 
     def __setitem__(self, key, valstr):
         key = self.aliases.get(key, key) # Normalise key 
@@ -160,15 +169,18 @@ class Configurations(dict):
         # Save normalized value-string and normalised key pairs
         self.cfgstrs[key] = cfgtype.normalize_param_string(valstr)
         # Convert string into value
-        castedval = cfgtype.get_param_value(valstr) 
+        castedval = cfgtype.get_param_value(valstr)
         super(Configurations, self).__setitem__(key, castedval)
+
 
     def __getattr__(self, key):
         return self[key]
 
+
     def to_string(self):
         # Sort to normalise order
-        return ",".join(sorted(["%s=%s" % ii for ii in self.cfgstrs.iteritems()]))
+        return ','.join(sorted(['%s=%s' % ii for ii in self.cfgstrs.iteritems()]))
+
 
     def set_from_string(self, cfgstr):
         """Set configurations from a string.
@@ -185,8 +197,9 @@ class Configurations(dict):
             key, val = cfg.split('=')
             self[key] = val
 
+
     def add_param(self, name, cfgtype, default=None, aliases=[], \
-                    help="", nullable=False):
+                  help='', nullable=False):
         """Add a single configuration parameter.
 
             Inputs:
@@ -207,16 +220,16 @@ class Configurations(dict):
         # Check that name and aliases are not already in use
         for key in [name]+aliases:
             if (key in self.types) or (key in self.aliases):
-                raise ValueError("The name/alias (%s) is already in use. " \
-                                 "Duplicates are not allowed." % key)
+                raise ValueError('The name/alias (%s) is already in use. ' \
+                                 'Duplicates are not allowed.' % key)
 
         # Check that the cfgtype is of ConfigType
         if issubclass(cfgtype, config_types.BaseConfigType):
             # Add the config name and type
             self.types[name] = cfgtype(nullable=nullable)
         else:
-            raise ValueError("The provided 'cfgtype' (name=%s) is not a subclass of " 
-                             "BaseConfigType. (type=%s)" % 
+            raise ValueError('The provided 'cfgtype' (name=%s) is not a subclass of '
+                             'BaseConfigType. (type=%s)' % 
                              (cfgtype.__name__, type(cfgtype)))
         # Add the aliases
         for alias in aliases:

@@ -5,10 +5,12 @@ from coast_guard import clean_utils
 from coast_guard.cleaners import config_types
 from coast_guard import utils
 
+
 class SurgicalScrubCleaner(cleaners.BaseCleaner):
     name = 'surgical'
     description = 'De-weight profiles that stand out compared to others ' \
                     'in the same subint/channel using multiple stats.'
+
 
     def _set_config_params(self):
         self.configs.add_param('chanthresh', config_types.FloatVal, \
@@ -69,6 +71,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                             'time with the next parameter.')
         self.parse_config_string(config.cfg.surgical_default_params)
 
+
     def _clean(self, ar):
         patient = ar.clone()
         patient.pscrunch()
@@ -109,5 +112,6 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             # not the clone we've been working with.
             integ = ar.get_Integration(int(isub))
             integ.set_weight(int(ichan), 0.0)
+
 
 Cleaner = SurgicalScrubCleaner

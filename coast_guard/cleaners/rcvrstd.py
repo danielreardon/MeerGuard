@@ -12,6 +12,7 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
     description = 'Prune, and tidy the observing band by trimming edges, ' \
                   'and removing bad channels/frequency ranges.'
 
+
     def _set_config_params(self):
         self.configs.add_param('response', config_types.FloatPair,
                                aliases=['resp'],
@@ -46,11 +47,13 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                                     'frequency-intervals to de-weight.')
         self.parse_config_string(config.cfg.rcvrstd_default_params)
 
+
     def _clean(self, ar):
         self.__prune_band_edges(ar)
         self.__trim_edge_channels(ar)
         self.__remove_bad_channels(ar)
         self.__remove_bad_subints(ar)
+
 
     def __prune_band_edges(self, ar):
         """Prune the edges of the band. This is useful for
@@ -81,6 +84,7 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                 if (freq < lofreq) or (freq > hifreq):
                     clean_utils.zero_weight_chan(ar, ichan)
 
+
     def __trim_edge_channels(self, ar):
         """Trim the edge channels of an input file to remove
            band-pass roll-off and the effect of aliasing.
@@ -104,6 +108,7 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                 clean_utils.zero_weight_chan(ar, ichan)  # trim at beginning
                 clean_utils.zero_weight_chan(ar, nchan - ichan - 1)  # trim at end
 
+
     def __remove_bad_subints(self, ar):
         """Zero-weights bad subints.
            The file is modified in-place. However, zero-weighting
@@ -123,6 +128,7 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                     losubint, hisubint = tozap
                     for xx in range(losubint, hisubint + 1):
                         clean_utils.zero_weight_subint(ar, xx)
+
 
     def __remove_bad_channels(self, ar):
         """Zero-weight bad channels and channels containing bad
@@ -178,9 +184,9 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                         ichan = ichan.squeeze()
                         clean_utils.zero_weight_chan(ar, ichan)
                         nremoved += 1
-
             utils.print_debug('Removed %d channels due to bad freqs '
                               '(%s) in %s' % (nremoved, self.configs.badfreqs,
                                               ar.get_filename()), 'clean')
+
 
 Cleaner = ReceiverBandCleaner
