@@ -228,7 +228,7 @@ class Configurations(dict):
             # Add the config name and type
             self.types[name] = cfgtype(nullable=nullable)
         else:
-            raise ValueError('The provided 'cfgtype' (name=%s) is not a subclass of '
+            raise ValueError('The provided "cfgtype" (name=%s) is not a subclass of '
                              'BaseConfigType. (type=%s)' % 
                              (cfgtype.__name__, type(cfgtype)))
         # Add the aliases
