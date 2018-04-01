@@ -672,7 +672,11 @@ def get_header_vals(fn, hdritems):
     cmd = ["vap", "-n", "-c", hdrstr, fn]
     outstr, errstr = execute(cmd)
     outvals = outstr.split()[1:] # First value is filename (we don't need it)
-    if errstr:
+    itoa_error = "itoa_code no alias found for"
+    if errstr.find(itoa_error) == 0:
+        warnings.warn("PSRCHIVE reports unknown itoa_code. Check observatory alias " \
+                      "settings for %s" % fn, errors.CoastGuardWarning)
+    if errstr.find(itoa_error) == -1:
         raise errors.SystemCallError("The command: %s\nprinted to stderr:\n%s" % \
                                 (cmd, errstr))
     elif len(outvals) != len(hdritems):
