@@ -676,7 +676,7 @@ def get_header_vals(fn, hdritems):
     if errstr.find(itoa_error) == 0:
         warnings.warn("PSRCHIVE reports unknown itoa_code. Check observatory alias " \
                       "settings for %s" % fn, errors.CoastGuardWarning)
-    if errstr.find(itoa_error) == -1:
+    if errstr.find(itoa_error) == -1 and len(errstr) != 0:
         raise errors.SystemCallError("The command: %s\nprinted to stderr:\n%s" % \
                                 (cmd, errstr))
     elif len(outvals) != len(hdritems):
