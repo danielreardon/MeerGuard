@@ -5,6 +5,8 @@ from coast_guard import clean_utils
 from coast_guard.cleaners import config_types
 from coast_guard import utils
 
+# for the template, would be better to have it elsewhere and just get the numpy array here
+import psrchive
 
 class SurgicalScrubCleaner(cleaners.BaseCleaner):
     name = 'surgical'
@@ -69,6 +71,10 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                             'detrending. Multiple values will cause sub-ints ' \
                             'to be detrended multiple times in sequence, each ' \
                             'time with the next parameter.')
+        self.configs.add_param('template', config_types.StrVal,
+                               aliases=[],
+                               nullable=True,
+                               help="Filename for a template to use yadayada")
         self.parse_config_string(config.cfg.surgical_default_params)
 
 
@@ -80,8 +86,15 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         # Remove profile from dedispersed data
         patient.dedisperse()
         data = patient.get_data().squeeze()
-        template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
-        clean_utils.remove_profile_inplace(patient, template)
+        if self.configs.template is None:
+            template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
+            clean_utils.remove_profile_inplace(patient, template)
+        else:
+            template_ar = psrchive.Archive_load(self.configs.template)
+            template_ar.pscrunch()
+            template_ar.remove_baseline()
+            template = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
+            clean_utils.remove_profile_inplace(patient, template)
         # re-set DM to 0
         patient.dededisperse()
 

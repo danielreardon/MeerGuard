@@ -664,4 +664,5 @@ if __name__=="__main__":
                         action=parser.ListCleanersAction, \
                         help="List available cleaners and descriptions, then exit.")
     args = parser.parse_args()
+
     main()

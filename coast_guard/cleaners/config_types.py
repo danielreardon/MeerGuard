@@ -348,3 +348,22 @@ class FloatOrFloatPairList(BaseConfigType):
             else:
                 strs.append('%g' % el)
         return ';'.join(strs)
+
+
+
+class StrVal(BaseConfigType):
+    name = "A string"
+    description = "A string"
+    def _string_to_value(self, paramstr):
+        """Parse 'paramstr' as a normal string value.
+           The previous parameter value is ignored.
+        """
+        if paramstr is None:
+            return None
+        else:
+            return str(paramstr)
+
+    def _value_to_string(self, val):
+        """Return a normalized version of the value.
+        """
+        return str(val)
