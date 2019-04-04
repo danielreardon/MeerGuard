@@ -465,15 +465,13 @@ def remove_profile_inplace(ar, template, nthreads=1):
         nthreads = config.cfg.nthreads
     if nthreads == 1:
         for isub, ichan in np.ndindex(ar.get_nsubint(), ar.get_nchan()):
-            if len(template.get_frequencies()) > 1:  # multiple frequencies, find closest
-                ar_freqs = ar.get_frequencies()
-                ichan_freq = ar_freqs[ichan]
-                template_freqs = template.get_frequencies()
+            if np.shape(template)[0] > 1:  # multiple frequencies, find closest
+                ichan_freq = ar.get_frequencies()[ichan]
+                template_freqs = template[:, 0]  # just get frequencies from first bin
                 itemplate_freq = np.argmin(np.abs(template_freqs - ichan_freq))
                 itemplate = template[itemplate_freq, :]  # assuming template is (nsubint x nchan)
             else:
                 itemplate = template
-
             amps = remove_profile1d(data[isub, ichan], isub, ichan, itemplate)[1]
             prof = ar.get_Profile(isub, 0, ichan)
             if amps is None:
@@ -484,10 +482,9 @@ def remove_profile_inplace(ar, template, nthreads=1):
         pool = multiprocessing.Pool(processes=nthreads)
         results = []
         for isub, ichan in np.ndindex(ar.get_nsubint(), ar.get_nchan()):
-            if len(template.get_frequencies()) > 1:  # multiple frequencies, find closest
-                ar_freqs = ar.get_frequencies()
-                ichan_freq = ar_freqs[ichan]
-                template_freqs = template.get_frequencies()
+            if np.shape(template)[0] > 1:  # multiple frequencies, find closest
+                ichan_freq = ar.get_frequencies()[ichan]
+                template_freqs = template[:, 0]  # just get frequencies from first bin
                 itemplate_freq = np.argmin(np.abs(template_freqs - ichan_freq))
                 itemplate = template[itemplate_freq, :]  # assuming template is (nsubint x nchan)
             else:
