@@ -29,13 +29,13 @@ def comprehensive_stats(data, axis, **kwargs):
         Inputs:
             data: A 3-D numpy array.
             axis: The axis that should be used for computing stats.
-            chanthresh: The threshold (in number of sigmas) a 
-                profile needs to stand out compared to others in the 
+            chanthresh: The threshold (in number of sigmas) a
+                profile needs to stand out compared to others in the
                 same channel for it to be removed.
                 (Default: use value defined in config files)
-            subintthresh: The threshold (in number of sigmas) a profile 
-                needs to stand out compared to others in the same 
-                sub-int for it to be removed. 
+            subintthresh: The threshold (in number of sigmas) a profile
+                needs to stand out compared to others in the same
+                sub-int for it to be removed.
                 (Default: use value defined in config files)
 
         Output:
@@ -111,7 +111,7 @@ def subint_scaler(array2d, **kwargs):
         breakpoints = [[]]*len(orders)
     if numpieces is None:
         numpieces = [None]*len(orders)
-    
+
     scaled = np.empty_like(array2d)
     nsubs = array2d.shape[0]
     for isub in np.arange(nsubs):
@@ -123,7 +123,7 @@ def subint_scaler(array2d, **kwargs):
         mad = np.ma.median(np.abs(detrended-median))
         scaled[isub,:] = (detrended-median)/mad
     return scaled
-        
+
 
 def get_robust_std(data, weights, trimfrac=0.1):
     mdata = np.ma.masked_where(np.bitwise_not(weights), data)
@@ -135,18 +135,18 @@ def get_robust_std(data, weights, trimfrac=0.1):
 
 def fit_poly(ydata, xdata, order=1):
     """Fit a polynomial to data using scipy.linalg.lstsq().
-        
+
         Inputs:
             ydata: A 1D array to be detrended.
             xdata: A 1D array of x-values to use
             order: Order of polynomial to use (Default: 1)
-        
+
         Outputs:
             x: An array of polynomial order+1 coefficients
-            poly_ydata: A array of y-values of the polynomial evaluated 
+            poly_ydata: A array of y-values of the polynomial evaluated
                 at the input xvalues.
     """
-    # Convert inputs to masked arrays 
+    # Convert inputs to masked arrays
     # Note these arrays still reference the original data/arrays
     xmasked = np.ma.asarray(xdata)
     ymasked = np.ma.asarray(ydata)
@@ -158,25 +158,25 @@ def fit_poly(ydata, xdata, order=1):
     xcomp = xmasked.compressed()
 
     powers = np.arange(order+1)
- 
+
     A = np.repeat(xcomp, order+1)
     A.shape = (xcomp.size, order+1)
     A = A**powers
 
     x, resids, rank, s = scipy.linalg.lstsq(A, ycomp)
-    
+
     # Generate decompressed detrended array
     A = np.repeat(xmasked.data, order+1)
     A.shape = (len(xmasked.data), order+1)
     A = A**powers
 
     poly_ydata = np.dot(A, x).squeeze()
-    
+
     return x, poly_ydata
 
 def detrend(ydata, xdata=None, order=1, bp=[], numpieces=None):
     """Detrend 'data' using a polynomial of given order.
-    
+
         Inputs:
             ydata: A 1D array to be detrended.
             xdata: A 1D array of x-values to use
@@ -198,7 +198,7 @@ def detrend(ydata, xdata=None, order=1, bp=[], numpieces=None):
     if xdata is None:
         xdata = np.ma.masked_array(np.arange(ydata.size), mask=np.ma.getmaskarray(ydata))
     detrended = ymasked.copy()
-    
+
     if numpieces is None:
         edges = [0]+bp+[len(ydata)]
     else:
@@ -216,8 +216,8 @@ def detrend(ydata, xdata=None, order=1, bp=[], numpieces=None):
         return detrended
     else:
         return detrended.data
-   
-    
+
+
 def iterative_detrend(ydata, thresh=5, reset_mask=True, *args, **kwargs):
     origmask = np.ma.getmaskarray(ydata)
     ymasked = np.ma.masked_array(ydata, mask=origmask)
@@ -279,7 +279,7 @@ def scale_subints(data, kernel_size=5, subintweights=None):
         lobin = ii-int(kernel_size/2)
         if lobin < 0:
             lobin=None
-        
+
         hibin = ii+int(kernel_size/2)+1
         if hibin > len(data):
             hibin=None
@@ -294,7 +294,7 @@ def scale_chans(data, nchans=16, chanweights=None):
         the data.
 
         Inputs:
-            
+
             data: The channel data to scale.
             nchans: The number of channels to combine together for
                 each subband (Default: 16)
@@ -337,7 +337,7 @@ def get_chans(ar, remove_prof=False, use_weights=True):
                                 template)
     data = data.sum(axis=0)
     return data
-   
+
 
 def get_frequencies(ar):
     integ = ar.get_first_Integration()
@@ -392,7 +392,7 @@ def fit_template(prof, template):
     warnings.warn("Does this fitting work properly?", errors.CoastGuardWarning)
     # Define the error function for the leastsq fit
     err = lambda params: params[0]*template - prof - params[1]
-    
+
     # Determine initial guesses
     init_offset = 0
     init_amp = np.max(prof)/float(np.max(template))
@@ -403,12 +403,12 @@ def fit_template(prof, template):
         raise errors.FitError("Bad status for least squares fit of " \
                                 "template to profile")
     return params
-    
+
 
 def remove_profile1d(prof, isub, ichan, template):
     #err = lambda (amp, phs): amp*fft_rotate(template, phs) - prof
     #params, status = scipy.optimize.leastsq(err, [1, 0])
-    
+
     err = lambda amp: amp*template - prof
     #obj_func = lambda amp: np.sum(err(amp)**2)
     #params = scipy.optimize.fmin(obj_func, [1.0], ftol=1e-12, xtol=1e-12)
@@ -440,7 +440,7 @@ def remove_profile(data, nsubs, nchans, template, nthreads=None):
             result.successful()
             (isub, ichan), prof = result.get()
             data[isub, ichan] = prof
-    return data 
+    return data
 
 
 def remove_profile1d_inplace(prof, isub, ichan, template):
@@ -454,7 +454,7 @@ def remove_profile1d_inplace(prof, isub, ichan, template):
         return (isub, ichan), None
     else:
         return (isub, ichan), err(params)
-    
+
 
 def remove_profile_inplace(ar, template, nthreads=1):
     data = ar.get_data()[:,0,:,:] # Select first polarization channel
@@ -465,7 +465,16 @@ def remove_profile_inplace(ar, template, nthreads=1):
         nthreads = config.cfg.nthreads
     if nthreads == 1:
         for isub, ichan in np.ndindex(ar.get_nsubint(), ar.get_nchan()):
-            amps = remove_profile1d(data[isub, ichan], isub, ichan, template)[1]
+            if len(template.get_frequencies()) > 1:  # multiple frequencies, find closest
+                ar_freqs = ar.get_frequencies()
+                ichan_freq = ar_freqs[ichan]
+                template_freqs = template.get_frequencies()
+                itemplate_freq = np.argmin(np.abs(template_freqs - ichan_freq))
+                itemplate = template[itemplate_freq, :]  # assuming template is (nsubint x nchan)
+            else:
+                itemplate = template
+
+            amps = remove_profile1d(data[isub, ichan], isub, ichan, itemplate)[1]
             prof = ar.get_Profile(isub, 0, ichan)
             if amps is None:
                 prof.set_weight(0)
@@ -475,8 +484,16 @@ def remove_profile_inplace(ar, template, nthreads=1):
         pool = multiprocessing.Pool(processes=nthreads)
         results = []
         for isub, ichan in np.ndindex(ar.get_nsubint(), ar.get_nchan()):
+            if len(template.get_frequencies()) > 1:  # multiple frequencies, find closest
+                ar_freqs = ar.get_frequencies()
+                ichan_freq = ar_freqs[ichan]
+                template_freqs = template.get_frequencies()
+                itemplate_freq = np.argmin(np.abs(template_freqs - ichan_freq))
+                itemplate = template[itemplate_freq, :]  # assuming template is (nsubint x nchan)
+            else:
+                itemplate = template
             results.append(pool.apply_async(remove_profile1d, \
-                            args=(data[isub, ichan], isub, ichan, template)))
+                            args=(data[isub, ichan], isub, ichan, itemplate)))
         pool.close()
         pool.join()
         for result in results:
@@ -503,12 +520,12 @@ def zero_weight_chan(ar, ichan):
 def clean_hot_bins(ar, thresh=2.0):
     subintdata = get_subints(ar, remove_prof=True)
     subintweights = get_subint_weights(ar).astype(bool)
-    
+
     # re-disperse archive because subintdata is at DM=0
     orig_dm = ar.get_dispersion_measure()
     ar.set_dispersion_measure(0)
     ar.dedisperse()
-    
+
     # Clean hot bins
     for isub, subintweight in enumerate(subintweights):
         if subintweight:
@@ -610,7 +627,7 @@ def get_hot_bins(data, normstat_thresh=6.3, max_num_hot=None, \
 
 
 def write_psrsh_script(arf, outfn=None):
-    """Write a psrsh script that applies the same weighting 
+    """Write a psrsh script that applies the same weighting
         as in the given ArchiveFile.
 
         Inputs:
