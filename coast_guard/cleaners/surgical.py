@@ -89,29 +89,32 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         data = patient.get_data().squeeze()
         if self.configs.template is None:
             template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
-            template_phs = template
         else:
             template_ar = psrchive.Archive_load(self.configs.template)
             template_ar.pscrunch()
             template_ar.remove_baseline()
             template = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
+            # make sure template is 1D
             if len(np.shape(template)) > 1:  # sum over frequencies too
                 template_phs = np.apply_over_axes(np.sum, template.squeeze(), 0).squeeze()
             else:
                 template_phs = template
-
-        # Calculate phase offset of template in number of bins, using full obs
-        profile = patient.clone()
-        profile.tscrunch()
-        profile.fscrunch()
-        # Get profile data of full obs
-        profile = profile.get_data()[0,0,0,:]
-        if np.shape(template_phs) != np.shape(profile):
-            print('template and profile have different numbers of phase bins')
-        err = lambda (amp, phs): amp*clean_utils.fft_rotate(template_phs, phs) - profile
-        params, status = leastsq(err, [1, 0])
-        phs = params[1]
-        print('Found template phase offset = ', round(phs, 3))
+        
+       if self.configs.template is None:
+            phs = 0
+        else:
+            # Calculate phase offset of template in number of bins, using full obs
+            profile = patient.clone()
+            profile.tscrunch()
+            profile.fscrunch()
+            # Get profile data of full obs
+            profile = profile.get_data()[0,0,0,:]
+            if np.shape(template_phs) != np.shape(profile):
+                print('template and profile have different numbers of phase bins')
+            err = lambda (amp, phs): amp*clean_utils.fft_rotate(template_phs, phs) - profile
+            params, status = leastsq(err, [1, 0])
+            phs = params[1]
+            print('Found template phase offset = ', round(phs, 3))
         
         clean_utils.remove_profile_inplace(patient, template, phs)
         # re-set DM to 0
