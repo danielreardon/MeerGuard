@@ -4,6 +4,7 @@ from coast_guard import cleaners
 from coast_guard import clean_utils
 from coast_guard.cleaners import config_types
 from coast_guard import utils
+from scipy.optimize import leastsq
 
 # for the template, would be better to have it elsewhere and just get the numpy array here
 import psrchive
@@ -83,21 +84,28 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         patient.pscrunch()
         patient.remove_baseline()
         
-        # phase offset of template
-        phs = 0
-
         # Remove profile from dedispersed data
         patient.dedisperse()
         data = patient.get_data().squeeze()
         if self.configs.template is None:
             template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
-            clean_utils.remove_profile_inplace(patient, template, phs)
         else:
             template_ar = psrchive.Archive_load(self.configs.template)
             template_ar.pscrunch()
             template_ar.remove_baseline()
             template = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
-            clean_utils.remove_profile_inplace(patient, template, phs)
+            
+        # Calculate phase offset of template in number of bins, using full obs
+        profile = patient.clone()
+        profile.tscrunch()
+        profile.fscrunch()
+        # Get profile data of full obs
+        profile = profile.get_data()[0,0,0,:]
+        err = lambda (amp, phs): amp*clean_utils.fft_rotate(template, phs) - profile
+        params, status = leastsq(err, [1, 0])
+        phs = params[1]
+        
+        clean_utils.remove_profile_inplace(patient, template, phs)
         # re-set DM to 0
         patient.dededisperse()
 
