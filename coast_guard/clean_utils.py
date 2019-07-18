@@ -405,9 +405,9 @@ def fit_template(prof, template):
     return params
 
 
-def remove_profile1d(prof, isub, ichan, template):
-    err = lambda (amp, phs): amp*fft_rotate(template, phs) - prof
-    params, status = scipy.optimize.leastsq(err, [1, 0])
+def remove_profile1d(prof, isub, ichan, template, phs):
+    err = lambda amp: amp*fft_rotate(template, phs) - prof
+    params, status = scipy.optimize.leastsq(err, [1.0])
 
     #err = lambda amp: amp*template - prof
     #obj_func = lambda amp: np.sum(err(amp)**2)
@@ -456,7 +456,7 @@ def remove_profile1d_inplace(prof, isub, ichan, template):
         return (isub, ichan), err(params)
 
 
-def remove_profile_inplace(ar, template, nthreads=1):
+def remove_profile_inplace(ar, template, phs, nthreads=1):
     data = ar.get_data()[:,0,:,:] # Select first polarization channel
                                   # archive is P-scrunched, so this is
                                   # total intensity, the only polarization
@@ -469,7 +469,7 @@ def remove_profile_inplace(ar, template, nthreads=1):
                 itemplate = template[ichan, :]  # assuming template is (nsubint x nchan)
             else:
                 itemplate = template
-            amps = remove_profile1d(data[isub, ichan], isub, ichan, itemplate)[1]
+            amps = remove_profile1d(data[isub, ichan], isub, ichan, itemplate, phs)[1]
             prof = ar.get_Profile(isub, 0, ichan)
             if amps is None:
                 prof.set_weight(0)
@@ -484,7 +484,7 @@ def remove_profile_inplace(ar, template, nthreads=1):
             else:
                 itemplate = template
             results.append(pool.apply_async(remove_profile1d, \
-                            args=(data[isub, ichan], isub, ichan, itemplate)))
+                            args=(data[isub, ichan], isub, ichan, itemplate, phs)))
         pool.close()
         pool.join()
         for result in results:
