@@ -100,7 +100,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             else:
                 template_phs = template
         
-       if self.configs.template is None:
+        if self.configs.template is None:
             phs = 0
         else:
             # Calculate phase offset of template in number of bins, using full obs
