@@ -82,19 +82,22 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         patient = ar.clone()
         patient.pscrunch()
         patient.remove_baseline()
+        
+        # phase offset of template
+        phs = 0
 
         # Remove profile from dedispersed data
         patient.dedisperse()
         data = patient.get_data().squeeze()
         if self.configs.template is None:
             template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
-            clean_utils.remove_profile_inplace(patient, template)
+            clean_utils.remove_profile_inplace(patient, template, phs)
         else:
             template_ar = psrchive.Archive_load(self.configs.template)
             template_ar.pscrunch()
             template_ar.remove_baseline()
             template = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
-            clean_utils.remove_profile_inplace(patient, template)
+            clean_utils.remove_profile_inplace(patient, template, phs)
         # re-set DM to 0
         patient.dededisperse()
 
