@@ -133,7 +133,6 @@ class BaseCleaner(object):
 
     def run(self, ar):
         utils.print_info('Cleaning %s with %s' % (ar.get_filename(), self.name), 1)
-        utils.print_debug('Cleaning parameters: %s' % self.get_config_string(), 'clean')
         self._clean(ar)
 
 

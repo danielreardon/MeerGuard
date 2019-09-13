@@ -154,9 +154,6 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                     for xx in range(lochan, hichan):
                         clean_utils.zero_weight_chan(ar, xx)
                         nremoved += 1
-            utils.print_debug('Removed %d channels due to bad chans (%s) '
-                              'in %s' % (nremoved, self.configs.badfreqs,
-                                         ar.get_filename()), 'clean')
         if self.configs.badfreqs:
             nremoved = 0
             # Get a list of frequencies
@@ -184,9 +181,6 @@ class ReceiverBandCleaner(cleaners.BaseCleaner):
                         ichan = ichan.squeeze()
                         clean_utils.zero_weight_chan(ar, ichan)
                         nremoved += 1
-            utils.print_debug('Removed %d channels due to bad freqs '
-                              '(%s) in %s' % (nremoved, self.configs.badfreqs,
-                                              ar.get_filename()), 'clean')
 
 
 Cleaner = ReceiverBandCleaner

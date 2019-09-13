@@ -47,11 +47,9 @@ class HotbinsCleaner(cleaners.BaseCleaner):
             if ar.get_dedispersed():
                 raise errors.CleanError('The "hotbins" cleaner "fscrunchfirst"' \
                                         'an only be used on non-dedispersed data.')
-            utils.print_debug('Determining hotbins based on f-scrunched data', 'clean')
             reference.set_dispersion_measure(0)
             reference.fscrunch()
         if self.configs.tscrunchfirst:
-            utils.print_debug('Determining hotbins based on t-scrunched data', 'clean')
             reference.tscrunch()
 
         if self.configs.iscal:
@@ -87,10 +85,6 @@ class HotbinsCleaner(cleaners.BaseCleaner):
                 ibad = offbin_indices[ioffbad]
                 igood = offbin_indices[~ioffbad]
                 nbad = np.sum(ioffbad)
-                utils.print_debug('isub: %d, ichan: %d, ipol: %d\n' \
-                                  '    med: %g, mad: %g\n' \
-                                  '    %d hotbins found (ibin: %s)' % \
-                                 (isub, ichan, 0, med, mad, nbad, ibad), 'clean')
                 # Replace data in cleaned archive with noise
                 if self.configs.fscrunchfirst:
                     chans_to_clean = np.arange(ar.get_nchan())

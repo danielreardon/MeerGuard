@@ -36,18 +36,10 @@ class BandwagonCleaner(cleaners.BaseCleaner):
         chan_badfrac = 1-weights.sum(axis=0)/float(nsub-nsub_masked)
 
         sub_is_bad = np.argwhere(sub_badfrac>self.configs.badchantol)
-        utils.print_debug('Number of subints to mask because too many '
-                          'channels are already masked: %d (%.1f %%)' % 
-                          (sub_is_bad.size, 100.0*sub_is_bad.size/nsub),
-                          'clean')
         for isub in sub_is_bad:
             clean_utils.zero_weight_subint(ar, isub)
 
         chan_is_bad = np.argwhere(chan_badfrac>self.configs.badsubtol)
-        utils.print_debug('Number of channels to mask because too many '
-                          'subints are already masked: %d (%.1f %%)' % 
-                          (chan_is_bad.size, 100.0*chan_is_bad.size/nchan),
-                          'clean')
         for ichan in chan_is_bad:
             clean_utils.zero_weight_chan(ar, ichan)
 
