@@ -392,40 +392,6 @@ def print_info(msg, level=1):
             colour.cprint(msg, 'info')
 
 
-def print_debug(msg, category, stepsback=1):
-    """Print a debugging message if the given debugging category
-        is turned on.
-
-        The message will be colourized as 'debug'.
-
-        Inputs:
-            msg: The message to print.
-            category: The debugging category of the message.
-            stepsback: The number of steps back into the call stack
-                to get function calling information from. 
-                (Default: 1).
-
-        Outputs:
-            None
-    """
-    if config.debug.is_on(category):
-        fn, lineno, funcnm = inspect.stack()[stepsback][1:4]
-        log.log("mode: %s [%s:%d - %s(...)]\n%s" % \
-                (category.upper(), os.path.split(fn)[-1], lineno, 
-                    funcnm, msg), 'debug')
-        if config.helpful_debugging:
-            # Get caller info
-            to_print = colour.cstring("DEBUG %s [%s:%d - %s(...)]:\n" % \
-                        (category.upper(), os.path.split(fn)[-1], lineno, funcnm), \
-                            'debughdr')
-            msg = msg.replace('\n', '\n    ')
-            to_print += colour.cstring("    %s" % msg, 'debug')
-        else:
-            to_print = colour.cstring(msg, 'debug')
-        sys.stderr.write(to_print + '\n')
-        sys.stderr.flush()
-
-
 def extract_parfile(arfn):
     """Given an archive file extract its ephemeris and return
         it as a string
@@ -738,7 +704,6 @@ def execute(cmd, stdout=subprocess.PIPE, stderr=sys.stderr, dir=None):
         unless subprocess.PIPE is provided.
     """
     # Log command to stdout
-    print_debug("'%s'" % cmd, 'syscalls', stepsback=2)
 
     stdoutfile = False
     stderrfile = False
@@ -909,8 +874,6 @@ def group_subbands(infns):
     """
     get_basenm = lambda arf: os.path.splitext(os.path.split(arf.fn)[-1])[0]
     basenms = set([get_basenm(infn) for infn in infns])
-
-    print_debug("Base names: %s" % ", ".join(basenms), 'grouping')
 
     groups = []
     for basenm in basenms:
@@ -1192,7 +1155,6 @@ def locate_cal(ar, calfrac=0.5):
     box[:ncalbins] = 1
     corr = np.fft.irfft(np.conj(np.fft.rfft(box))*np.fft.rfft(prof))
     calstart = corr.argmax()
-    print_debug("Cal starts at bin %d" % calstart, 'clean')
     calbins = np.roll(box, calstart).astype(bool)
     return calbins
 

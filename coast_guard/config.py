@@ -53,13 +53,10 @@ class CoastGuardConfigs(object):
 
     def __getitem__(self, key):
         if key in self.overrides:
-            #utils.print_debug("Config '%s' found in Overrides" % key, 'config', stepsback=3)
             val = self.overrides[key]
         elif key in self.obsconfigs:
-            #utils.print_debug("Config '%s' found in Observation configs" % key, 'config', stepsback=3)
             val = self.obsconfigs[key]
         elif key in self.defaults:
-            #utils.print_debug("Config '%s' found in Default" % key, 'config', stepsback=3)
             val = self.defaults[key]
         else:
             raise errors.ConfigurationError("The configuration '%s' "
@@ -127,11 +124,9 @@ class CoastGuardConfigs(object):
         #                    "%s.cfg" % os.path.split(arfn.fn)[-1]))
         #msg = "\n    ".join(["Checking for the following configurations:"] + \
         #                        config_files)
-        #utils.print_debug(msg, 'config')
         
         for fn in config_files:
             self.obsconfigs += read_file(fn)
-        #utils.print_debug("Current configurations:\n%s" % self, 'config')
 
 
 class ConfigManager(object):
@@ -152,16 +147,13 @@ class ConfigManager(object):
         name = os.getpid()
         if name not in self:
             self.configs[name] = CoastGuardConfigs()
-        #utils.print_debug("Getting configs for process %s" % name, 'config')
         return self.configs[name]
    
     def load_configs_for_archive(self, arf):
-        #utils.print_debug("Loading configs for %s" % arf.fn, 'config')
         self.get().load_configs_for_archive(arf)
 
     def __getattr__(self, key):
         val = self.get()[key]
-        #utils.print_debug("Getting config %s = %s" % (key, val), 'config')
         return val 
 
 

@@ -533,10 +533,8 @@ def clean_hot_bins(ar, thresh=2.0):
             pass
 
     # Re-dedisperse data using original DM
-    utils.print_debug("Re-dedispersing data", 'clean')
     ar.set_dispersion_measure(orig_dm)
     ar.dedisperse()
-    utils.print_debug( "Done re-dedispersing data", 'clean')
 
 
 def clean_subint(ar, isub, bins):
@@ -608,8 +606,6 @@ def get_hot_bins(data, normstat_thresh=6.3, max_num_hot=None, \
             to_mask = imin
         masked_data.mask[to_mask] = True
         curr_stat = scipy.stats.normaltest(masked_data.compressed())[0]
-        utils.print_debug("hottest bin: %d, stat before: %g, stat after: %g" % \
-                        (to_mask, prev_stat, curr_stat), 'clean')
         if only_decreasing and (curr_stat > prev_stat):
             # Stat is increasing and we don't want that!
             # Undo what we just masked and return the mask

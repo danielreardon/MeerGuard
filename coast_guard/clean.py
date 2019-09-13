@@ -57,8 +57,6 @@ def clean_hotbins(ar, thresh=None, fscrunchfirst=None, onpulse=[]):
         thresh = config.cfg.clean_hotbins_thresh
     if fscrunchfirst is None:
         fscrunchfirst = config.cfg.clean_hotbins_fscrunchfirst
-    utils.print_debug("Cleaning hot bins (thresh: %g, " \
-                    "on-pulse regions: %s)" % (thresh, onpulse), 'clean')
     nbins = ar.get_nbin()
     indices = np.arange(nbins)
     offbins = np.ones(nbins, dtype='bool')
@@ -67,7 +65,6 @@ def clean_hotbins(ar, thresh=None, fscrunchfirst=None, onpulse=[]):
         offbins[lobin:hibin] = False
   
     if fscrunchfirst:
-        utils.print_debug("Determining hotbins based on f-scrunched data", 'clean')
         reference = ar.clone()
         reference.set_dispersion_measure(0)
         reference.fscrunch()
@@ -89,10 +86,6 @@ def clean_hotbins(ar, thresh=None, fscrunchfirst=None, onpulse=[]):
                 ibad = offbin_indices[ioffbad]
                 igood = offbin_indices[~ioffbad]
                 nbad = np.sum(ioffbad)
-                utils.print_debug('isub: %d, ichan: %d, ipol: %d\n' \
-                            '    med: %g, mad: %g\n' \
-                            '    %d hotbins found (ibin: %s)' % \
-                            (isub, ichan, ipol, med, mad, nbad, ibad), 'clean')
                 # Replace data in cleaned archive with noise
                 if fscrunchfirst:
                     # We need to clean all frequency channels
@@ -276,7 +269,6 @@ def deep_clean(toclean, chanthresh=None, subintthresh=None, binthresh=None):
                                     np.argwhere(np.abs(subintstds) >= subintthresh)))
     
     if config.debug.CLEAN:
-        utils.print_debug("Making debug plot for deep_clean", 'clean')
         plt.subplots_adjust(hspace=0.4)
         chanax = plt.subplot(4,1,1)
         plt.plot(np.arange(len(chanmeans)), chanmeans, 'k-')
@@ -387,8 +379,6 @@ def prune_band(infn, response=None):
         lofreq = infn['freq'] - np.abs(0.5*infn['bw'])
         hifreq = infn['freq'] + np.abs(0.5*infn['bw'])
         utils.print_info("Pruning frequency band to (%g-%g MHz)" % response, 2)
-        utils.print_debug("Archive's freq band (%g-%g MHz)" % \
-                            (lofreq, hifreq), 'clean')
         pazcmd = 'paz -m %s ' % infn.fn
         runpaz = False # Only run paz if either of the following clauses are True
         if response[0] > lofreq:
