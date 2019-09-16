@@ -1,17 +1,18 @@
 #!/usr/bin/env python
 
+# For python3 and python2 compatibility
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
+
 # Import CoastGuard
 from coast_guard import cleaners
 import argparse
-import logging
 import psrchive as ps
-import sys
 import os
-import subprocess
-import shlex
 
-
-parser = argparse.ArgumentParser(description="Run MeerGuard on input archive file")
+# Parse some arguments to set up cleaning
+parser = argparse.ArgumentParser(
+            description="Run MeerGuard on input archive file")
 parser.add_argument("-ar", dest="archivepath", help="Path to the archive file")
 parser.add_argument(
     "-temp",
@@ -30,68 +31,35 @@ template = str(args.templatepath)
 chan_thresh = float(args.chan_thresh)
 subint_thresh = float(args.subint_thresh)
 
-    # Load an Archive file
-    loaded_archive = ps.Archive_load(archive)
-    archive_path, archive_name = os.path.split(loaded_archive.get_filename())
-    archive_name_orig = archive_name.split('.')[0]
-    psrname = archive_name_orig.split('_')[0]
+# Load an Archive file
+loaded_archive = ps.Archive_load(archive)
+archive_path, archive_name = os.path.split(loaded_archive.get_filename())
+archive_name_orig = archive_name.split('.')[0]
+psrname = archive_name_orig.split('_')[0]
 
-    # Renaming archive file with statistical thresholds
-    archive_name = archive_name_orig + \
-        '_ch{0}_sub{1}.ar'.format(chan_thresh, subint_thresh)
+# Renaming archive file with statistical thresholds
+archive_name = archive_name_orig + \
+    '_ch{0}_sub{1}.ar'.format(chan_thresh, subint_thresh)
+output_path = str(args.output_path)
+print(archive_name)
 
-    output_path = str(args.output_path)
-    print archive_name
+# Surgical cleaner
+print("Applying the surgical cleaner")
+surgical_cleaner = cleaners.load_cleaner('surgical')
+surgical_parameters = 'chan_numpieces=1,subint_numpieces=1,chanthresh={1},'\
+                      'subintthresh={2},template={0}'.format(
+                              str(args.templatepath), chan_thresh,
+                              subint_thresh)
+surgical_cleaner.parse_config_string(surgical_parameters)
+surgical_cleaner.run(loaded_archive)
 
-    if not os.path.exists(os.path.join(output_path, archive_name)):
+# Bandwagon cleaner
+print("Applying the bandwagon cleaner")
+bandwagon_cleaner = cleaners.load_cleaner('bandwagon')
+bandwagon_parameters = 'badchantol=0.8,badsubtol=0.95'
+bandwagon_cleaner.parse_config_string(bandwagon_parameters)
+bandwagon_cleaner.run(loaded_archive)
 
-                # Use the various cleaners
-                # Surgical cleaner
-        print("Applying the surgical cleaner")
-        surgical_cleaner = cleaners.load_cleaner('surgical')
-        surgical_parameters = 'chan_numpieces=1,subint_numpieces=1,chanthresh={1},subintthresh={2},template={0}'.format(
-            str(args.templatepath), chan_thresh, subint_thresh)
-        surgical_cleaner.parse_config_string(surgical_parameters)
-        surgical_cleaner.run(loaded_archive)
-
-        # RcvrStandard cleaner
-        print("Applying rcvrstd cleaner")
-        rcvrstd_cleaner = cleaners.load_cleaner('rcvrstd')
-
-        rcvrstd_parameters = 'badfreqs=None,badsubints=None,trimbw=0,trimfrac=0,trimnum=0,response=None'
-        rcvrstd_cleaner.parse_config_string(rcvrstd_parameters)
-        rcvrstd_cleaner.run(loaded_archive)
-
-        # Bandwagon cleaner
-        print("Applying the bandwagon cleaner")
-        bandwagon_cleaner = cleaners.load_cleaner('bandwagon')
-        bandwagon_parameters = 'badchantol=0.99,badsubtol=1.0'
-        bandwagon_cleaner.parse_config_string(bandwagon_parameters)
-        bandwagon_cleaner.run(loaded_archive)
-
-        # Unload the Archive file
-        print("Unloading the cleaned archive")
-        loaded_archive.unload("{0}/{1}".format(output_path, archive_name))
-
-        if os.path.exists("{0}/{1}".format(output_path, archive_name)):
-            snr = 'psrstat -jFTpD -c snr=pdmp,snr {0}/{1} -Q -q'.format(
-                output_path, archive_name)
-            args_snr = shlex.split(snr)
-            proc_snr = subprocess.Popen(args_snr, stdout=subprocess.PIPE)
-            snr = value = round(float(proc_snr.stdout.readline()), 2)
-
-            with open(os.path.join(output_path, '{0}_{1}_{2}_cgstats.txt'.format(
-                    psrname, subint_thresh, chan_thresh)), 'w') as f:
-                f.write(
-                    "{0},{1},{2},{3},{4} \n".format(
-                        psrname,
-                        archive_name_orig,
-                        chan_thresh,
-                        subint_thresh,
-                        snr))
-            f.close()
-
-            os.remove("{0}/{1}".format(output_path, archive_name))
-
-    else:
-        print("{0} name exists".format(archive_name))
+# Unload the Archive file
+print("Unloading the cleaned archive")
+loaded_archive.unload("{0}/{1}".format(output_path, archive_name))

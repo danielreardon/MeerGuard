@@ -83,7 +83,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         patient = ar.clone()
         patient.pscrunch()
         patient.remove_baseline()
-        
+
         # Remove profile from dedispersed data
         patient.dedisperse()
         data = patient.get_data().squeeze()
@@ -99,7 +99,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                 template_phs = np.apply_over_axes(np.sum, template.squeeze(), 0).squeeze()
             else:
                 template_phs = template
-        
+
         if self.configs.template is None:
             phs = 0
         else:
@@ -111,14 +111,16 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             profile = profile.get_data()[0,0,0,:]
             if np.shape(template_phs) != np.shape(profile):
                 print('template and profile have different numbers of phase bins')
-            err = lambda (amp, phs): amp*clean_utils.fft_rotate(template_phs, phs) - profile
+            err = (lambda amp, phs: amp*clean_utils.fft_rotate(template_phs, phs) - profile)
             params, status = leastsq(err, [1, 0])
             phs = params[1]
             print('Found template phase offset = ', round(phs, 3))
-        
+
         clean_utils.remove_profile_inplace(patient, template, phs)
         # re-set DM to 0
         patient.dededisperse()
+
+
 
         # Get weights
         weights = patient.get_weights()
