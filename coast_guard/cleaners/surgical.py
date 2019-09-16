@@ -111,10 +111,10 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             profile = profile.get_data()[0,0,0,:]
             if np.shape(template_phs) != np.shape(profile):
                 print('template and profile have different numbers of phase bins')
-            err = (lambda amp, phs: amp*clean_utils.fft_rotate(template_phs, phs) - profile)
+            err = (lambda (amp, phs): amp*clean_utils.fft_rotate(template_phs, phs) - profile)
             params, status = leastsq(err, [1, 0])
             phs = params[1]
-            print('Found template phase offset = ', round(phs, 3))
+            print('Found template phase offset = {0} bins'.format(round(phs, 3)))
 
         clean_utils.remove_profile_inplace(patient, template, phs)
         # re-set DM to 0

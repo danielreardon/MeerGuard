@@ -53,13 +53,7 @@ surgical_parameters = 'chan_numpieces=1,subint_numpieces=1,chanthresh={1},'\
 surgical_cleaner.parse_config_string(surgical_parameters)
 surgical_cleaner.run(loaded_archive)
 
-# Bandwagon cleaner
-print("Applying the bandwagon cleaner")
-bandwagon_cleaner = cleaners.load_cleaner('bandwagon')
-bandwagon_parameters = 'badchantol=0.8,badsubtol=0.95'
-bandwagon_cleaner.parse_config_string(bandwagon_parameters)
-bandwagon_cleaner.run(loaded_archive)
-
 # Unload the Archive file
 print("Unloading the cleaned archive")
-loaded_archive.unload("{0}/{1}".format(output_path, archive_name))
+out_filename = str("{0}/{1}".format(output_path, archive_name))
+loaded_archive.unload(out_filename)
