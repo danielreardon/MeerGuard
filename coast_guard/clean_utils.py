@@ -467,8 +467,8 @@ def remove_profile_inplace(ar, template, phs, nthreads=1):
         nthreads = config.cfg.nthreads
     if nthreads == 1:
         for isub, ichan in np.ndindex(ar.get_nsubint(), ar.get_nchan()):
-            if len(np.shape(template)) > 1:  # multiple frequencies, find closest
-                itemplate = template[ichan, :]  # assuming template is (nsubint x nchan)
+            if len(np.shape(template)) > 1:  # multiple frequencies, take ichan slice
+                itemplate = template[ichan, :]  # assuming template is (nchan x nbin)
             else:
                 itemplate = template
             amps = remove_profile1d(data[isub, ichan], isub, ichan, itemplate, phs)[1]

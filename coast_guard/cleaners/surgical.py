@@ -92,13 +92,13 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         else:
             template_ar = psrchive.Archive_load(self.configs.template)
             template_ar.pscrunch()
-#            template_ar.dedisperse()
+            template_ar.dedisperse()
             template_ar.remove_baseline()
             template = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
             # make sure template is 1D
             if len(np.shape(template)) > 1:  # sum over frequencies too
-                print("2D template found. Assuming it is de-dispersed and has same frequency channels as data!")
                 template_ar.fscrunch()
+                print("2D template found. Assuming it is de-dispersed and has same frequency channels as data!")
                 template_phs = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
             else:
                 template_phs = template
@@ -108,6 +108,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         else:
             # Calculate phase offset of template in number of bins, using full obs
             profile = patient.clone()
+            profile.dedisperse()
             profile.tscrunch()
             profile.fscrunch()
             # Get profile data of full obs
@@ -115,9 +116,11 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             if np.shape(template_phs) != np.shape(profile):
                 print('template and profile have different numbers of phase bins')
             err = (lambda (amp, phs): amp*clean_utils.fft_rotate(template_phs, phs) - profile)
-            params, status = leastsq(err, [1, 0])
+            amp_guess = max(profile) - max(template_phs)
+            phase_guess = - np.argmax(profile) + np.argmax(template_phs)
+            params, status = leastsq(err, [amp_guess, phase_guess])
             phs = params[1]
-            print('Template phase offset = {0} bins'.format(round(phs, 3)))
+            print('Template phase offset = {0}'.format(round(phs, 3)))
 
         clean_utils.remove_profile_inplace(patient, template, phs)
         # re-set DM to 0
