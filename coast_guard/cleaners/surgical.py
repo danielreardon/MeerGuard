@@ -82,7 +82,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
     def _clean(self, ar):
         patient = ar.clone()
         patient.pscrunch()
-        patient.remove_baseline()
+#        patient.remove_baseline()
 
         # Remove profile from dedispersed data
         patient.dedisperse()
@@ -93,12 +93,15 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             template_ar = psrchive.Archive_load(self.configs.template)
             template_ar.pscrunch()
             template_ar.dedisperse()
-            template_ar.remove_baseline()
+            if len(template_ar.get_frequencies()) < len(patient.get_frequencies()):
+                template_ar.fscrunch()
+                print("Template channel number doesn't match data... f-scrunching!")
+#            template_ar.remove_baseline()
             template = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
             # make sure template is 1D
             if len(np.shape(template)) > 1:  # sum over frequencies too
                 template_ar.fscrunch()
-                print("2D template found. Assuming it is de-dispersed and has same frequency channels as data!")
+                print("2D template found. Assuming it has same frequency coverage and channels  as data!")
                 template_phs = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
             else:
                 template_phs = template

@@ -52,8 +52,8 @@ def comprehensive_stats(data, axis, **kwargs):
             lambda data, axis: np.max(np.abs(np.fft.rfft(\
                                 data-np.expand_dims(data.mean(axis=axis), axis=axis), \
                                     axis=axis)), axis=axis), \
-            # lambda data, axis: scipy.stats.mstats.kurtosistest(data, axis=axis)[0],\
-            # lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[0]
+            lambda data, axis: scipy.stats.mstats.kurtosistest(data, axis=axis)[0],\
+            lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[0]
             ]
     # Compute diagnostics
     diagnostics = []
@@ -410,6 +410,9 @@ def remove_profile1d(prof, isub, ichan, template, phs):
     rotated_template = fft_rotate(template, phs)
     err = lambda amp: amp*rotated_template - prof
     params, status = scipy.optimize.leastsq(err, [1.0])
+    #err = lambda (amp, base): amp*rotated_template + base - prof
+    #params, status = scipy.optimize.leastsq(err, [max(prof)/max(template),
+    #                                              np.min(prof)])
 
     #err = lambda amp: amp*template - prof
     #obj_func = lambda amp: np.sum(err(amp)**2)
@@ -466,17 +469,24 @@ def remove_profile_inplace(ar, template, phs, nthreads=1):
     if nthreads is None:
         nthreads = config.cfg.nthreads
     if nthreads == 1:
+    #    import matplotlib.pyplot as plt
         for isub, ichan in np.ndindex(ar.get_nsubint(), ar.get_nchan()):
             if len(np.shape(template)) > 1:  # multiple frequencies, take ichan slice
                 itemplate = template[ichan, :]  # assuming template is (nchan x nbin)
             else:
                 itemplate = template
+     #       if ichan % 100 == 0:
+     #           plt.subplot(2,1,1)
+     #           plt.plot(itemplate)
+     #           plt.subplot(2,1,2)
+     #           plt.plot(data[isub, ichan])
             amps = remove_profile1d(data[isub, ichan], isub, ichan, itemplate, phs)[1]
             prof = ar.get_Profile(isub, 0, ichan)
             if amps is None:
                 prof.set_weight(0)
             else:
                 prof.get_amps()[:] = amps
+      #  plt.savefig('/home/dreardon/templates.png')
     else:
         pool = multiprocessing.Pool(processes=nthreads)
         results = []
