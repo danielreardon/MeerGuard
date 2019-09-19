@@ -118,10 +118,10 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             profile = profile.get_data()[0,0,0,:]
             if np.shape(template_phs) != np.shape(profile):
                 print('template and profile have different numbers of phase bins')
-            err = (lambda (amp, phs): amp*clean_utils.fft_rotate(template_phs, phs) - profile)
-            amp_guess = max(profile) - max(template_phs)
+            err = (lambda (amp, phs, base): amp*clean_utils.fft_rotate(template_phs, phs) +base - profile)
+            amp_guess = max(profile)-min(profile) - max(template_phs)
             phase_guess = - np.argmax(profile) + np.argmax(template_phs)
-            params, status = leastsq(err, [amp_guess, phase_guess])
+            params, status = leastsq(err, [amp_guess, phase_guess, min(profile)])
             phs = params[1]
             print('Template phase offset = {0}'.format(round(phs, 3)))
 

@@ -408,11 +408,11 @@ def fit_template(prof, template):
 
 def remove_profile1d(prof, isub, ichan, template, phs):
     rotated_template = fft_rotate(template, phs)
-    err = lambda amp: amp*rotated_template - prof
-    params, status = scipy.optimize.leastsq(err, [1.0])
-    #err = lambda (amp, base): amp*rotated_template + base - prof
-    #params, status = scipy.optimize.leastsq(err, [max(prof)/max(template),
-    #                                              np.min(prof)])
+    #err = lambda amp: amp*rotated_template - prof
+    #params, status = scipy.optimize.leastsq(err, [1.0])
+    err = lambda (amp, base): amp*rotated_template + base - prof
+    params, status = scipy.optimize.leastsq(err, [max(prof)/max(template),
+                                                  np.min(prof)])
 
     #err = lambda amp: amp*template - prof
     #obj_func = lambda amp: np.sum(err(amp)**2)
