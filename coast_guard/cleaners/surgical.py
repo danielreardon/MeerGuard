@@ -82,7 +82,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
     def _clean(self, ar):
         patient = ar.clone()
         patient.pscrunch()
-        patient.remove_baseline()
+#        patient.remove_baseline()
 
         # Remove profile from dedispersed data
         patient.dedisperse()
@@ -93,12 +93,15 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             template_ar = psrchive.Archive_load(self.configs.template)
             template_ar.pscrunch()
             template_ar.dedisperse()
-            template_ar.remove_baseline()
+            if len(template_ar.get_frequencies()) < len(patient.get_frequencies()):
+                template_ar.fscrunch()
+                print("Template channel number doesn't match data... f-scrunching!")
+#            template_ar.remove_baseline()
             template = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
             # make sure template is 1D
             if len(np.shape(template)) > 1:  # sum over frequencies too
                 template_ar.fscrunch()
-                print("2D template found. Assuming it is de-dispersed and has same frequency channels as data!")
+                print("2D template found. Assuming it has same frequency coverage and channels  as data!")
                 template_phs = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
             else:
                 template_phs = template
@@ -115,10 +118,10 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             profile = profile.get_data()[0,0,0,:]
             if np.shape(template_phs) != np.shape(profile):
                 print('template and profile have different numbers of phase bins')
-            err = (lambda (amp, phs,base): amp*clean_utils.fft_rotate(template_phs, phs) + base - profile)
-            amp_guess = max(profile) - max(template_phs)
+            err = (lambda (amp, phs, base): amp*clean_utils.fft_rotate(template_phs, phs) +base - profile)
+            amp_guess = max(profile)-min(profile) - max(template_phs)
             phase_guess = - np.argmax(profile) + np.argmax(template_phs)
-            params, status = leastsq(err, [amp_guess, phase_guess,0])
+            params, status = leastsq(err, [amp_guess, phase_guess, min(profile)])
             phs = params[1]
             print params[2]
             print('Template phase offset = {0}'.format(round(phs, 3)))
