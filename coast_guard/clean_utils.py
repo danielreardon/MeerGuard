@@ -14,6 +14,32 @@ import utils
 import config
 import errors
 
+# takes an archive and determines fractional zapping for each frequency channel
+def freq_fraczap(ar):
+    
+
+
+    weights=np.bitwise_not(np.expand_dims(ar.get_weights(),2).astype(bool))
+    
+
+    nsub, nchan,nbool = np.shape(weights)
+    
+
+    weights = 1*weights    
+    freqs=get_frequencies(ar)
+    counts=np.sum(weights,axis=0).astype(float)/(1.*nsub)
+
+    
+    out=[]
+
+    for i in np.arange(nchan):
+        out.append([freqs[i],counts[i][0]])
+        #val=[freqs[i],counts[i][0]]
+        #out[i][0],out[i][1]=freqs[i],counts[i][0]
+        #print out[i]
+    
+    return out
+
 def get_subint_weights(ar):
     return ar.get_weights().sum(axis=1)
 
@@ -44,7 +70,7 @@ def comprehensive_stats(data, axis, **kwargs):
     chanthresh = kwargs.pop('chanthresh', config.cfg.clean_chanthresh)
     subintthresh = kwargs.pop('subintthresh', config.cfg.clean_subintthresh)
 
-    nsubs, nchans, nbins = data.shape
+    nsubs, nchans, ubbins = data.shape
     diagnostic_functions = [
             np.ma.std, \
             np.ma.mean, \
@@ -67,13 +93,94 @@ def comprehensive_stats(data, axis, **kwargs):
         subint_scaled = np.abs(subint_scaler(diag, **kwargs))/subintthresh
         #print diag[95,76], chan_scaled[95,76]*chanthresh, subint_scaled[95,76]*subintthresh, chan_scaled.dtype, subint_scaled.dtype
         scaled_diagnostics.append(np.max((chan_scaled, subint_scaled), axis=0))
-
+    
+    print np.shape(scaled_diagnostics)
+    #print scaled_diagnostics
     #for sd in scaled_diagnostics:
     #    print sd[95, 76]
     #sorted_tests = np.sort(scaled_diagnostics, axis=0)
     #test_results = scipy.stats.mstats.gmean(scaled_diagnostics[-2:], axis=0)
     test_results = np.median(scaled_diagnostics, axis=0)
+    print np.shape(test_results)
     return test_results
+
+
+
+def comprehensive_stats_rms(data, axis, **kwargs):
+    """The comprehensive scaled stats that are used for
+        the "Surgical Scrub" cleaning strategy.
+
+        Inputs:
+            data: A 3-D numpy array.
+            axis: The axis that should be used for computing stats.
+            chanthresh: The threshold (in number of sigmas) a
+                profile needs to stand out compared to others in the
+                same channel for it to be removed.
+                (Default: use value defined in config files)
+            subintthresh: The threshold (in number of sigmas) a profile
+                needs to stand out compared to others in the same
+                sub-int for it to be removed.
+                (Default: use value defined in config files)
+
+        Output:
+            stats: A 2-D numpy array of stats.
+    """
+    chanthresh = kwargs.pop('chanthresh', config.cfg.clean_chanthresh)
+    subintthresh = kwargs.pop('subintthresh', config.cfg.clean_subintthresh)
+
+    nsubs, nchans, nnbins = data.shape
+    diagnostic_functions = [
+            #np.ma.std, \
+            #np.ma.mean, \
+            #np.ma.ptp, \
+            #lambda data, axis: np.max(np.abs(np.fft.rfft(\
+            #                     data-np.expand_dims(data.mean(axis=axis), axis=axis), \
+            #                        axis=axis)), axis=axis), \
+             #lambda data, axis: scipy.stats.mstats.kurtosistest(data, axis=axis)[1],\
+             lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[1],\
+             lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[1],\
+             ]
+    # Compute diagnostics
+    diagnostics = []
+    for func in diagnostic_functions:
+        diagnostics.append(func(data, axis=2))
+
+    
+    print np.shape(diagnostics)
+    for isub in np.arange(nsubs):
+        for ichan in np.arange(nchans):
+            #print isub, ichan
+            out= diagnostics[0][isub][ichan]
+            print isub, ichan,diagnostics[0][isub][ichan],diagnostics[1][isub][ichan] 
+    
+
+
+    print np.shape(diagnostics)
+
+    # Now step through data and identify bad profiles
+    scaled_diagnostics = []
+    for diag in diagnostics:
+        chan_scaled = np.abs(channel_scaler(diag, **kwargs))/chanthresh
+        subint_scaled = np.abs(subint_scaler(diag, **kwargs))/subintthresh
+        #print diag[95,76], chan_scaled[95,76]*chanthresh, subint_scaled[95,76]*subintthresh, chan_scaled.dtype, subint_scaled.dtype
+        scaled_diagnostics.append(np.max((chan_scaled, subint_scaled), axis=0))
+    
+    print np.shape(scaled_diagnostics)
+    #print scaled_diagnostics
+    #for sd in scaled_diagnostics:
+    #    print sd[95, 76]
+    #sorted_tests = np.sort(scaled_diagnostics, axis=0)
+    #test_results = scipy.stats.mstats.gmean(scaled_diagnostics[-2:], axis=0)
+    test_results = np.min(diagnostics, axis=0)
+    print np.shape(test_results)
+    return test_results
+
+
+
+
+
+
+
 
 
 def channel_scaler(array2d, **kwargs):
