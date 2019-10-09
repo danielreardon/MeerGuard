@@ -93,9 +93,9 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             template_ar = psrchive.Archive_load(self.configs.template)
             template_ar.pscrunch()
             template_ar.dedisperse()
-            if len(template_ar.get_frequencies()) < len(patient.get_frequencies()):
-                template_ar.fscrunch()
+            if len(template_ar.get_frequencies()) > 1 and len(template_ar.get_frequencies()) < len(patient.get_frequencies()):
                 print("Template channel number doesn't match data... f-scrunching!")
+                template_ar.fscrunch()
 #            template_ar.remove_baseline()
             template = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
             # make sure template is 1D

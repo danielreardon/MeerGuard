@@ -95,14 +95,14 @@ def comprehensive_stats(data, axis, **kwargs):
         #print diag[95,76], chan_scaled[95,76]*chanthresh, subint_scaled[95,76]*subintthresh, chan_scaled.dtype, subint_scaled.dtype
         scaled_diagnostics.append(np.max((chan_scaled, subint_scaled), axis=0))
     
-    print np.shape(scaled_diagnostics)
+    #print np.shape(scaled_diagnostics)
     #print scaled_diagnostics
     #for sd in scaled_diagnostics:
     #    print sd[95, 76]
     #sorted_tests = np.sort(scaled_diagnostics, axis=0)
     #test_results = scipy.stats.mstats.gmean(scaled_diagnostics[-2:], axis=0)
     test_results = np.median(scaled_diagnostics, axis=0)
-    print np.shape(test_results)
+    #print np.shape(test_results)
     return test_results
 
 
