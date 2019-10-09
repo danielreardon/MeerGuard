@@ -123,7 +123,6 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             phase_guess = - np.argmax(profile) + np.argmax(template_phs)
             params, status = leastsq(err, [amp_guess, phase_guess, min(profile)])
             phs = params[1]
-            print params[2]
             print('Template phase offset = {0}'.format(round(phs, 3)))
 
         clean_utils.remove_profile_inplace(patient, template, phs)
