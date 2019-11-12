@@ -74,12 +74,13 @@ def comprehensive_stats(data, axis, **kwargs):
     diagnostic_functions = [
             np.ma.std, \
             np.ma.mean, \
+            #scipy.stats.gmean, \
             np.ma.ptp, \
             lambda data, axis: np.max(np.abs(np.fft.rfft(\
                                 data-np.expand_dims(data.mean(axis=axis), axis=axis), \
                                     axis=axis)), axis=axis), \
-            lambda data, axis: scipy.stats.mstats.kurtosistest(data, axis=axis)[0],\
-            lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[0]
+            #lambda data, axis: scipy.stats.mstats.kurtosistest(data, axis=axis)[0],\
+            #lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[0]
             ]
     # Compute diagnostics
     diagnostics = []
