@@ -5,6 +5,7 @@ from coast_guard import clean_utils
 from coast_guard.cleaners import config_types
 from coast_guard import utils
 from scipy.optimize import leastsq
+from scipy.signal import savgol_filter
 
 # for the template, would be better to have it elsewhere and just get the numpy array here
 import psrchive
@@ -82,7 +83,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
     def _clean(self, ar):
         patient = ar.clone()
         patient.pscrunch()
-#        patient.remove_baseline()
+        patient.remove_baseline()
 
         # Remove profile from dedispersed data
         patient.dedisperse()
@@ -93,6 +94,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         else:
             template_ar = psrchive.Archive_load(self.configs.template)
             template_ar.pscrunch()
+            template_ar.remove_baseline()
             template_ar.dedisperse()
             if len(template_ar.get_frequencies()) > 1 and len(template_ar.get_frequencies()) < len(patient.get_frequencies()):
                 print("Template channel number doesn't match data... f-scrunching!")
@@ -135,37 +137,10 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
 
         clean_utils.remove_profile_inplace(patient, template, phs)
        
-#        import sys
-#        import matplotlib.pyplot as plt
-#        
-#        fig, (ax1, ax2) = plt.subplots(ncols=2, sharex="all", sharey="all")
-#        # before profile removal
-#        combined = np.array([np.mean(preop_patient.get_data()[:,0,:,:], axis=0), np.mean(patient.get_data()[:,0,:,:], axis=0)])
-#        _min, _max = np.amin(combined), np.amax(combined)
-#        ax1.imshow(np.mean(preop_patient.get_data()[:,0,:,:], axis=0), origin="lower", aspect="auto", vmin=_min, vmax=_max)
-#        ax1.set_xlabel("Phase bin")
-#        ax1.set_ylabel("Frequency channel")
-#        ax1.set_title("Pre-Op patient")
-#        ax2.imshow(np.mean(patient.get_data()[:,0,:,:], axis=0), origin="lower", aspect="auto", vmin=_min, vmax=_max)
-#        ax2.set_xlabel("Phase bin")
-#        ax2.set_title("Post-Op patient")
-#
-#        #plt.figure()
-#        #plt.plot(preop_weights.sum(axis=0))
-#        #plt.plot(patient.get_weights().sum(axis=0))
-#        plt.savefig("preop_postop_removal.png")
-#
-#        #fig, (ax1, ax2) = plt.subplots(ncols=2)
-#        #ax1.plot(preop_patient.get_Profile().get_amps())
-#        #ax2.plot(patient.get_amps())
-#        #plt.show()
-# 
-#        #sys.exit(0)
-       # re-set DM to 0
-        patient.dededisperse()
-
-       
         print('Accessing weights and applying to patient')
+        # re-set DM to 0
+        # patient.dededisperse()
+
         # Get weights
         weights = patient.get_weights()
         # Get data (select first polarization - recall we already P-scrunched)
@@ -178,6 +153,20 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         data = np.ma.masked_array(data, mask=mask_3d)
 
         print('Calculating robust statistics to determine where RFI removal is required')
+        # consider residual only in off-pulse region
+        template_rot = clean_utils.fft_rotate(template, phs).squeeze()
+        masked_template = np.ma.masked_greater(template_rot, np.min(template_rot) + 0.03*np.ptp(template_rot))
+        if len(np.shape(template_rot)) > 1:
+            # template is 2D
+            for ii in range(0, np.shape(data)[0]):
+                data.mask[ii, :, :] = masked_template.mask
+        else:
+            # template is 1D
+            for ii in range(0, np.shape(data)[0]):
+                for jj in range(0, np.shape(data)[1]):
+                      data.mask[ii, jj, :] = masked_template.mask
+        data = np.ma.masked_array(data, mask=data.mask)
+
         # RFI-ectomy must be recommended by average of tests
         # BWM: Ok, so this is where the magical stuff actually happens - need to know actually WHAT are the comprehensive stats
         avg_test_results = clean_utils.comprehensive_stats(data, axis=2, \

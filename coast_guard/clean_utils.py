@@ -73,14 +73,14 @@ def comprehensive_stats(data, axis, **kwargs):
     nsubs, nchans, ubbins = data.shape
     diagnostic_functions = [
             np.ma.std, \
-            np.ma.mean, \
-            #scipy.stats.gmean, \
+            #np.ma.mean, \
+            scipy.stats.mstats.gmean, \
             np.ma.ptp, \
-            lambda data, axis: np.max(np.abs(np.fft.rfft(\
-                                data-np.expand_dims(data.mean(axis=axis), axis=axis), \
-                                    axis=axis)), axis=axis), \
-            #lambda data, axis: scipy.stats.mstats.kurtosistest(data, axis=axis)[0],\
-            #lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[0]
+            #lambda data, axis: np.max(np.abs(np.fft.rfft(\
+            #                    data-np.expand_dims(data.mean(axis=axis), axis=axis), \
+            #                        axis=axis)), axis=axis), \
+            lambda data, axis: scipy.stats.mstats.kurtosistest(data, axis=axis)[0],\
+            lambda data, axis: scipy.stats.mstats.skewtest(data, axis=axis)[0]
             ]
     # Compute diagnostics
     diagnostics = []
@@ -520,7 +520,7 @@ def remove_profile1d(prof, isub, ichan, template, phs):
     #params, status = scipy.optimize.leastsq(err, [1.0])
     err = lambda (amp, base): amp*rotated_template + base - prof
     params, status = scipy.optimize.leastsq(err, [max(prof)/max(template),
-                                                  np.min(prof)])
+                                                  np.min(prof)-np.min(rotated_template)])
 
     #err = lambda amp: amp*template - prof
     #obj_func = lambda amp: np.sum(err(amp)**2)
