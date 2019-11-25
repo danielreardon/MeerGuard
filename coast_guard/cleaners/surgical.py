@@ -5,6 +5,7 @@ from coast_guard import clean_utils
 from coast_guard.cleaners import config_types
 from coast_guard import utils
 from scipy.optimize import leastsq
+from scipy.signal import savgol_filter
 
 # for the template, would be better to have it elsewhere and just get the numpy array here
 import psrchive
@@ -82,7 +83,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
     def _clean(self, ar):
         patient = ar.clone()
         patient.pscrunch()
-#        patient.remove_baseline()
+        patient.remove_baseline()
 
         # Remove profile from dedispersed data
         patient.dedisperse()
@@ -92,6 +93,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         else:
             template_ar = psrchive.Archive_load(self.configs.template)
             template_ar.pscrunch()
+            template_ar.remove_baseline()
             template_ar.dedisperse()
             if len(template_ar.get_frequencies()) > 1 and len(template_ar.get_frequencies()) < len(patient.get_frequencies()):
                 print("Template channel number doesn't match data... f-scrunching!")
@@ -127,9 +129,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
 
         clean_utils.remove_profile_inplace(patient, template, phs)
         # re-set DM to 0
-        patient.dededisperse()
-
-
+        # patient.dededisperse()
 
         # Get weights
         weights = patient.get_weights()
@@ -141,6 +141,20 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         mask_2d = np.bitwise_not(np.expand_dims(weights, 2).astype(bool))
         mask_3d = mask_2d.repeat(ar.get_nbin(), axis=2)
         data = np.ma.masked_array(data, mask=mask_3d)
+
+        # consider residual only in off-pulse region
+        template_rot = clean_utils.fft_rotate(template, phs).squeeze()
+        masked_template = np.ma.masked_greater(template_rot, np.min(template_rot) + 0.03*np.ptp(template_rot))
+        if len(np.shape(template_rot)) > 1:
+            # template is 2D
+            for ii in range(0, np.shape(data)[0]):
+                data.mask[ii, :, :] = masked_template.mask
+        else:
+            # template is 1D
+            for ii in range(0, np.shape(data)[0]):
+                for jj in range(0, np.shape(data)[1]):
+                      data.mask[ii, jj, :] = masked_template.mask
+        data = np.ma.masked_array(data, mask=data.mask)
 
         # RFI-ectomy must be recommended by average of tests
         avg_test_results = clean_utils.comprehensive_stats(data, axis=2, \
