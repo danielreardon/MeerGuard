@@ -130,9 +130,9 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             print('Template phase offset = {0}'.format(round(phs, 3)))
 
         print('Removing profile from patient')
-        preop_patient = patient.clone()
-        preop_patient.remove_baseline()
-        preop_weights = preop_patient.get_weights()
+        #preop_patient = patient.clone()
+        #preop_patient.remove_baseline()
+        #preop_weights = preop_patient.get_weights()
         #print(preop_weights.shape)
 
         clean_utils.remove_profile_inplace(patient, template, phs)
