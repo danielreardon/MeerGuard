@@ -154,7 +154,13 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
 
         print('Calculating robust statistics to determine where RFI removal is required')
         # consider residual only in off-pulse region
-        template_rot = clean_utils.fft_rotate(template, phs).squeeze()
+
+        if template.ndim > 1:
+            # assuming the channel axis is 0, rotate each channel profile
+            template_rot = np.apply_along_axis(clean_utils.fft_rotate, 0, template, phs).squeeze()
+        else:
+            template_rot = clean_utils.fft_rotate(tempalte, phs).squeeze()
+        
         masked_template = np.ma.masked_greater(template_rot, np.min(template_rot) + 0.03*np.ptp(template_rot))
         if len(np.shape(template_rot)) > 1:
             # template is 2D
