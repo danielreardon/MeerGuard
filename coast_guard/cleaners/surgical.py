@@ -88,6 +88,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         # Remove profile from dedispersed data
         patient.dedisperse()
         data = patient.get_data().squeeze()
+        print('Loading template')
         if self.configs.template is None:
             template = np.apply_over_axes(np.sum, data, (0, 1)).squeeze()
         else:
@@ -102,12 +103,13 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             template = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
             # make sure template is 1D
             if len(np.shape(template)) > 1:  # sum over frequencies too
-                template_ar.fscrunch()
-                print("2D template found. Assuming it has same frequency coverage and channels  as data!")
+                template_ar.fscrunch()  
+                print("2D template found. Assuming it has same frequency coverage and channels as data!")
                 template_phs = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
             else:
                 template_phs = template
 
+        print('Estimating template and profile phase offset')
         if self.configs.template is None:
             phs = 0
         else:
@@ -127,7 +129,15 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             phs = params[1]
             print('Template phase offset = {0}'.format(round(phs, 3)))
 
+        print('Removing profile from patient')
+        preop_patient = patient.clone()
+        preop_patient.remove_baseline()
+        preop_weights = preop_patient.get_weights()
+        #print(preop_weights.shape)
+
         clean_utils.remove_profile_inplace(patient, template, phs)
+       
+        print('Accessing weights and applying to patient')
         # re-set DM to 0
         # patient.dededisperse()
 
@@ -142,6 +152,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         mask_3d = mask_2d.repeat(ar.get_nbin(), axis=2)
         data = np.ma.masked_array(data, mask=mask_3d)
 
+        print('Calculating robust statistics to determine where RFI removal is required')
         # consider residual only in off-pulse region
         template_rot = clean_utils.fft_rotate(template, phs).squeeze()
         masked_template = np.ma.masked_greater(template_rot, np.min(template_rot) + 0.03*np.ptp(template_rot))
@@ -157,6 +168,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         data = np.ma.masked_array(data, mask=data.mask)
 
         # RFI-ectomy must be recommended by average of tests
+        # BWM: Ok, so this is where the magical stuff actually happens - need to know actually WHAT are the comprehensive stats
         avg_test_results = clean_utils.comprehensive_stats(data, axis=2, \
                                     chanthresh=self.configs.chanthresh, \
                                     subintthresh=self.configs.subintthresh, \
@@ -167,13 +179,21 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                                     subint_breakpoints=self.configs.subint_breakpoints, \
                                     subint_numpieces=self.configs.subint_numpieces, \
                                     )
+
+#        print(avg_test_results.shape)
+#        plt.plot(avg_test_results.sum(axis=0))
+#        plt.show()
+
+        print('Applying RFI masking weights to archive')
         for (isub, ichan) in np.argwhere(avg_test_results>=1):
+            #print('(isub, ichan) to be flagged: ({0}, {1})'.format(isub, ichan))
+            #print('     test score = {0}'.format(avg_test_results[isub, ichan]))
             # Be sure to set weights on the original archive, and
             # not the clone we've been working with.
             integ = ar.get_Integration(int(isub))
             integ.set_weight(int(ichan), 0.0)
         
-        freq_fraczap=  clean_utils.freq_fraczap(ar)
+        freq_fraczap = clean_utils.freq_fraczap(ar)
     
         #print np.shape(freq_fraczap)
 

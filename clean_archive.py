@@ -10,50 +10,47 @@ import argparse
 import psrchive as ps
 import os
 
-# Parse some arguments to set up cleaning
-parser = argparse.ArgumentParser(
-            description="Run MeerGuard on input archive file")
-parser.add_argument("-ar", dest="archivepath", help="Path to the archive file")
-parser.add_argument(
-    "-temp",
-    dest="templatepath",
-    help="Path to the template file")
-parser.add_argument("-ct", dest="chan_thresh", help="Channel threshold")
-parser.add_argument("-st", dest="subint_thresh", help="Subint threshold")
-parser.add_argument(
-    "-out",
-    dest="output_path",
-    help="Output path (for custom CG)")
-args = parser.parse_args()
+def apply_surgical_cleaner(ar, tmp, cthresh=3.0, sthresh=3.0):
+    print("Applying the surgical cleaner")
+    print("\t channel threshold = {0}".format(cthresh))
+    print("\t  subint threshold = {0}".format(sthresh))
 
-archive = str(args.archivepath)
-template = str(args.templatepath)
-chan_thresh = float(args.chan_thresh)
-subint_thresh = float(args.subint_thresh)
+    surgical_cleaner = cleaners.load_cleaner('surgical')
+    surgical_parameters = "chan_numpieces=1,subint_numpieces=1,chanthresh={1},subintthresh={2},template={0}".format(tmp, cthresh, sthresh)
+    surgical_cleaner.parse_config_string(surgical_parameters)
+    surgical_cleaner.run(ar)
 
-# Load an Archive file
-loaded_archive = ps.Archive_load(archive)
-archive_path, archive_name = os.path.split(loaded_archive.get_filename())
-archive_name_orig = archive_name.split('.')[0]
-psrname = archive_name_orig.split('_')[0]
+    
 
-# Renaming archive file with statistical thresholds
-archive_name = archive_name_orig + \
-    '_ch{0}_sub{1}.ar'.format(chan_thresh, subint_thresh)
-output_path = str(args.output_path)
-print(archive_name)
+if __name__ == "__main__":
+    # Parse some arguments to set up cleaning
+    parser = argparse.ArgumentParser(description="Run MeerGuard on input archive file")
+    parser.add_argument("-a", "--archive", type=str, dest="archive_path", help="Path to the archive file")
+    parser.add_argument("-T", "--template", type=str, dest="template_path", help="Path to the 2D template file")
+    parser.add_argument("-c", "--chanthresh", type=float, dest="chan_thresh", help="Channel threshold (in sigma) [default = 3.0]", default=3.0)
+    parser.add_argument("-s", "--subthresh", type=float, dest="subint_thresh", help="Subint threshold (in sigma) [default = 3.0]", default=3.0)
+    parser.add_argument("-o", "--outname", type=str, dest="output_name", help="Output archive name", default=None)
+    parser.add_argument("-O", "--outpath", type=str, dest="output_path", help="Output path [default = CWD]", default=os.getcwd())
+    args = parser.parse_args()
 
-# Surgical cleaner
-print("Applying the surgical cleaner")
-surgical_cleaner = cleaners.load_cleaner('surgical')
-surgical_parameters = 'chan_numpieces=1,subint_numpieces=1,chanthresh={1},'\
-                      'subintthresh={2},template={0}'.format(
-                              str(args.templatepath), chan_thresh,
-                              subint_thresh)
-surgical_cleaner.parse_config_string(surgical_parameters)
-surgical_cleaner.run(loaded_archive)
 
-# Unload the Archive file
-print("Unloading the cleaned archive")
-out_filename = str("{0}/{1}".format(output_path, archive_name))
-loaded_archive.unload(out_filename)
+    # Load an Archive file
+    loaded_archive = ps.Archive_load(args.archive_path)
+    archive_path, archive_name = os.path.split(loaded_archive.get_filename())
+    archive_name_pref = archive_name.split('.')[0]
+    archive_name_suff = "".join(archive_name.split('.')[1:])
+    #psrname = archive_name_orig.split('_')[0]
+
+    # Renaming archive file with statistical thresholds
+    if args.output_name is None:
+        out_name = "{0}_ch{1}_sub{2}.ar".format(archive_name_pref, args.chan_thresh, args.subint_thresh, archive_name_suff)
+    else:
+        out_name = args.output_name
+
+
+    apply_surgical_cleaner(loaded_archive, args.template_path, cthresh=args.chan_thresh, sthresh=args.subint_thresh)
+
+    # Unload the Archive file
+    print("Unloading the cleaned archive: {0}".format(out_name))
+    loaded_archive.unload(str(out_name))  # need to typecast to str here because otherwise Python converts to a unicode string which the PSRCHIVE library can't parse
+
