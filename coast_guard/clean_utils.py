@@ -76,11 +76,12 @@ def comprehensive_stats(data, axis, **kwargs):
             #np.ma.mean, \
             scipy.stats.mstats.gmean, \
             np.ma.ptp, \
-            #lambda data, axis: np.max(np.abs(np.fft.rfft(\
-            #                    data-np.expand_dims(data.mean(axis=axis), axis=axis), \
-            #                        axis=axis)), axis=axis), \
-            lambda data, axis: scipy.stats.mstats.kurtosistest(data, axis=axis)[0],\
-            lambda data, axis: scipy.stats.mstats.skewtest(data, axis=axis)[0]
+            lambda data, axis: np.max(np.abs(np.fft.rfft(\
+                                data-np.expand_dims(data.mean(axis=axis), axis=axis), \
+                                    axis=axis)), axis=axis), \
+            lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[0],\
+            #lambda data, axis: scipy.stats.mstats.kurtosistest(data, axis=axis)[0],\
+            #lambda data, axis: scipy.stats.mstats.skewtest(data, axis=axis)[0]
             ]
     # Compute diagnostics
     diagnostics = []
@@ -92,96 +93,11 @@ def comprehensive_stats(data, axis, **kwargs):
     for diag in diagnostics:
         chan_scaled = np.abs(channel_scaler(diag, **kwargs))/chanthresh
         subint_scaled = np.abs(subint_scaler(diag, **kwargs))/subintthresh
-        #print diag[95,76], chan_scaled[95,76]*chanthresh, subint_scaled[95,76]*subintthresh, chan_scaled.dtype, subint_scaled.dtype
         scaled_diagnostics.append(np.max((chan_scaled, subint_scaled), axis=0))
     
-    #print np.shape(scaled_diagnostics)
-    #print scaled_diagnostics
-    #for sd in scaled_diagnostics:
-    #    print sd[95, 76]
-    #sorted_tests = np.sort(scaled_diagnostics, axis=0)
-    #test_results = scipy.stats.mstats.gmean(scaled_diagnostics[-2:], axis=0)
     test_results = np.median(scaled_diagnostics, axis=0)
-    #print np.shape(test_results)
+
     return test_results
-
-
-
-def comprehensive_stats_rms(data, axis, **kwargs):
-    """The comprehensive scaled stats that are used for
-        the "Surgical Scrub" cleaning strategy.
-
-        Inputs:
-            data: A 3-D numpy array.
-            axis: The axis that should be used for computing stats.
-            chanthresh: The threshold (in number of sigmas) a
-                profile needs to stand out compared to others in the
-                same channel for it to be removed.
-                (Default: use value defined in config files)
-            subintthresh: The threshold (in number of sigmas) a profile
-                needs to stand out compared to others in the same
-                sub-int for it to be removed.
-                (Default: use value defined in config files)
-
-        Output:
-            stats: A 2-D numpy array of stats.
-    """
-    chanthresh = kwargs.pop('chanthresh', config.cfg.clean_chanthresh)
-    subintthresh = kwargs.pop('subintthresh', config.cfg.clean_subintthresh)
-
-    nsubs, nchans, nnbins = data.shape
-    diagnostic_functions = [
-            #np.ma.std, \
-            #np.ma.mean, \
-            #np.ma.ptp, \
-            #lambda data, axis: np.max(np.abs(np.fft.rfft(\
-            #                     data-np.expand_dims(data.mean(axis=axis), axis=axis), \
-            #                        axis=axis)), axis=axis), \
-             #lambda data, axis: scipy.stats.mstats.kurtosistest(data, axis=axis)[1],\
-             lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[1],\
-             lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[1],\
-             ]
-    # Compute diagnostics
-    diagnostics = []
-    for func in diagnostic_functions:
-        diagnostics.append(func(data, axis=2))
-
-    
-    #print np.shape(diagnostics)
-    for isub in np.arange(nsubs):
-        for ichan in np.arange(nchans):
-            #print isub, ichan
-            out= diagnostics[0][isub][ichan]
-            #print isub, ichan,diagnostics[0][isub][ichan],diagnostics[1][isub][ichan] 
-    
-
-
-    #print np.shape(diagnostics)
-
-    # Now step through data and identify bad profiles
-    scaled_diagnostics = []
-    for diag in diagnostics:
-        chan_scaled = np.abs(channel_scaler(diag, **kwargs))/chanthresh
-        subint_scaled = np.abs(subint_scaler(diag, **kwargs))/subintthresh
-        #print diag[95,76], chan_scaled[95,76]*chanthresh, subint_scaled[95,76]*subintthresh, chan_scaled.dtype, subint_scaled.dtype
-        scaled_diagnostics.append(np.max((chan_scaled, subint_scaled), axis=0))
-    
-    #print np.shape(scaled_diagnostics)
-    #print scaled_diagnostics
-    #for sd in scaled_diagnostics:
-    #    print sd[95, 76]
-    #sorted_tests = np.sort(scaled_diagnostics, axis=0)
-    #test_results = scipy.stats.mstats.gmean(scaled_diagnostics[-2:], axis=0)
-    test_results = np.min(diagnostics, axis=0)
-    #print np.shape(test_results)
-    return test_results
-
-
-
-
-
-
-
 
 
 def channel_scaler(array2d, **kwargs):
@@ -239,7 +155,6 @@ def get_robust_std(data, weights, trimfrac=0.1):
     unmasked = mdata.compressed()
     mad = np.median(np.abs(unmasked-np.median(unmasked)))
     return 1.4826*mad
-    #return scipy.stats.mstats.std(scipy.stats.mstats.trimboth(mdata, trimfrac))
 
 
 def fit_poly(ydata, xdata, order=1):
@@ -514,25 +429,23 @@ def fit_template(prof, template):
     return params
 
 
-def remove_profile1d(prof, isub, ichan, template, phs):
+def remove_profile1d(prof, isub, ichan, template, phs, return_params=False):
     rotated_template = fft_rotate(template, phs)
-    #err = lambda amp: amp*rotated_template - prof
-    #params, status = scipy.optimize.leastsq(err, [1.0])
     err = lambda (amp, base): amp*rotated_template + base - prof
     params, status = scipy.optimize.leastsq(err, [max(prof)/max(template),
                                                   np.min(prof)-np.min(rotated_template)])
-
-    #err = lambda amp: amp*template - prof
-    #obj_func = lambda amp: np.sum(err(amp)**2)
-    #params = scipy.optimize.fmin(obj_func, [1.0], ftol=1e-12, xtol=1e-12)
-    #params, status = scipy.optimize.leastsq(err, [1.0])
     if status not in (1,2,3,4):
         warnings.warn("Bad status for least squares fit when " \
                             "removing profile", errors.CoastGuardWarning)
-        return (isub, ichan), np.zeros_like(prof)
+        if return_params:
+            return (isub, ichan), np.zeros_like(prof), params
+        else:
+            return (isub, ichan), np.zeros_like(prof)
     else:
-        return (isub, ichan), err(params)
-    #return (isub, ichan), err(params)
+        if return_params:
+            return (isub, ichan), err(params), params
+        else:
+            return (isub, ichan), err(params)
 
 def remove_profile(data, nsubs, nchans, template, nthreads=None):
     if nthreads is None:
@@ -577,29 +490,17 @@ def remove_profile_inplace(ar, template, phs, nthreads=1):
     if nthreads is None:
         nthreads = config.cfg.nthreads
     if nthreads == 1:
-#        import matplotlib.pyplot as plt
-#        print('template shape', np.shape(template))
         for isub, ichan in np.ndindex(ar.get_nsubint(), ar.get_nchan()):
             if len(np.shape(template)) > 1:  # multiple frequencies, take ichan slice
                 itemplate = template[ichan, :]  # assuming template is (nchan x nbin)
             else:
-                itemplate = template
-#            if ichan % 256 == 0:
-#                plt.subplot(3,1,1)
-#                plt.plot(itemplate)
-#                plt.subplot(3,1,2)
-#                plt.plot(data[isub, ichan])
-                
+                itemplate = template                
             amps = remove_profile1d(data[isub, ichan], isub, ichan, itemplate, phs)[1]
-#            if ichan % 256 == 0:
-#                plt.subplot(3,1,3)
-#                plt.plot(amps)
             prof = ar.get_Profile(isub, 0, ichan)
             if amps is None:
                 prof.set_weight(0)
             else:
                 prof.get_amps()[:] = amps
-#        plt.savefig('/home/bmeyers/templates.png')
     else:
         pool = multiprocessing.Pool(processes=nthreads)
         results = []

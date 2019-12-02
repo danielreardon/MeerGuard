@@ -10,6 +10,9 @@ from scipy.signal import savgol_filter
 # for the template, would be better to have it elsewhere and just get the numpy array here
 import psrchive
 
+# For Daniel's debugging..
+plot_diagnostic = False
+
 class SurgicalScrubCleaner(cleaners.BaseCleaner):
     name = 'surgical'
     description = 'De-weight profiles that stand out compared to others ' \
@@ -99,7 +102,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             if len(template_ar.get_frequencies()) > 1 and len(template_ar.get_frequencies()) < len(patient.get_frequencies()):
                 print("Template channel number doesn't match data... f-scrunching!")
                 template_ar.fscrunch()
-#            template_ar.remove_baseline()
+            template_ar.remove_baseline()
             template = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
             # make sure template is 1D
             if len(np.shape(template)) > 1:  # sum over frequencies too
@@ -133,7 +136,6 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         preop_patient = patient.clone()
         preop_patient.remove_baseline()
         preop_weights = preop_patient.get_weights()
-        #print(preop_weights.shape)
 
         clean_utils.remove_profile_inplace(patient, template, phs)
        
@@ -145,30 +147,58 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         weights = patient.get_weights()
         # Get data (select first polarization - recall we already P-scrunched)
         data = patient.get_data()[:,0,:,:]
+        preop_data = preop_patient.get_data()[:,0,:,:]
         data = clean_utils.apply_weights(data, weights)
-
+        preop_data = clean_utils.apply_weights(preop_data, weights)
+        
         # Mask profiles where weight is 0
         mask_2d = np.bitwise_not(np.expand_dims(weights, 2).astype(bool))
         mask_3d = mask_2d.repeat(ar.get_nbin(), axis=2)
         data = np.ma.masked_array(data, mask=mask_3d)
+        preop_data = np.ma.masked_array(preop_data, mask=mask_3d)        
+ 
+        print('Masking on-pulse region as determined from template')
+        # consider residual only in off-pulse region
+        if len(np.shape(template)) > 1:  # sum over frequencies
+            print('Estimating on-pulse region by f-scrunching 2D template')
+            template_ar.fscrunch()
+            template_1D = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
+        else:
+            template_1D = template
+        # Rotate template by apropriate amount
+        template_rot = clean_utils.fft_rotate(template_1D, phs).squeeze()
+        # masked_template = np.ma.masked_greater(template_rot, np.min(template_rot) + 0.01*np.ptp(template_rot))
+        masked_template = np.ma.masked_greater(template_rot, np.median(template_rot))
+        masked_std = np.ma.std(masked_template)
+        # use this std of masked data as cutoff
+        masked_template = np.ma.masked_greater(template_rot, np.median(template_rot) + 3*masked_std)
+        if plot_diagnostic:
+            import matplotlib.pyplot as plt
+            plt.plot(np.apply_over_axes(np.sum, preop_data, (0, 1)).squeeze(), alpha=0.8)
+            plt.plot(np.apply_over_axes(np.sum, data, (0, 1)).squeeze(), alpha=0.8)
+            # Do fit again to scale template
+            subchan, err, params = clean_utils.remove_profile1d(np.apply_over_axes(np.sum, preop_data, (0, 1)).squeeze(), 0, 0, template_rot, 0, return_params=True)
+            plt.plot(params[0]*template_rot + params[1], alpha=0.8)
+            plt.plot(params[0]*masked_template + params[1], color='k', alpha=1)
+        
+        # Loop through chans and subints to mask on-pulse phase bins
+        for ii in range(0, np.shape(data)[0]):
+            for jj in range(0, np.shape(data)[1]):
+                  data.mask[ii, jj, :] = masked_template.mask
+        data = np.ma.masked_array(data, mask=data.mask)
+        
+        if plot_diagnostic:
+            plt.plot(np.apply_over_axes(np.ma.sum, data, (0, 1)).squeeze(), alpha=0.8)
+            plt.legend(('Summed pre-op data', 'Summed data', 'Scaled rotated template', 'Scaled masked template', 'Masked data'))
+            plt.savefig('diagnostic.png')
 
         print('Calculating robust statistics to determine where RFI removal is required')
-        # consider residual only in off-pulse region
-        template_rot = clean_utils.fft_rotate(template, phs).squeeze()
-        masked_template = np.ma.masked_greater(template_rot, np.min(template_rot) + 0.03*np.ptp(template_rot))
-        if len(np.shape(template_rot)) > 1:
-            # template is 2D
-            for ii in range(0, np.shape(data)[0]):
-                data.mask[ii, :, :] = masked_template.mask
-        else:
-            # template is 1D
-            for ii in range(0, np.shape(data)[0]):
-                for jj in range(0, np.shape(data)[1]):
-                      data.mask[ii, jj, :] = masked_template.mask
-        data = np.ma.masked_array(data, mask=data.mask)
-
         # RFI-ectomy must be recommended by average of tests
         # BWM: Ok, so this is where the magical stuff actually happens - need to know actually WHAT are the comprehensive stats
+        # DJR: At this stage the stats are; (found to work well experimentally) 
+        #          geometric mean, peak-to-peak, standard deviation, kurtosis, and skewness. 
+        #      In original coast_guard they were;
+        #          mean, peak-to-peak, standard deviation, and max value of FFT
         avg_test_results = clean_utils.comprehensive_stats(data, axis=2, \
                                     chanthresh=self.configs.chanthresh, \
                                     subintthresh=self.configs.subintthresh, \
@@ -180,21 +210,13 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                                     subint_numpieces=self.configs.subint_numpieces, \
                                     )
 
-#        print(avg_test_results.shape)
-#        plt.plot(avg_test_results.sum(axis=0))
-#        plt.show()
-
         print('Applying RFI masking weights to archive')
         for (isub, ichan) in np.argwhere(avg_test_results>=1):
-            #print('(isub, ichan) to be flagged: ({0}, {1})'.format(isub, ichan))
-            #print('     test score = {0}'.format(avg_test_results[isub, ichan]))
             # Be sure to set weights on the original archive, and
             # not the clone we've been working with.
             integ = ar.get_Integration(int(isub))
             integ.set_weight(int(ichan), 0.0)
         
         freq_fraczap = clean_utils.freq_fraczap(ar)
-    
-        #print np.shape(freq_fraczap)
 
 Cleaner = SurgicalScrubCleaner
