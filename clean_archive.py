@@ -10,13 +10,13 @@ import argparse
 import psrchive as ps
 import os
 
-def apply_surgical_cleaner(ar, tmp, cthresh=3.0, sthresh=3.0):
+def apply_surgical_cleaner(ar, tmp, cthresh=5.0, sthresh=5.0, plot=False):
     print("Applying the surgical cleaner")
     print("\t channel threshold = {0}".format(cthresh))
     print("\t  subint threshold = {0}".format(sthresh))
 
     surgical_cleaner = cleaners.load_cleaner('surgical')
-    surgical_parameters = "chan_numpieces=1,subint_numpieces=1,chanthresh={1},subintthresh={2},template={0}".format(tmp, cthresh, sthresh)
+    surgical_parameters = "chan_numpieces=1,subint_numpieces=1,chanthresh={1},subintthresh={2},template={0},plot={3}".format(tmp, cthresh, sthresh, plot)
     surgical_cleaner.parse_config_string(surgical_parameters)
     surgical_cleaner.run(ar)
 
@@ -27,9 +27,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run MeerGuard on input archive file")
     parser.add_argument("-a", "--archive", type=str, dest="archive_path", help="Path to the archive file")
     parser.add_argument("-T", "--template", type=str, dest="template_path", help="Path to the 2D template file")
-    parser.add_argument("-c", "--chanthresh", type=float, dest="chan_thresh", help="Channel threshold (in sigma) [default = 3.0]", default=3.0)
-    parser.add_argument("-s", "--subthresh", type=float, dest="subint_thresh", help="Subint threshold (in sigma) [default = 3.0]", default=3.0)
+    parser.add_argument("-c", "--chanthresh", type=float, dest="chan_thresh", help="Channel threshold (in sigma) [default = 5.0]", default=5.0)
+    parser.add_argument("-s", "--subthresh", type=float, dest="subint_thresh", help="Subint threshold (in sigma) [default = 5.0]", default=5.0)
     parser.add_argument("-o", "--outname", type=str, dest="output_name", help="Output archive name", default=None)
+    parser.add_argument("-plot", "--plot", dest='plot', action='store_true', default=False)
     parser.add_argument("-O", "--outpath", type=str, dest="output_path", help="Output path [default = CWD]", default=os.getcwd())
     args = parser.parse_args()
 
@@ -48,7 +49,7 @@ if __name__ == "__main__":
         out_name = args.output_name
 
 
-    apply_surgical_cleaner(loaded_archive, args.template_path, cthresh=args.chan_thresh, sthresh=args.subint_thresh)
+    apply_surgical_cleaner(loaded_archive, args.template_path, cthresh=args.chan_thresh, sthresh=args.subint_thresh, plot=args.plot)
 
     # Unload the Archive file
     print("Unloading the cleaned archive: {0}".format(out_name))
