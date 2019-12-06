@@ -431,9 +431,11 @@ def fit_template(prof, template):
 
 def remove_profile1d(prof, isub, ichan, template, phs, return_params=False):
     rotated_template = fft_rotate(template, phs)
-    err = lambda (amp, base): amp*rotated_template + base - prof
-    params, status = scipy.optimize.leastsq(err, [max(prof)/max(template),
-                                                  np.min(prof)-np.min(rotated_template)])
+    err = lambda (amp): amp*rotated_template - prof
+    params, status = scipy.optimize.leastsq(err, [np.median(prof)/np.median(template)])
+    #err = lambda (amp, base): amp*rotated_template + base - prof
+    #params, status = scipy.optimize.leastsq(err, [max(prof)/max(template),
+    #                                              np.min(prof)-np.min(rotated_template)])
     if status not in (1,2,3,4):
         warnings.warn("Bad status for least squares fit when " \
                             "removing profile", errors.CoastGuardWarning)

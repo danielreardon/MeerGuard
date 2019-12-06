@@ -109,13 +109,12 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             if len(template_ar.get_frequencies()) > 1 and len(template_ar.get_frequencies()) < len(patient.get_frequencies()):
                 print("Template channel number doesn't match data... f-scrunching!")
                 template_ar.fscrunch()
-            template_ar.remove_baseline()
-            template = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
+            template = np.apply_over_axes(np.sum, template_ar.get_data(), tuple(range(data.ndim - 1))).squeeze()
             # make sure template is 1D
             if len(np.shape(template)) > 1:  # sum over frequencies too
                 template_ar.fscrunch()  
                 print("2D template found. Assuming it has same frequency coverage and channels as data!")
-                template_phs = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
+                template_phs = np.apply_over_axes(np.sum, template_ar.get_data(), tuple(range(data.ndim - 1))).squeeze()
             else:
                 template_phs = template
 
@@ -124,25 +123,22 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             phs = 0
         else:
             # Calculate phase offset of template in number of bins, using full obs
-            profile = patient.clone()
-            profile.dedisperse()
-            profile.tscrunch()
-            profile.fscrunch()
             # Get profile data of full obs
-            profile = profile.get_data()[0,0,0,:]
+            profile = np.apply_over_axes(np.sum, data, tuple(range(data.ndim - 1))).squeeze()
             if np.shape(template_phs) != np.shape(profile):
                 print('template and profile have different numbers of phase bins')
-            err = (lambda (amp, phs, base): amp*clean_utils.fft_rotate(template_phs, phs) +base - profile)
-            amp_guess = max(profile)/max(template_phs)
-            phase_guess = np.argmax(profile) - np.argmax(template_phs)
-            params, status = leastsq(err, [amp_guess, phase_guess, np.median(profile)-np.median(template_phs)])
+            #err = (lambda (amp, phs, base): amp*clean_utils.fft_rotate(template_phs, phs) + base - profile)
+            err = (lambda (amp, phs): amp*clean_utils.fft_rotate(template_phs, phs) - profile)
+            amp_guess = np.median(profile)/np.median(template_phs)
+            phase_guess = -(np.argmax(profile) - np.argmax(template_phs))
+            #params, status = leastsq(err, [amp_guess, phase_guess, np.min(profile) - np.min(template_phs)])
+            params, status = leastsq(err, [amp_guess, phase_guess])
             phs = params[1]
             print('Template phase offset = {0}'.format(round(phs, 3)))
 
         print('Removing profile from patient')
         if plot:
             preop_patient = patient.clone()
-            preop_patient.remove_baseline()
             preop_weights = preop_patient.get_weights()
         clean_utils.remove_profile_inplace(patient, template, phs)
        
@@ -188,8 +184,10 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             plt.plot(np.apply_over_axes(np.sum, preop_data, tuple(range(data.ndim - 1))).squeeze(), alpha=1)
             # Do fit again to scale template
             subchan, err, params = clean_utils.remove_profile1d(np.apply_over_axes(np.sum, preop_data, (0, 1)).squeeze(), 0, 0, template_rot, 0, return_params=True)
-            plt.plot(params[0]*template_rot + params[1], alpha=0.5)
-            plt.plot(params[0]*masked_template + params[1], 'k')
+            # plt.plot(params[0]*template_rot + params[1], alpha=0.5)
+            # plt.plot(params[0]*masked_template + params[1], 'k')
+            plt.plot(params[0]*template_rot, alpha=0.5)
+            plt.plot(params[0]*masked_template, 'k')
             plt.legend(('Pre-op data', 'Scaled and rotated template', 'Masked template'))            
         # Loop through chans and subints to mask on-pulse phase bins
         for ii in range(0, np.shape(data)[0]):
