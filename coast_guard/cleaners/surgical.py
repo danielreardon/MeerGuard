@@ -94,9 +94,9 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
 
         # Remove profile from dedispersed data
         patient.dedisperse()
-        data = patient.get_data().squeeze()
         print('Loading template')
         if self.configs.template is None:
+            data = patient.get_data().squeeze()
             # Sum over all axes except last, which is phase bins
             template = np.apply_over_axes(np.sum, data, tuple(range(data.ndim - 1))).squeeze()
             # smooth data 
@@ -106,6 +106,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             template_ar.pscrunch()
             template_ar.remove_baseline()
             template_ar.dedisperse()
+            data = template_ar.get_data().squeeze()
             if len(template_ar.get_frequencies()) > 1 and len(template_ar.get_frequencies()) < len(patient.get_frequencies()):
                 print("Template channel number doesn't match data... f-scrunching!")
                 template_ar.fscrunch()
@@ -177,7 +178,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         masked_template = np.ma.masked_greater(template_rot, np.median(template_rot))
         masked_std = np.ma.std(masked_template)
         # use this std of masked data as cutoff
-        masked_template = np.ma.masked_greater(template_rot, np.median(template_rot) + 2*masked_std)
+        masked_template = np.ma.masked_greater(template_rot, np.median(template_rot) + masked_std)
         if plot:
             plt.figure(figsize=(10, 5))
             plt.subplot(1, 2, 1)
