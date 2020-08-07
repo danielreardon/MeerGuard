@@ -95,8 +95,8 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         # Remove profile from dedispersed data
         patient.dedisperse()
         print('Loading template')
+        data = patient.get_data().squeeze()
         if self.configs.template is None:
-            data = patient.get_data().squeeze()
             # Sum over all axes except last, which is phase bins
             template = np.apply_over_axes(np.sum, data, tuple(range(data.ndim - 1))).squeeze()
             # smooth data 
@@ -106,16 +106,16 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             template_ar.pscrunch()
             template_ar.remove_baseline()
             template_ar.dedisperse()
-            data = template_ar.get_data().squeeze()
             if len(template_ar.get_frequencies()) > 1 and len(template_ar.get_frequencies()) < len(patient.get_frequencies()):
                 print("Template channel number doesn't match data... f-scrunching!")
                 template_ar.fscrunch()
-            template = np.apply_over_axes(np.sum, template_ar.get_data(), tuple(range(data.ndim - 1))).squeeze()
+            template_data = template_ar.get_data().squeeze()
+            template = np.apply_over_axes(np.sum, template_data, tuple(range(template_data.ndim - 1))).squeeze()
             # make sure template is 1D
             if len(np.shape(template)) > 1:  # sum over frequencies too
                 template_ar.fscrunch()  
                 print("2D template found. Assuming it has same frequency coverage and channels as data!")
-                template_phs = np.apply_over_axes(np.sum, template_ar.get_data(), tuple(range(data.ndim - 1))).squeeze()
+                template_phs = np.apply_over_axes(np.sum, template_data, tuple(range(template_data.ndim - 1))).squeeze()
             else:
                 template_phs = template
 
