@@ -29,6 +29,9 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                                 'profile needs to stand out compared to ' \
                                 'others in the same sub-int for it to ' \
                                 'be removed.')
+        self.configs.add_param('cut_edge', config_types.FloatVal, \
+                         aliases=['cut_edge'], \
+                         help='Fraction of the edges in statistics to remove.')
         self.configs.add_param('chan_order', config_types.IntList, \
                         aliases=['corder', 'chanorder'], \
                         help='The order of polynomial to remove from piecewise ' \
@@ -85,9 +88,14 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
 
 
     def _clean(self, ar):
-        plot = self.configs.plot
+
+        if self.configs.plot is None:
+            plot = False
+        else:
+            plot = self.configs.plot
         if plot:
             import matplotlib.pyplot as plt
+
         patient = ar.clone()
         patient.pscrunch()
         patient.remove_baseline()
@@ -218,6 +226,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                                     subint_order=self.configs.subint_order, \
                                     subint_breakpoints=self.configs.subint_breakpoints, \
                                     subint_numpieces=self.configs.subint_numpieces, \
+                                    cut_edge=self.configs.cut_edge, \
                                     )
 
         print('Applying RFI masking weights to archive')
