@@ -68,7 +68,7 @@ def cset(preset=None, fg='default', bg='default', **attr):
         if preset in preset_codes:
             current_code = preset_codes[preset]
         else:
-            print "Unrecognized preset color code:", preset
+            print("Unrecognized preset color code:", preset)
     else:
         set_attr = []
         error = False
@@ -77,7 +77,7 @@ def cset(preset=None, fg='default', bg='default', **attr):
                 if (attr[a]):
                     set_attr.append(str(attributes[a]))
             else:
-                print "Unrecognized attribute:", a
+                print("Unrecognized attribute:", a)
                 error = True
         
         if len(set_attr) == 0:
@@ -88,7 +88,7 @@ def cset(preset=None, fg='default', bg='default', **attr):
         elif type(fg) == types.IntType or fg.isdigit():
             fg_val = str(fg)
         else:
-            print "Unrecognized foreground colour:", fg
+            print("Unrecognized foreground colour:", fg)
             error = True
             
         if bg in bg_colours:
@@ -96,7 +96,7 @@ def cset(preset=None, fg='default', bg='default', **attr):
         elif type(bg) == types.IntType or bg.isdigit():
             bg_val = str(bg)
         else:
-            print "Unrecognized background colour:", bg
+            print("Unrecognized background colour:", bg)
             error = True
         
         if error:
@@ -146,7 +146,7 @@ def cprint(s, *override, **kwoverride):
     Keyword is optional. It will override the current
     colour code.
     """
-    print cstring(s, *override, **kwoverride)
+    print(cstring(s, *override, **kwoverride))
 
 
 def show_dictionary():
@@ -162,8 +162,8 @@ def show_status():
         Print global variables.
     """
     # Should we set colour to default?
-    print "DEFAULT_CODE:", repr(DEFAULT_CODE)
-    print "current_code:", repr(current_code)
+    print("DEFAULT_CODE:", repr(DEFAULT_CODE))
+    print("current_code:", repr(current_code))
     # Should we print a list of all keywords that
     # match the current code?
 
@@ -189,7 +189,7 @@ class ColourizedOutput(object):
         return getattr(self.fileobject, name)
 
     def write(self, s):
-        print "Writing"
+        print("Writing")
         self.fileobject.write(colour.cstring(s), *cargs, **ckwargs)
 
 

@@ -88,13 +88,14 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
 
 
     def _clean(self, ar):
-
-        if self.configs.plot is None:
-            plot = False
-        else:
-            plot = self.configs.plot
-        if plot:
-            import matplotlib.pyplot as plt
+        
+        plot = False
+        #if self.configs.plot is None:
+        #    plot = False
+        #else:
+        #    plot = self.configs.plot
+        #if plot:
+        #    import matplotlib.pyplot as plt
 
         patient = ar.clone()
         patient.pscrunch()
@@ -137,7 +138,8 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             if np.shape(template_phs) != np.shape(profile):
                 print('template and profile have different numbers of phase bins')
             #err = (lambda (amp, phs, base): amp*clean_utils.fft_rotate(template_phs, phs) + base - profile)
-            err = (lambda (amp, phs): amp*clean_utils.fft_rotate(template_phs, phs) - profile)
+            #err = lambda amp, phs: amp*clean_utils.fft_rotate(template_phs, phs) - profile
+            err = lambda x: x[0]*clean_utils.fft_rotate(template_phs, x[1]) - profile
             amp_guess = np.median(profile)/np.median(template_phs)
             phase_guess = -(np.argmax(profile) - np.argmax(template_phs))
             #params, status = leastsq(err, [amp_guess, phase_guess, np.min(profile) - np.min(template_phs)])
@@ -226,7 +228,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                                     subint_order=self.configs.subint_order, \
                                     subint_breakpoints=self.configs.subint_breakpoints, \
                                     subint_numpieces=self.configs.subint_numpieces, \
-                                    cut_edge=self.configs.cut_edge, \
+                                    cut_edge=False, \
                                     )
 
         print('Applying RFI masking weights to archive')

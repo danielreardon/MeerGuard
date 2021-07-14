@@ -368,7 +368,7 @@ def get_frequencies(ar):
     integ = ar.get_first_Integration()
     nchan = ar.get_nchan()
     freqs = np.empty(nchan)
-    for ichan in xrange(nchan):
+    for ichan in range(nchan):
         freqs[ichan] = integ.get_Profile(0, ichan).get_centre_frequency()
     return freqs
 
@@ -432,7 +432,7 @@ def fit_template(prof, template):
 
 def remove_profile1d(prof, isub, ichan, template, phs, return_params=False):
     rotated_template = fft_rotate(template, phs)
-    err = lambda (amp): amp*rotated_template - prof
+    err = lambda amp: amp*rotated_template - prof
     params, status = scipy.optimize.leastsq(err, [np.median(prof)/np.median(template)])
     #err = lambda (amp, base): amp*rotated_template + base - prof
     #params, status = scipy.optimize.leastsq(err, [max(prof)/max(template),
@@ -693,10 +693,10 @@ def write_psrsh_script(arf, outfn=None):
     nsub, nchan = zapped.shape
     npairs = 0
     line = "zap such "
-    for isub in xrange(nsub):
+    for isub in range(nsub):
         if zapped_ints[isub]:
             continue
-        for ichan in xrange(nchan):
+        for ichan in range(nchan):
             if zapped_chans[ichan]:
                 continue
             if zapped[isub, ichan]:
