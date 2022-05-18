@@ -10,13 +10,13 @@ import argparse
 import psrchive as ps
 import os
 
-def apply_surgical_cleaner(ar, tmp, cthresh=7.0, sthresh=7.0, plot=False, cut_edge=0.1):
+def apply_surgical_cleaner(ar, tmp, cthresh=7.0, sthresh=7.0, plot=False):
     print("Applying the surgical cleaner")
     print("\t channel threshold = {0}".format(cthresh))
     print("\t  subint threshold = {0}".format(sthresh))
 
     surgical_cleaner = cleaners.load_cleaner('surgical')
-    surgical_parameters = "chan_numpieces=1,subint_numpieces=1,chanthresh={1},subintthresh={2},template={0},plot={3},cut_edge={4}".format(tmp, cthresh, sthresh, plot, cut_edge)
+    surgical_parameters = "chan_numpieces=1,subint_numpieces=1,chanthresh={1},subintthresh={2},template={0},plot={3}".format(tmp, cthresh, sthresh, plot)
     surgical_cleaner.parse_config_string(surgical_parameters)
     surgical_cleaner.run(ar)
 
@@ -38,7 +38,6 @@ if __name__ == "__main__":
     parser.add_argument("-T", "--template", type=str, dest="template_path", help="Path to the 2D template file")
     parser.add_argument("-c", "--chanthresh", type=float, dest="chan_thresh", help="Channel threshold (in sigma) [default = 7.0]", default=7.0)
     parser.add_argument("-s", "--subthresh", type=float, dest="subint_thresh", help="Subint threshold (in sigma) [default = 7.0]", default=7.0)
-    parser.add_argument("-cut_edge", "--cut_edge", type=float, dest="cut_edge", help="Ignore edges of measured statistics [default = 0.1]", default=0.1)
     parser.add_argument("-bc", "--badchantol", type=float, dest="badchantol", help="Fraction of bad channels threshold [default = 0.95]", default=0.95)
     parser.add_argument("-bs", "--badsubtol", type=float, dest="badsubtol", help="Fraction of bad subints threshold (in sigma) [default = 0.95]", default=0.95)
     parser.add_argument("-o", "--outname", type=str, dest="output_name", help="Output archive name", default=None)
@@ -61,7 +60,7 @@ if __name__ == "__main__":
         out_name = args.output_name
 
 
-    apply_surgical_cleaner(loaded_archive, args.template_path, cthresh=args.chan_thresh, sthresh=args.subint_thresh, plot=args.plot, cut_edge=args.cut_edge)
+    apply_surgical_cleaner(loaded_archive, args.template_path, cthresh=args.chan_thresh, sthresh=args.subint_thresh, plot=args.plot)
     apply_bandwagon_cleaner(loaded_archive, badchantol=args.badchantol, badsubtol=args.badsubtol)
 
     # Unload the Archive file

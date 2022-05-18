@@ -29,9 +29,6 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                                 'profile needs to stand out compared to ' \
                                 'others in the same sub-int for it to ' \
                                 'be removed.')
-        self.configs.add_param('cut_edge', config_types.FloatVal, \
-                         aliases=['cut_edge'], \
-                         help='Fraction of the edges in statistics to remove.')
         self.configs.add_param('chan_order', config_types.IntList, \
                         aliases=['corder', 'chanorder'], \
                         help='The order of polynomial to remove from piecewise ' \
@@ -88,15 +85,21 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
 
 
     def _clean(self, ar):
-        
-        if self.configs.plot is None:
+
+        try:        
+            if self.configs.plot is None:
+                plot = False
+            else:
+                plot = self.configs.plot
+        except KeyError:
+            print("Plot keyword not found. Plotting disabled")
             plot = False
-        else:
-            plot = self.configs.plot
+
         if plot:
             try:
                 import matplotlib.pyplot as plt
-            except:
+            except Exception as e:
+                print(e)
                 print("MeerGuard failed to import matplotlib: Diagnostic plotting unavailable")
                 plot = False
 
@@ -234,7 +237,6 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                                     subint_order=self.configs.subint_order, \
                                     subint_breakpoints=self.configs.subint_breakpoints, \
                                     subint_numpieces=self.configs.subint_numpieces, \
-                                    cut_edge=False, plot=plot, \
                                     )
         if plot:
             plt.pcolormesh(avg_test_results.squeeze().transpose())
