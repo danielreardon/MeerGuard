@@ -5,9 +5,8 @@ for the CoastGuard timing pipeline.
 Patrick Lazarus, Nov. 10, 2011
 """
 import sys
-sys.path.insert(0, "/fred/oz002/dreardon/MeerGuard3/coast_guard")
-import colour
-import log
+from coast_guard import colour
+from coast_guard import log
 
 
 class CoastGuardError(Exception):

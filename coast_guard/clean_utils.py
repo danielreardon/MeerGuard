@@ -10,9 +10,9 @@ import numpy as np
 import scipy.stats
 import scipy.optimize
 
-import utils
-import config
-import errors
+from coast_guard import utils
+from coast_guard import config
+from coast_guard import errors
 
 # takes an archive and determines fractional zapping for each frequency channel
 def freq_fraczap(ar):
@@ -74,12 +74,12 @@ def comprehensive_stats(data, axis, **kwargs):
     diagnostic_functions = [
             np.ma.std, \
             np.ma.mean, \
-            scipy.stats.mstats.gmean, \
+            #scipy.stats.mstats.gmean, \
             np.ma.ptp, \
-            lambda data, axis: np.max(np.abs(np.fft.rfft(\
-                                data-np.expand_dims(data.mean(axis=axis), axis=axis), \
+            lambda data, axis: np.ma.max(np.abs(np.fft.rfft(\
+                                data-np.expand_dims(np.ma.mean(data, axis=axis), axis=axis), \
                                     axis=axis)), axis=axis), \
-            lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[0],\
+            #lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[0],\
             #lambda data, axis: scipy.stats.mstats.kurtosistest(data, axis=axis)[0],\
             #lambda data, axis: scipy.stats.mstats.skewtest(data, axis=axis)[0]
             ]

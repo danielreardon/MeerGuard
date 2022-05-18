@@ -10,7 +10,7 @@ Patrick Lazarus, August 28th, 2009
 import optparse
 import types
 
-import config
+from coast_guard import config
 
 # Default colour (reset to this colour)
 DEFAULT_CODE = "\033[0;39;49m"
