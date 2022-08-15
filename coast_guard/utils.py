@@ -325,7 +325,7 @@ def show_progress(iterator, width=0, tot=None):
             curr += 1
         yield toreturn
     if config.show_progress:
-        print "Done"
+        print("Done")
 
 
 def set_warning_mode(mode=None, reset=True):
@@ -792,8 +792,7 @@ def group_subints(infns):
     intersection = set.intersection(*groups_dict.values())
     union = set.union(*groups_dict.values())
     
-    print "Number of subints not present in all subbands: %s" % \
-                len(union-intersection)
+    print("Number of subints not present in all subbands: {0}".format(len(union-intersection)))
 
     subbands_dict = {}
     for infn in infns:
@@ -1468,9 +1467,9 @@ class DefaultOptions(optparse.OptionParser):
         config.debug.set_allmodes_on()
 
     def list_debug(self, options, opt_str, value, parser):
-        print "Available debugging modes:"
+        print("Available debugging modes:")
         for name, desc in config.debug.modes:
-            print "    %s: %s" % (name, desc)
+            print("    {0}: {1}".format(name, desc))
         sys.exit(1)
 
 
@@ -1619,11 +1618,11 @@ class DefaultArguments(argparse.ArgumentParser):
 
     class ListDebugModes(argparse.Action): 
         def __call__(self, parser, namespace, values, option_string):
-            print "Available debugging modes:"
+            print("Available debugging modes:")
             for name, desc in config.debug.modes:
                 if desc is None:
                     continue
-                print "    %s: %s" % (name, desc)
+                print("    {0}: {1}".format(name, desc))
             sys.exit(1)
 
     class ToggleConfigAction(argparse.Action):

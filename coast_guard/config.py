@@ -2,15 +2,18 @@ import sys
 import copy
 import os
 
-import errors
-
 base_config_dir = os.getenv("COASTGUARD_CFG", None)
 if base_config_dir is None:
     raise ValueError("COASTGUARD_CFG environment variable must be set. "
                      "(It should point to the CoastGuard configurations "
                      "directory to use.)")
-execfile(os.path.join(base_config_dir, "global.cfg"), {}, locals())
+# python2
+#execfile(os.path.join(base_config_dir, "global.cfg"), {}, locals())
 
+# python3
+with open(os.path.join(base_config_dir, "global.cfg")) as f:
+    code = compile(f.read(), os.path.join(base_config_dir, "global.cfg"), 'exec')
+    exec(code, {}, locals())
 
 class ConfigDict(dict):
     def __add__(self, other):
@@ -32,7 +35,12 @@ def read_file(fn, required=False):
             raise ValueError("Coast Guard configuration files must "
                              "end with the extention '.cfg'.")
         key = os.path.split(fn)[-1][:-4]
-        execfile(fn, {}, cfgdict)
+        # python2
+        #execfile(fn, {}, cfgdict)
+        # python3
+        with open(fn) as f:
+            code = compile(f.read(), fn, 'exec')
+            exec(code, {}, cfgdict)
     elif required:
             raise ValueError("Configuration file (%s) doesn't exist "
                              "and is required!" % fn)
@@ -59,8 +67,8 @@ class CoastGuardConfigs(object):
         elif key in self.defaults:
             val = self.defaults[key]
         else:
-            raise errors.ConfigurationError("The configuration '%s' "
-                                            "cannot be found!" % key)
+            print("The configuration {0} cannot be found!".format(key))
+            sys.exit()
         return val
 
     def __str__(self):
@@ -166,7 +174,7 @@ def main():
         arf = utils.ArchiveFile(sys.argv[1])
         cfg.set_override_config("something", 'newvalue!')
         cfg.load_configs_for_archive(arf)
-    print cfg.get()
+    print(cfg.get())
 
 
 if __name__ == '__main__':

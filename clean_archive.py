@@ -10,7 +10,7 @@ import argparse
 import psrchive as ps
 import os
 
-def apply_surgical_cleaner(ar, tmp, cthresh=5.0, sthresh=5.0, plot=False):
+def apply_surgical_cleaner(ar, tmp, cthresh=7.0, sthresh=7.0, plot=False):
     print("Applying the surgical cleaner")
     print("\t channel threshold = {0}".format(cthresh))
     print("\t  subint threshold = {0}".format(sthresh))
@@ -20,6 +20,15 @@ def apply_surgical_cleaner(ar, tmp, cthresh=5.0, sthresh=5.0, plot=False):
     surgical_cleaner.parse_config_string(surgical_parameters)
     surgical_cleaner.run(ar)
 
+def apply_bandwagon_cleaner(ar, badchantol=0.95, badsubtol=0.95):
+    print("Applying the bandwagon cleaner")
+    print("\t channel threshold = {0}".format(badchantol))
+    print("\t  subint threshold = {0}".format(badsubtol))
+
+    bandwagon_cleaner = cleaners.load_cleaner('bandwagon')
+    bandwagon_parameters = "badchantol={0},badsubtol={1}".format(badchantol, badsubtol)
+    bandwagon_cleaner.parse_config_string(bandwagon_parameters)
+    bandwagon_cleaner.run(ar)
     
 
 if __name__ == "__main__":
@@ -27,8 +36,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run MeerGuard on input archive file")
     parser.add_argument("-a", "--archive", type=str, dest="archive_path", help="Path to the archive file")
     parser.add_argument("-T", "--template", type=str, dest="template_path", help="Path to the 2D template file")
-    parser.add_argument("-c", "--chanthresh", type=float, dest="chan_thresh", help="Channel threshold (in sigma) [default = 5.0]", default=5.0)
-    parser.add_argument("-s", "--subthresh", type=float, dest="subint_thresh", help="Subint threshold (in sigma) [default = 5.0]", default=5.0)
+    parser.add_argument("-c", "--chanthresh", type=float, dest="chan_thresh", help="Channel threshold (in sigma) [default = 7.0]", default=7.0)
+    parser.add_argument("-s", "--subthresh", type=float, dest="subint_thresh", help="Subint threshold (in sigma) [default = 7.0]", default=7.0)
+    parser.add_argument("-bc", "--badchantol", type=float, dest="badchantol", help="Fraction of bad channels threshold [default = 0.95]", default=0.95)
+    parser.add_argument("-bs", "--badsubtol", type=float, dest="badsubtol", help="Fraction of bad subints threshold (in sigma) [default = 0.95]", default=0.95)
     parser.add_argument("-o", "--outname", type=str, dest="output_name", help="Output archive name", default=None)
     parser.add_argument("-plot", "--plot", dest='plot', action='store_true', default=False)
     parser.add_argument("-O", "--outpath", type=str, dest="output_path", help="Output path [default = CWD]", default=os.getcwd())
@@ -50,6 +61,7 @@ if __name__ == "__main__":
 
 
     apply_surgical_cleaner(loaded_archive, args.template_path, cthresh=args.chan_thresh, sthresh=args.subint_thresh, plot=args.plot)
+    apply_bandwagon_cleaner(loaded_archive, badchantol=args.badchantol, badsubtol=args.badsubtol)
 
     # Unload the Archive file
     print("Unloading the cleaned archive: {0}".format(out_name))

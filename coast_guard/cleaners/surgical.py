@@ -85,9 +85,24 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
 
 
     def _clean(self, ar):
-        plot = self.configs.plot
+
+        try:        
+            if self.configs.plot is None:
+                plot = False
+            else:
+                plot = self.configs.plot
+        except KeyError:
+            print("Plot keyword not found. Plotting disabled")
+            plot = False
+
         if plot:
-            import matplotlib.pyplot as plt
+            try:
+                import matplotlib.pyplot as plt
+            except Exception as e:
+                print(e)
+                print("MeerGuard failed to import matplotlib: Diagnostic plotting unavailable")
+                plot = False
+
         patient = ar.clone()
         patient.pscrunch()
         patient.remove_baseline()
@@ -129,7 +144,8 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             if np.shape(template_phs) != np.shape(profile):
                 print('template and profile have different numbers of phase bins')
             #err = (lambda (amp, phs, base): amp*clean_utils.fft_rotate(template_phs, phs) + base - profile)
-            err = (lambda (amp, phs): amp*clean_utils.fft_rotate(template_phs, phs) - profile)
+            #err = lambda amp, phs: amp*clean_utils.fft_rotate(template_phs, phs) - profile
+            err = lambda x: x[0]*clean_utils.fft_rotate(template_phs, x[1]) - profile
             amp_guess = np.median(profile)/np.median(template_phs)
             phase_guess = -(np.argmax(profile) - np.argmax(template_phs))
             #params, status = leastsq(err, [amp_guess, phase_guess, np.min(profile) - np.min(template_phs)])
@@ -151,6 +167,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         weights = patient.get_weights()
         # Get data (select first polarization - recall we already P-scrunched)
         data = patient.get_data()[:,0,:,:]
+        weights[(data[:,:,0] == 0)] = 0  # Make sure that any zeroed data is masked
         data = clean_utils.apply_weights(data, weights)
         if plot:
             preop_data = preop_patient.get_data()[:,0,:,:]
@@ -193,22 +210,24 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         # Loop through chans and subints to mask on-pulse phase bins
         for ii in range(0, np.shape(data)[0]):
             for jj in range(0, np.shape(data)[1]):
+                  if data.mask[ii, jj, :].any():
+                      # Mask all
+                      data.mask[ii, jj, :] = True*np.shape(masked_template.mask)
+                      continue
                   data.mask[ii, jj, :] = masked_template.mask
-        data = np.ma.masked_array(data, mask=data.mask)
-        
         if plot:
             plt.subplot(1, 2, 2)
             plt.plot(np.apply_over_axes(np.ma.sum, data, tuple(range(data.ndim - 1))).squeeze())
             plt.title("Residual data")
             plt.savefig('data_and_template.png')
+            plt.close()
 
         print('Calculating robust statistics to determine where RFI removal is required')
         # RFI-ectomy must be recommended by average of tests
         # BWM: Ok, so this is where the magical stuff actually happens - need to know actually WHAT are the comprehensive stats
-        # DJR: At this stage the stats are; (found to work well experimentally) 
-        #          geometric mean, peak-to-peak, standard deviation, normaltest. 
-        #      In original coast_guard they were;
+        # DJR: At this stage the stats are; 
         #          mean, peak-to-peak, standard deviation, and max value of FFT
+
         avg_test_results = clean_utils.comprehensive_stats(data, axis=2, \
                                     chanthresh=self.configs.chanthresh, \
                                     subintthresh=self.configs.subintthresh, \
@@ -219,6 +238,15 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                                     subint_breakpoints=self.configs.subint_breakpoints, \
                                     subint_numpieces=self.configs.subint_numpieces, \
                                     )
+        if plot:
+            plt.pcolormesh(avg_test_results.squeeze().transpose())
+            plt.xlabel('Time')
+            plt.ylabel('Frequency')
+            plt.clim([0, 1])
+            plt.colorbar()
+            plt.title('Average test result, saturated at 1')
+            plt.savefig('avg_test_results.png')
+            plt.close()
 
         print('Applying RFI masking weights to archive')
         for (isub, ichan) in np.argwhere(avg_test_results>=1):

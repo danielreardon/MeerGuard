@@ -24,7 +24,7 @@ def load_cleaner(cleaner_name):
                                             'is not a registered cleaner. The following ' \
                                             're registered: %s' % \
                                            (cleaner_name, "', '".join(registered_cleaners)))
-    mod = __import__(cleaner_name, globals())
+    mod = __import__("coast_guard.cleaners.{0}".format(cleaner_name), fromlist=["None"])
     return mod.Cleaner()
 
 

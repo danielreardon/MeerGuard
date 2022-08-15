@@ -176,7 +176,7 @@ def power_wash(ar):
     bad_subints = []
     bad_pairs = []
     std_sub_vs_chan = np.std(data, axis=2)
-    print std_sub_vs_chan.shape
+    print(std_sub_vs_chan.shape)
     #mean_sub_vs_chan = np.mean(data, axis=2)
 
     # Identify bad sub-int/channel pairs
@@ -189,7 +189,7 @@ def power_wash(ar):
             plt.plot(std_sub_vs_chan[isub, :], 'k-')
             subint = clean_utils.scale_chans(std_sub_vs_chan[isub, :], \
                                                 chanweights=chanweights)
-            print clean_utils.get_hot_bins(subint)
+            print(clean_utils.get_hot_bins(subint))
             plt.subplot(2,1,2)
             plt.plot(subint, 'r-')
             plt.title("Subint #%d" % isub)
@@ -198,7 +198,7 @@ def power_wash(ar):
             plt.plot(std_sub_vs_chan[:, ichan], 'k-')
             chan = clean_utils.scale_subints(std_sub_vs_chan[:, ichan], \
                                                 subintweights=subintweights)
-            print clean_utils.get_hot_bins(chan)
+            print(clean_utils.get_hot_bins(chan))
             plt.subplot(2,1,2)
             plt.plot(chan, 'r-')
             plt.title("Chan #%d" % ichan)
@@ -322,10 +322,10 @@ def clean_simple(ar, timethresh=1.0, freqthresh=3.0):
     chan_stats = get_chan_stats(ar)
 
     for isub in np.argwhere(subint_stats >= timethresh):
-        print "De-weighting subint# %d" % isub
+        print("De-weighting subint# %d" % isub)
         zero_weight_subint(ar, isub)
     for ichan in np.argwhere(chan_stats >= freqthresh):
-        print "De-weighting chan# %d" % ichan
+        print("De-weighting chan# %d" % ichan)
         zero_weight_chan(ar, ichan)
 
 
@@ -346,10 +346,10 @@ def clean_iterative(ar, threshold=2.0):
             break
         else:
             if subint_stats[worst_subint] > chan_stats[worst_chan]:
-                print "De-weighting subint# %d" % worst_subint
+                print("De-weighting subint# %d" % worst_subint)
                 zero_weight_subint(ar, worst_subint)
             else:
-                print "De-weighting chan# %d" % worst_chan
+                print("De-weighting chan# %d" % worst_chan)
                 zero_weight_chan(ar, worst_chan)
         plot(ar, "bogus_%d" % ii)
         ii += 1
@@ -549,14 +549,14 @@ def clean_archive(inarf, outfn, clean_re=None, *args, **kwargs):
 
 
 def main():
-    print ""
-    print "         clean.py"
-    print "     Patrick  Lazarus"
-    print ""
+    print("")
+    print("         clean.py")
+    print("     Patrick  Lazarus")
+    print("")
     file_list = args.files + args.from_glob
     to_exclude = args.excluded_files + args.excluded_by_glob
     to_clean = utils.exclude_files(file_list, to_exclude)
-    print "Number of input files: %d" % len(to_clean)
+    print("Number of input files: %d" % len(to_clean))
     
     
     # Read configurations
@@ -584,7 +584,7 @@ def main():
             raise
         finally:
             ar.unload(outfn)
-            print "Cleaned archive: %s" % outfn
+            print("Cleaned archive: %s" % outfn)
         
     
 class CleanerArguments(utils.DefaultArguments):
@@ -604,7 +604,7 @@ class CleanerArguments(utils.DefaultArguments):
                 parser.print_help()
             else:
                 cleaner = cleaners.load_cleaner(values)
-                print cleaner.get_help(full=True)
+                print(cleaner.get_help(full=True))
             sys.exit(1)
 
     class ListCleanersAction(argparse.Action):
@@ -613,7 +613,7 @@ class CleanerArguments(utils.DefaultArguments):
                             bold=True, underline=True) 
             for name in sorted(cleaners.registered_cleaners):
                 cleaner = cleaners.load_cleaner(name)
-                print cleaner.get_help()
+                print(cleaner.get_help())
             sys.exit(1)
 
     class AppendCleanerAction(argparse.Action):
