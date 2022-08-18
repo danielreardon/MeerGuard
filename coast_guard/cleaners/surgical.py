@@ -98,6 +98,8 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
         if plot:
             try:
                 import matplotlib.pyplot as plt
+                import matplotlib
+                matplotlib.use('Agg')  # use non-interactive backend
             except Exception as e:
                 print(e)
                 print("MeerGuard failed to import matplotlib: Diagnostic plotting unavailable")
