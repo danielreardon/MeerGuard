@@ -18,6 +18,8 @@ import warnings
 import numpy as np
 import scipy.stats
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg') # non-interactive backend
 
 from coast_guard import config
 from coast_guard import utils
@@ -202,7 +204,8 @@ def power_wash(ar):
             plt.subplot(2,1,2)
             plt.plot(chan, 'r-')
             plt.title("Chan #%d" % ichan)
-            plt.show() 
+            plt.savefig('diagnostic1.png')
+            plt.close()
     
     chanstds = np.sum(std_sub_vs_chan, axis=0)
     plt.subplot(2,1,1)
@@ -211,7 +214,8 @@ def power_wash(ar):
     plt.subplot(2,1,2)
     plt.plot(chanstds)
     bad_chans.extend(np.argwhere(chanstds > 1).squeeze())
-    plt.show()
+    plt.savefig('diagnostic2.png')
+    plt.close()
 
 
 def deep_clean(toclean, chanthresh=None, subintthresh=None, binthresh=None):
@@ -297,7 +301,8 @@ def deep_clean(toclean, chanthresh=None, subintthresh=None, binthresh=None):
         plt.axhline(-subintthresh, c='k', ls='--')
         plt.xlabel('Sub-int Number', size='x-small')
         plt.ylabel('Standard Deviation', size='x-small')
-        plt.show()
+        plt.savefig('diagnostic3.png')
+        plt.close()
 
     badsubints = np.unique(badsubints)
     utils.print_info("Number of sub-ints to be de-weighted: %d" % len(badsubints), 2)
