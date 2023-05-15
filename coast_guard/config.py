@@ -2,13 +2,10 @@ import sys
 import copy
 import os
 
-base_config_dir = os.getenv("COASTGUARD_CFG", None)
-if base_config_dir is None:
-    raise ValueError("COASTGUARD_CFG environment variable must be set. "
-                     "(It should point to the CoastGuard configurations "
-                     "directory to use.)")
-# python2
-#execfile(os.path.join(base_config_dir, "global.cfg"), {}, locals())
+
+base_config_dir = os.path.join(os.path.dirname(__file__), 'configurations')
+receiver_config_dir = os.path.join(base_config_dir, 'receivers')
+
 
 # python3
 with open(os.path.join(base_config_dir, "global.cfg")) as f:
@@ -86,10 +83,10 @@ class CoastGuardConfigs(object):
         lines.append("Defaults:")
         lines.append("    "+str(self.defaults).replace("\n", "\n    "))
         return "\n".join(lines)
-    
+
     def clear_obsconfigs(self):
         self.obsconfigs.clear()
-    
+
     def clear_overrides(self):
         self.overrides.clear()
 
@@ -99,27 +96,27 @@ class CoastGuardConfigs(object):
     def load_configs_for_archive(self, arfn):
         """Given a psrchive archive file set current configurations to the values
             pre-set for this observation, pulsar, backend, receiver, telescope.
- 
+
             Inputs:
                 fn: The psrchive archive to get configurations for.
- 
+
             Outputs:
                 None
         """
         self.clear_obsconfigs()
-        
+
         config_files = []  # A list of configuration files to look for
 
         telescope = arfn['telname']
         precedence = [arfn['telname'].lower(),
                       arfn['rcvr'].lower(),
                       arfn['backend'].lower()]
-        
+
         cfgdir = self.base_config_dir
         for dirname in precedence:
             cfgdir = os.path.join(cfgdir, dirname)
             config_files.append(os.path.join(cfgdir, 'configs.cfg'))
-        
+
         #config_files.append(os.path.join(self.base_config_dir, 'telescopes',
         #                    "%s.cfg" % telescope.lower()))
         #config_files.append(os.path.join(self.base_config_dir, 'receivers',
@@ -132,7 +129,7 @@ class CoastGuardConfigs(object):
         #                    "%s.cfg" % os.path.split(arfn.fn)[-1]))
         #msg = "\n    ".join(["Checking for the following configurations:"] + \
         #                        config_files)
-        
+
         for fn in config_files:
             self.obsconfigs += read_file(fn)
 
@@ -156,13 +153,13 @@ class ConfigManager(object):
         if name not in self:
             self.configs[name] = CoastGuardConfigs()
         return self.configs[name]
-   
+
     def load_configs_for_archive(self, arf):
         self.get().load_configs_for_archive(arf)
 
     def __getattr__(self, key):
         val = self.get()[key]
-        return val 
+        return val
 
 
 cfg = ConfigManager()
