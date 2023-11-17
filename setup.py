@@ -5,7 +5,7 @@ Setup for meerguard/coastguard
 from setuptools import setup, find_packages
 
 reqs = [
-    'numpy',
+    'numpy>=1.20',
     'scipy',
     'matplotlib',
 ]

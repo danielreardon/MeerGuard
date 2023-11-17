@@ -16,20 +16,20 @@ from coast_guard import errors
 
 # takes an archive and determines fractional zapping for each frequency channel
 def freq_fraczap(ar):
-    
+
 
 
     weights=np.bitwise_not(np.expand_dims(ar.get_weights(),2).astype(bool))
-    
+
 
     nsub, nchan,nbool = np.shape(weights)
-    
 
-    weights = 1*weights    
+
+    weights = 1*weights
     freqs=get_frequencies(ar)
     counts=np.sum(weights,axis=0).astype(float)/(1.*nsub)
 
-    
+
     out=[]
 
     for i in np.arange(nchan):
@@ -37,7 +37,7 @@ def freq_fraczap(ar):
         #val=[freqs[i],counts[i][0]]
         #out[i][0],out[i][1]=freqs[i],counts[i][0]
         #print out[i]
-    
+
     return out
 
 def get_subint_weights(ar):
@@ -94,7 +94,7 @@ def comprehensive_stats(data, axis, **kwargs):
         chan_scaled = np.abs(channel_scaler(diag, **kwargs))/chanthresh
         subint_scaled = np.abs(subint_scaler(diag, **kwargs))/subintthresh
         scaled_diagnostics.append(np.max((chan_scaled, subint_scaled), axis=0))
-    
+
     #test_results = np.median(scaled_diagnostics, axis=0)
     test_results = np.mean(scaled_diagnostics, axis=0)
 
@@ -408,7 +408,7 @@ def fft_rotate(data, bins):
         Outputs:
             rotated: The rotated data.
     """
-    freqs = np.arange(data.size/2+1, dtype=np.float)
+    freqs = np.arange(data.size/2+1, dtype=np.float64)
     phasor = np.exp(complex(0.0, 2.0*np.pi) * freqs * bins / float(data.size))
     return np.fft.irfft(phasor*np.fft.rfft(data))
 
@@ -497,7 +497,7 @@ def remove_profile_inplace(ar, template, phs, nthreads=1):
             if len(np.shape(template)) > 1:  # multiple frequencies, take ichan slice
                 itemplate = template[ichan, :]  # assuming template is (nchan x nbin)
             else:
-                itemplate = template                
+                itemplate = template
             amps = remove_profile1d(data[isub, ichan], isub, ichan, itemplate, phs)[1]
             prof = ar.get_Profile(isub, 0, ichan)
             if amps is None:
