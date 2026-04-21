@@ -58,7 +58,7 @@ if __name__ == "__main__":
 
     # Renaming archive file with statistical thresholds
     if args.output_name is None:
-        out_name = "{0}_ch{1}_sub{2}_iter{3}.ar".format(archive_name_pref, args.chan_thresh, args.subint_thresh, args.iterations)
+        out_name = "{0}_ch{1}_sub{2}.ar".format(archive_name_pref, args.chan_thresh, args.subint_thresh)
     else:
         out_name = args.output_name
 
