@@ -111,7 +111,7 @@ def channel_scaler(array2d, **kwargs):
                                             bp=brkpnts, numpieces=numpcs)
         median = np.ma.median(detrended)
         mad = np.ma.median(np.abs(detrended-median))
-        scaled[:, ichan] = (detrended-median)/mad
+        scaled[:, ichan] = (detrended-median)/(mad * 1.4826)  # Scale MAD to be consistent with std for normal distribution
     return scaled
 
 
@@ -136,7 +136,7 @@ def subint_scaler(array2d, **kwargs):
                                             bp=brkpnts, numpieces=numpcs)
         median = np.ma.median(detrended)
         mad = np.ma.median(np.abs(detrended-median))
-        scaled[isub,:] = (detrended-median)/mad
+        scaled[isub,:] = (detrended-median)/(mad * 1.4826)  # Scale MAD to be consistent with std for normal distribution
     return scaled
 
 
