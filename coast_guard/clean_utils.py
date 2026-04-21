@@ -59,11 +59,6 @@ def comprehensive_stats(data, axis, **kwargs):
     subintthresh = kwargs.pop('subintthresh', config.cfg.clean_subintthresh)
     aggressive = kwargs.pop('aggressive', False)
 
-    if aggressive:
-        # Use at most 5-sigma as thresholds for both channel and subint comparisons.
-        chanthresh = min(chanthresh, 5.0)
-        subintthresh = min(subintthresh, 5.0)
-
     nsubs, nchans, ubbins = data.shape
     diagnostic_functions = [
             np.ma.std, \
