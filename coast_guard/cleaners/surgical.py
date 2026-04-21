@@ -81,182 +81,191 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                                aliases=['plot'],
                                nullable=True,
                                help="Boolean to choose whether to plot figures for debugging purposes")
+        self.configs.add_param('aggressive', config_types.BoolVal,
+                               aliases=['aggressive'],
+                               nullable=True,
+                               help="Whether to use more aggressive cleaning thresholds and algorithms (chanthresh=5.0, subint_thresh=5.0, badchantol=0.8, badsubtol=0.8)")
+        self.configs.add_param('iterations', config_types.IntVal,
+                               aliases=['iterations', 'iter'],
+                               nullable=True,
+                               help="Number of iterations to run the surgical cleaner [default = 1]")
         self.parse_config_string(config.cfg.surgical_default_params)
 
 
     def _clean(self, ar):
 
-        try:        
-            if self.configs.plot is None:
+        for ii in range(self.configs.iterations):
+            print("Surgical cleaner iteration {0}".format(ii+1))
+
+            try:        
+                if self.configs.plot is None:
+                    plot = False
+                else:
+                    plot = self.configs.plot
+            except KeyError:
+                print("Plot keyword not found. Plotting disabled")
                 plot = False
+
+            if plot:
+                try:
+                    import matplotlib.pyplot as plt
+                    import matplotlib
+                    matplotlib.use('Agg')  # use non-interactive backend
+                except Exception as e:
+                    print(e)
+                    print("MeerGuard failed to import matplotlib: Diagnostic plotting unavailable")
+                    plot = False
+
+            patient = ar.clone()
+            patient.pscrunch()
+            patient.remove_baseline()
+
+            # Remove profile from dedispersed data
+            patient.dedisperse()
+            print('Loading template')
+            data = patient.get_data().squeeze()
+            if self.configs.template is None:
+                # Sum over all axes except last, which is phase bins
+                template = np.apply_over_axes(np.sum, data, tuple(range(data.ndim - 1))).squeeze()
+                # smooth data 
+                template = savgol_filter(template, 5, 1)
             else:
-                plot = self.configs.plot
-        except KeyError:
-            print("Plot keyword not found. Plotting disabled")
-            plot = False
+                template_ar = psrchive.Archive_load(self.configs.template)
+                template_ar.pscrunch()
+                template_ar.remove_baseline()
+                template_ar.dedisperse()
+                if len(template_ar.get_frequencies()) > 1 and len(template_ar.get_frequencies()) < len(patient.get_frequencies()):
+                    print("Template channel number doesn't match data... f-scrunching!")
+                    template_ar.fscrunch()
+                template_data = template_ar.get_data().squeeze()
+                template = np.apply_over_axes(np.sum, template_data, tuple(range(template_data.ndim - 1))).squeeze()
+                # make sure template is 1D
+                if len(np.shape(template)) > 1:  # sum over frequencies too
+                    template_ar.fscrunch()  
+                    print("2D template found. Assuming it has same frequency coverage and channels as data!")
+                    template_phs = np.apply_over_axes(np.sum, template_data, tuple(range(template_data.ndim - 1))).squeeze()
+                else:
+                    template_phs = template
 
-        if plot:
-            try:
-                import matplotlib.pyplot as plt
-                import matplotlib
-                matplotlib.use('Agg')  # use non-interactive backend
-            except Exception as e:
-                print(e)
-                print("MeerGuard failed to import matplotlib: Diagnostic plotting unavailable")
-                plot = False
+            print('Estimating template and profile phase offset')
+            if self.configs.template is None:
+                phs = 0
+            else:
+                # Calculate phase offset of template in number of bins, using full obs
+                # Get profile data of full obs
+                profile = np.apply_over_axes(np.sum, data, tuple(range(data.ndim - 1))).squeeze()
+                if np.shape(template_phs) != np.shape(profile):
+                    print('template and profile have different numbers of phase bins')
+                #err = (lambda (amp, phs, base): amp*clean_utils.fft_rotate(template_phs, phs) + base - profile)
+                #err = lambda amp, phs: amp*clean_utils.fft_rotate(template_phs, phs) - profile
+                err = lambda x: x[0]*clean_utils.fft_rotate(template_phs, x[1]) - profile
+                amp_guess = np.median(profile)/np.median(template_phs)
+                phase_guess = -(np.argmax(profile) - np.argmax(template_phs))
+                #params, status = leastsq(err, [amp_guess, phase_guess, np.min(profile) - np.min(template_phs)])
+                params, status = leastsq(err, [amp_guess, phase_guess])
+                phs = params[1]
+                print('Template phase offset = {0}'.format(round(phs, 3)))
 
-        patient = ar.clone()
-        patient.pscrunch()
-        patient.remove_baseline()
+            print('Removing profile from patient')
+            if plot:
+                preop_patient = patient.clone()
+            clean_utils.remove_profile_inplace(patient, template, phs)
+        
+            print('Accessing weights and applying to patient')
+            # re-set DM to 0
+            # patient.dededisperse()
 
-        # Remove profile from dedispersed data
-        patient.dedisperse()
-        print('Loading template')
-        data = patient.get_data().squeeze()
-        if self.configs.template is None:
-            # Sum over all axes except last, which is phase bins
-            template = np.apply_over_axes(np.sum, data, tuple(range(data.ndim - 1))).squeeze()
-            # smooth data 
-            template = savgol_filter(template, 5, 1)
-        else:
-            template_ar = psrchive.Archive_load(self.configs.template)
-            template_ar.pscrunch()
-            template_ar.remove_baseline()
-            template_ar.dedisperse()
-            if len(template_ar.get_frequencies()) > 1 and len(template_ar.get_frequencies()) < len(patient.get_frequencies()):
-                print("Template channel number doesn't match data... f-scrunching!")
+            # Get weights
+            weights = patient.get_weights()
+            # Get data (select first polarization - recall we already P-scrunched)
+            data = patient.get_data()[:,0,:,:]
+            weights[(data[:,:,0] == 0)] = 0  # Make sure that any zeroed data is masked
+            data = clean_utils.apply_weights(data, weights)
+            if plot:
+                preop_data = preop_patient.get_data()[:,0,:,:]
+                preop_patient = []  # clear for the sake of memory
+                preop_data = clean_utils.apply_weights(preop_data, weights)
+            
+            # Mask profiles where weight is 0
+            mask_2d = np.bitwise_not(np.expand_dims(weights, 2).astype(bool))
+            mask_3d = mask_2d.repeat(ar.get_nbin(), axis=2)
+            data = np.ma.masked_array(data, mask=mask_3d)
+            if plot:
+                preop_data = np.ma.masked_array(preop_data, mask=mask_3d)        
+    
+            print('Masking on-pulse region as determined from template')
+            # consider residual only in off-pulse region
+            if len(np.shape(template)) > 1:  # sum over frequencies
+                print('Estimating on-pulse region by f-scrunching 2D template')
                 template_ar.fscrunch()
-            template_data = template_ar.get_data().squeeze()
-            template = np.apply_over_axes(np.sum, template_data, tuple(range(template_data.ndim - 1))).squeeze()
-            # make sure template is 1D
-            if len(np.shape(template)) > 1:  # sum over frequencies too
-                template_ar.fscrunch()  
-                print("2D template found. Assuming it has same frequency coverage and channels as data!")
-                template_phs = np.apply_over_axes(np.sum, template_data, tuple(range(template_data.ndim - 1))).squeeze()
+                template_1D = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
             else:
-                template_phs = template
+                template_1D = template
+            # Rotate template by apropriate amount
+            template_rot = clean_utils.fft_rotate(template_1D, phs).squeeze()
+            # masked_template = np.ma.masked_greater(template_rot, np.min(template_rot) + 0.01*np.ptp(template_rot))
+            masked_template = np.ma.masked_greater(template_rot, np.median(template_rot))
+            masked_std = np.ma.std(masked_template)
+            # use this std of masked data as cutoff
+            masked_template = np.ma.masked_greater(template_rot, np.median(template_rot) + masked_std)
+            if plot:
+                plt.figure(figsize=(10, 5))
+                plt.subplot(1, 2, 1)
+                plt.plot(np.apply_over_axes(np.sum, preop_data, tuple(range(data.ndim - 1))).squeeze(), alpha=1)
+                # Do fit again to scale template
+                subchan, err, params = clean_utils.remove_profile1d(np.apply_over_axes(np.sum, preop_data, (0, 1)).squeeze(), 0, 0, template_rot, 0, return_params=True)
+                # plt.plot(params[0]*template_rot + params[1], alpha=0.5)
+                # plt.plot(params[0]*masked_template + params[1], 'k')
+                plt.plot(params[0]*template_rot, alpha=0.5)
+                plt.plot(params[0]*masked_template, 'k')
+                plt.legend(('Pre-op data', 'Scaled and rotated template', 'Masked template'))            
+            # Loop through chans and subints to mask on-pulse phase bins
+            for ii in range(0, np.shape(data)[0]):
+                for jj in range(0, np.shape(data)[1]):
+                    if data.mask[ii, jj, :].any():
+                        # Mask all
+                        data.mask[ii, jj, :] = True*np.shape(masked_template.mask)
+                        continue
+                    data.mask[ii, jj, :] = masked_template.mask
+            if plot:
+                plt.subplot(1, 2, 2)
+                plt.plot(np.apply_over_axes(np.ma.sum, data, tuple(range(data.ndim - 1))).squeeze())
+                plt.title("Residual data")
+                plt.savefig('data_and_template.png')
+                plt.close()
 
-        print('Estimating template and profile phase offset')
-        if self.configs.template is None:
-            phs = 0
-        else:
-            # Calculate phase offset of template in number of bins, using full obs
-            # Get profile data of full obs
-            profile = np.apply_over_axes(np.sum, data, tuple(range(data.ndim - 1))).squeeze()
-            if np.shape(template_phs) != np.shape(profile):
-                print('template and profile have different numbers of phase bins')
-            #err = (lambda (amp, phs, base): amp*clean_utils.fft_rotate(template_phs, phs) + base - profile)
-            #err = lambda amp, phs: amp*clean_utils.fft_rotate(template_phs, phs) - profile
-            err = lambda x: x[0]*clean_utils.fft_rotate(template_phs, x[1]) - profile
-            amp_guess = np.median(profile)/np.median(template_phs)
-            phase_guess = -(np.argmax(profile) - np.argmax(template_phs))
-            #params, status = leastsq(err, [amp_guess, phase_guess, np.min(profile) - np.min(template_phs)])
-            params, status = leastsq(err, [amp_guess, phase_guess])
-            phs = params[1]
-            print('Template phase offset = {0}'.format(round(phs, 3)))
+            print('Calculating robust statistics to determine where RFI removal is required')
+            # RFI-ectomy must be recommended by average of tests, or a single test if aggressive option is used.
+            # DJR: The stats are mean, peak-to-peak, standard deviation, and max value of FFT
 
-        print('Removing profile from patient')
-        if plot:
-            preop_patient = patient.clone()
-            preop_weights = preop_patient.get_weights()
-        clean_utils.remove_profile_inplace(patient, template, phs)
-       
-        print('Accessing weights and applying to patient')
-        # re-set DM to 0
-        # patient.dededisperse()
+            avg_test_results = clean_utils.comprehensive_stats(data, axis=2, \
+                                        chanthresh=self.configs.chanthresh, \
+                                        subintthresh=self.configs.subintthresh, \
+                                        chan_order=self.configs.chan_order, \
+                                        chan_breakpoints=self.configs.chan_breakpoints, \
+                                        chan_numpieces=self.configs.chan_numpieces, \
+                                        subint_order=self.configs.subint_order, \
+                                        subint_breakpoints=self.configs.subint_breakpoints, \
+                                        subint_numpieces=self.configs.subint_numpieces, \
+                                        aggressive=self.configs.aggressive \
+                                        )
+            if plot:
+                plt.pcolormesh(avg_test_results.squeeze().transpose())
+                plt.xlabel('Time')
+                plt.ylabel('Frequency')
+                plt.clim([0, 1])
+                plt.colorbar()
+                plt.title('Average test result, saturated at 1')
+                plt.savefig('avg_test_results.png')
+                plt.close()
 
-        # Get weights
-        weights = patient.get_weights()
-        # Get data (select first polarization - recall we already P-scrunched)
-        data = patient.get_data()[:,0,:,:]
-        weights[(data[:,:,0] == 0)] = 0  # Make sure that any zeroed data is masked
-        data = clean_utils.apply_weights(data, weights)
-        if plot:
-            preop_data = preop_patient.get_data()[:,0,:,:]
-            preop_patient = []  # clear for the sake of memory
-            preop_data = clean_utils.apply_weights(preop_data, weights)
-        
-        # Mask profiles where weight is 0
-        mask_2d = np.bitwise_not(np.expand_dims(weights, 2).astype(bool))
-        mask_3d = mask_2d.repeat(ar.get_nbin(), axis=2)
-        data = np.ma.masked_array(data, mask=mask_3d)
-        if plot:
-            preop_data = np.ma.masked_array(preop_data, mask=mask_3d)        
- 
-        print('Masking on-pulse region as determined from template')
-        # consider residual only in off-pulse region
-        if len(np.shape(template)) > 1:  # sum over frequencies
-            print('Estimating on-pulse region by f-scrunching 2D template')
-            template_ar.fscrunch()
-            template_1D = np.apply_over_axes(np.sum, template_ar.get_data(), (0, 1)).squeeze()
-        else:
-            template_1D = template
-        # Rotate template by apropriate amount
-        template_rot = clean_utils.fft_rotate(template_1D, phs).squeeze()
-        # masked_template = np.ma.masked_greater(template_rot, np.min(template_rot) + 0.01*np.ptp(template_rot))
-        masked_template = np.ma.masked_greater(template_rot, np.median(template_rot))
-        masked_std = np.ma.std(masked_template)
-        # use this std of masked data as cutoff
-        masked_template = np.ma.masked_greater(template_rot, np.median(template_rot) + masked_std)
-        if plot:
-            plt.figure(figsize=(10, 5))
-            plt.subplot(1, 2, 1)
-            plt.plot(np.apply_over_axes(np.sum, preop_data, tuple(range(data.ndim - 1))).squeeze(), alpha=1)
-            # Do fit again to scale template
-            subchan, err, params = clean_utils.remove_profile1d(np.apply_over_axes(np.sum, preop_data, (0, 1)).squeeze(), 0, 0, template_rot, 0, return_params=True)
-            # plt.plot(params[0]*template_rot + params[1], alpha=0.5)
-            # plt.plot(params[0]*masked_template + params[1], 'k')
-            plt.plot(params[0]*template_rot, alpha=0.5)
-            plt.plot(params[0]*masked_template, 'k')
-            plt.legend(('Pre-op data', 'Scaled and rotated template', 'Masked template'))            
-        # Loop through chans and subints to mask on-pulse phase bins
-        for ii in range(0, np.shape(data)[0]):
-            for jj in range(0, np.shape(data)[1]):
-                  if data.mask[ii, jj, :].any():
-                      # Mask all
-                      data.mask[ii, jj, :] = True*np.shape(masked_template.mask)
-                      continue
-                  data.mask[ii, jj, :] = masked_template.mask
-        if plot:
-            plt.subplot(1, 2, 2)
-            plt.plot(np.apply_over_axes(np.ma.sum, data, tuple(range(data.ndim - 1))).squeeze())
-            plt.title("Residual data")
-            plt.savefig('data_and_template.png')
-            plt.close()
-
-        print('Calculating robust statistics to determine where RFI removal is required')
-        # RFI-ectomy must be recommended by average of tests
-        # BWM: Ok, so this is where the magical stuff actually happens - need to know actually WHAT are the comprehensive stats
-        # DJR: At this stage the stats are; 
-        #          mean, peak-to-peak, standard deviation, and max value of FFT
-
-        avg_test_results = clean_utils.comprehensive_stats(data, axis=2, \
-                                    chanthresh=self.configs.chanthresh, \
-                                    subintthresh=self.configs.subintthresh, \
-                                    chan_order=self.configs.chan_order, \
-                                    chan_breakpoints=self.configs.chan_breakpoints, \
-                                    chan_numpieces=self.configs.chan_numpieces, \
-                                    subint_order=self.configs.subint_order, \
-                                    subint_breakpoints=self.configs.subint_breakpoints, \
-                                    subint_numpieces=self.configs.subint_numpieces, \
-                                    )
-        if plot:
-            plt.pcolormesh(avg_test_results.squeeze().transpose())
-            plt.xlabel('Time')
-            plt.ylabel('Frequency')
-            plt.clim([0, 1])
-            plt.colorbar()
-            plt.title('Average test result, saturated at 1')
-            plt.savefig('avg_test_results.png')
-            plt.close()
-
-        print('Applying RFI masking weights to archive')
-        for (isub, ichan) in np.argwhere(avg_test_results>=1):
-            # Be sure to set weights on the original archive, and
-            # not the clone we've been working with.
-            integ = ar.get_Integration(int(isub))
-            integ.set_weight(int(ichan), 0.0)
-        
-        freq_fraczap = clean_utils.freq_fraczap(ar)
+            print('Applying RFI masking weights to archive')
+            for (isub, ichan) in np.argwhere(avg_test_results>=1):
+                # Be sure to set weights on the original archive, and
+                # not the clone we've been working with.
+                integ = ar.get_Integration(int(isub))
+                integ.set_weight(int(ichan), 0.0)
+            
+            #freq_fraczap = clean_utils.freq_fraczap(ar)
 
 Cleaner = SurgicalScrubCleaner

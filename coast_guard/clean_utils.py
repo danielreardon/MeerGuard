@@ -16,27 +16,15 @@ from coast_guard import errors
 
 # takes an archive and determines fractional zapping for each frequency channel
 def freq_fraczap(ar):
-
-
-
     weights=np.bitwise_not(np.expand_dims(ar.get_weights(),2).astype(bool))
-
-
-    nsub, nchan,nbool = np.shape(weights)
-
-
+    nsub, nchan, nbool = np.shape(weights)
     weights = 1*weights
     freqs=get_frequencies(ar)
     counts=np.sum(weights,axis=0).astype(float)/(1.*nsub)
 
-
     out=[]
-
     for i in np.arange(nchan):
         out.append([freqs[i],counts[i][0]])
-        #val=[freqs[i],counts[i][0]]
-        #out[i][0],out[i][1]=freqs[i],counts[i][0]
-        #print out[i]
 
     return out
 
@@ -69,19 +57,21 @@ def comprehensive_stats(data, axis, **kwargs):
     """
     chanthresh = kwargs.pop('chanthresh', config.cfg.clean_chanthresh)
     subintthresh = kwargs.pop('subintthresh', config.cfg.clean_subintthresh)
+    aggressive = kwargs.pop('aggressive', False)
+
+    if aggressive:
+        # Use at most 5-sigma as thresholds for both channel and subint comparisons.
+        chanthresh = min(chanthresh, 5.0)
+        subintthresh = min(subintthresh, 5.0)
 
     nsubs, nchans, ubbins = data.shape
     diagnostic_functions = [
             np.ma.std, \
             np.ma.mean, \
-            #scipy.stats.mstats.gmean, \
             np.ma.ptp, \
             lambda data, axis: np.ma.max(np.abs(np.fft.rfft(\
                                 data-np.expand_dims(np.ma.mean(data, axis=axis), axis=axis), \
-                                    axis=axis)), axis=axis), \
-            #lambda data, axis: scipy.stats.mstats.normaltest(data, axis=axis)[0],\
-            #lambda data, axis: scipy.stats.mstats.kurtosistest(data, axis=axis)[0],\
-            #lambda data, axis: scipy.stats.mstats.skewtest(data, axis=axis)[0]
+                                    axis=axis)), axis=axis),
             ]
     # Compute diagnostics
     diagnostics = []
@@ -95,8 +85,12 @@ def comprehensive_stats(data, axis, **kwargs):
         subint_scaled = np.abs(subint_scaler(diag, **kwargs))/subintthresh
         scaled_diagnostics.append(np.max((chan_scaled, subint_scaled), axis=0))
 
-    #test_results = np.median(scaled_diagnostics, axis=0)
-    test_results = np.mean(scaled_diagnostics, axis=0)
+    if aggressive:
+        # max of 5 diagnostics
+        test_results = np.max(scaled_diagnostics, axis=0)
+    else:
+        # average of 5 diagnostics
+        test_results = np.mean(scaled_diagnostics, axis=0)
 
     return test_results
 

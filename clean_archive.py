@@ -10,13 +10,14 @@ import argparse
 import psrchive as ps
 import os
 
-def apply_surgical_cleaner(ar, tmp, cthresh=7.0, sthresh=7.0, plot=False):
+def apply_surgical_cleaner(ar, tmp, cthresh=7.0, sthresh=7.0, plot=False, aggressive=False, iterations=1):
     print("Applying the surgical cleaner")
     print("\t channel threshold = {0}".format(cthresh))
     print("\t  subint threshold = {0}".format(sthresh))
+    print("\t  iterations = {0}".format(iterations))
 
     surgical_cleaner = cleaners.load_cleaner('surgical')
-    surgical_parameters = "chan_numpieces=1,subint_numpieces=1,chanthresh={1},subintthresh={2},template={0},plot={3}".format(tmp, cthresh, sthresh, plot)
+    surgical_parameters = "chan_numpieces=1,subint_numpieces=1,chanthresh={1},subintthresh={2},template={0},plot={3},aggressive={4},iterations={5}".format(tmp, cthresh, sthresh, plot, aggressive, iterations)
     surgical_cleaner.parse_config_string(surgical_parameters)
     surgical_cleaner.run(ar)
 
@@ -43,6 +44,8 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--outname", type=str, dest="output_name", help="Output archive name", default=None)
     parser.add_argument("-plot", "--plot", dest='plot', action='store_true', default=False)
     parser.add_argument("-O", "--outpath", type=str, dest="output_path", help="Output path [default = CWD]", default=os.getcwd())
+    parser.add_argument("-ag", "--aggressive", dest='aggressive', action='store_true', default=False, help="Whether to use more aggressive cleaning thresholds and algorithms")
+    parser.add_argument("-i", "--iterations", type=int, dest="iterations", help="Number of iterations to run the surgical cleaner [default = 1]", default=1)
     args = parser.parse_args()
 
 
@@ -55,12 +58,12 @@ if __name__ == "__main__":
 
     # Renaming archive file with statistical thresholds
     if args.output_name is None:
-        out_name = "{0}_ch{1}_sub{2}.ar".format(archive_name_pref, args.chan_thresh, args.subint_thresh, archive_name_suff)
+        out_name = "{0}_ch{1}_sub{2}_iter{3}.ar".format(archive_name_pref, args.chan_thresh, args.subint_thresh, args.iterations)
     else:
         out_name = args.output_name
 
 
-    apply_surgical_cleaner(loaded_archive, args.template_path, cthresh=args.chan_thresh, sthresh=args.subint_thresh, plot=args.plot)
+    apply_surgical_cleaner(loaded_archive, args.template_path, cthresh=args.chan_thresh, sthresh=args.subint_thresh, plot=args.plot, aggressive=args.aggressive, iterations=args.iterations)
     apply_bandwagon_cleaner(loaded_archive, badchantol=args.badchantol, badsubtol=args.badsubtol)
 
     # Unload the Archive file
