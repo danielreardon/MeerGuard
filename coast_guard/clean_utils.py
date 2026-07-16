@@ -110,13 +110,92 @@ def channel_scaler(array2d, **kwargs):
     return scaled
 
 
+def _piecewise_mad_scale(detrended, numpieces, min_points=16):
+    """Scale a 1D detrended residual to robust sigma using a per-segment
+        median/MAD instead of a single global one.
+
+        The residual is split into 'numpieces' roughly-equal segments using
+        the same np.linspace scheme as detrend(), and each segment is
+        centred on its own median and divided by its own MAD (scaled by
+        1.4826). This keeps the definition of "sigma" local in frequency, so
+        a channel is judged against the noise floor of its own sub-band
+        rather than the whole band. On wideband receivers, where the
+        off-pulse RMS varies strongly with Tsys, this avoids inflating the
+        apparent significance of channels in high-Tsys sub-bands.
+
+        Segments too sparse or degenerate to give a stable MAD fall back to
+        the global median/MAD of the whole residual:
+          * fewer than 'min_points' unmasked samples, or
+          * a zero MAD (all-equal or heavily-masked segment).
+
+        Inputs:
+            detrended: A 1D (optionally masked) array of detrended residuals.
+            numpieces: The number of frequency segments to split into.
+            min_points: The minimum number of unmasked samples for a segment
+                to use its own median/MAD. (Default: 16)
+
+        Output:
+            scaled: A 1D masked array of the residual in units of robust
+                sigma. Masked entries of the input remain masked.
+    """
+    detrended = np.ma.masked_array(detrended,
+                                   mask=np.ma.getmaskarray(detrended))
+    # Global fall-back statistics (used for sparse/degenerate segments).
+    global_median = np.ma.median(detrended)
+    global_mad = np.ma.median(np.abs(detrended - global_median))
+
+    scaled = np.ma.masked_array(np.empty(detrended.shape, dtype=float),
+                                mask=np.ma.getmaskarray(detrended).copy())
+    # Same segmentation scheme as detrend()'s numpieces splitting.
+    isplit = np.linspace(0, detrended.size, numpieces + 1, endpoint=1)
+    edges = np.round(isplit).astype(int)
+    for start, stop in zip(edges[:-1], edges[1:]):
+        seg = detrended[start:stop]
+        if np.ma.count(seg) < min_points:
+            # Too few unmasked points for a stable local MAD.
+            median, mad = global_median, global_mad
+        else:
+            median = np.ma.median(seg)
+            mad = np.ma.median(np.abs(seg - median))
+            if mad == 0:
+                # Degenerate segment; local MAD would divide by zero.
+                median, mad = global_median, global_mad
+        scaled[start:stop] = (detrended[start:stop] - median)/(mad * 1.4826)
+    return scaled
+
+
 def subint_scaler(array2d, **kwargs):
     """For each sub-int detrend and scale it.
+
+        By default each sub-int's detrended spectrum is scaled to robust
+        sigma using a single median/MAD taken over the whole band. On
+        wideband receivers the off-pulse RMS varies strongly with frequency
+        (Tsys), so a single global MAD inflates the apparent significance of
+        high-Tsys channels and systematically over-flags them. Passing
+        piecewise_scale=True instead computes the median/MAD per frequency
+        segment, using the same segmentation as the piecewise detrend, so the
+        scaling granularity matches the detrend and each channel is judged
+        against its own sub-band.
+
+        Keyword arguments:
+            subint_order, subint_breakpoints, subint_numpieces: as for the
+                frequency-direction detrend.
+            piecewise_scale: If True, scale to sigma using a per-segment
+                (piecewise) median/MAD rather than a single global MAD.
+                (Default: False, i.e. original global behaviour.)
+            subint_mad_numpieces: Number of frequency segments to use for the
+                piecewise MAD. If None, the finest (last) subint_numpieces
+                value is used so the scaling lines up with the finest detrend
+                pass. Only used when piecewise_scale is True. (Default: None)
     """
     # Grab key-word arguments. If not present use default configs.
     orders = kwargs.pop('subint_order', config.cfg.subint_order)
     breakpoints = kwargs.pop('subint_breakpoints', config.cfg.subint_breakpoints)
     numpieces = kwargs.pop('subint_numpieces', config.cfg.subint_numpieces)
+    # Piecewise-MAD scaling controls. Default to the backward-compatible
+    # global-MAD behaviour when these are absent.
+    piecewise_scale = kwargs.pop('piecewise_scale', False)
+    mad_numpieces = kwargs.pop('subint_mad_numpieces', None)
     if breakpoints is None:
         breakpoints = [[]]*len(orders)
     if numpieces is None:
@@ -131,6 +210,14 @@ def subint_scaler(array2d, **kwargs):
                          min(len(orders), len(breakpoints), len(numpieces))),
                       errors.CoastGuardWarning)
 
+    # Resolve the segmentation for the piecewise MAD. When not given, default
+    # to the finest (last) detrend granularity so the scaling segments line up
+    # with the finest detrend pass. A value <= 1 means "one global segment",
+    # which reduces exactly to the original global-MAD behaviour.
+    if mad_numpieces is None:
+        last_numpieces = numpieces[-1] if len(numpieces) else None
+        mad_numpieces = last_numpieces if last_numpieces is not None else 1
+
     scaled = np.empty_like(array2d)
     nsubs = array2d.shape[0]
     for isub in np.arange(nsubs):
@@ -138,9 +225,14 @@ def subint_scaler(array2d, **kwargs):
         for order, brkpnts, numpcs in zip(orders, breakpoints, numpieces):
             detrended = iterative_detrend(detrended, order=order, \
                                             bp=brkpnts, numpieces=numpcs)
-        median = np.ma.median(detrended)
-        mad = np.ma.median(np.abs(detrended-median))
-        scaled[isub,:] = (detrended-median)/(mad * 1.4826)  # Scale MAD to be consistent with std for normal distribution
+        if piecewise_scale and mad_numpieces > 1:
+            # Local (per-segment) median/MAD, matching the piecewise detrend.
+            scaled[isub,:] = _piecewise_mad_scale(detrended, mad_numpieces)
+        else:
+            # Single global median/MAD over the whole band (original path).
+            median = np.ma.median(detrended)
+            mad = np.ma.median(np.abs(detrended-median))
+            scaled[isub,:] = (detrended-median)/(mad * 1.4826)  # Scale MAD to be consistent with std for normal distribution
     return scaled
 
 

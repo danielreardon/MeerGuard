@@ -105,6 +105,25 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                                aliases=['iterations', 'iter'],
                                nullable=True,
                                help="Number of iterations to run the surgical cleaner [default = 1]")
+        self.configs.add_param('piecewise_scale', config_types.BoolVal,
+                               aliases=['piecewise_scale'],
+                               nullable=True,
+                               help="If True, scale the frequency-direction "
+                                    "statistics to sigma using a per-segment "
+                                    "(piecewise) median/MAD that matches the "
+                                    "piecewise detrend, instead of a single "
+                                    "global MAD across the whole band. This "
+                                    "avoids over-flagging channels in high-Tsys "
+                                    "sub-bands on wideband receivers. "
+                                    "[default = False]")
+        self.configs.add_param('subint_mad_numpieces', config_types.IntVal,
+                               aliases=['subint_mad_numpieces'],
+                               nullable=True,
+                               help="Number of frequency segments to use for "
+                                    "the piecewise MAD scaling (only used when "
+                                    "piecewise_scale is True). If None, the "
+                                    "finest subint_numpieces value is used. "
+                                    "[default = None]")
         self.parse_config_string(config.cfg.surgical_default_params)
 
 
@@ -274,6 +293,8 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                                         subint_order=self.configs.subint_order, \
                                         subint_breakpoints=self.configs.subint_breakpoints, \
                                         subint_numpieces=self.configs.subint_numpieces, \
+                                        piecewise_scale=self.configs.piecewise_scale, \
+                                        subint_mad_numpieces=self.configs.subint_mad_numpieces, \
                                         aggressive=self.configs.aggressive \
                                         )
             if plot:
