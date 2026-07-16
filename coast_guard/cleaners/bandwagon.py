@@ -64,13 +64,15 @@ class BandwagonCleaner(cleaners.BaseCleaner):
 
         if nchan_good > 0:
             sub_badfrac = 1-weights.sum(axis=1)/float(nchan_good)
-            sub_is_bad = np.argwhere(sub_badfrac>self.configs.badchantol)
+            #numpy2-safe:
+            sub_is_bad = np.flatnonzero(sub_badfrac>self.configs.badchantol)
             for isub in sub_is_bad:
                 clean_utils.zero_weight_subint(ar, isub)
 
         if nsub_good > 0:
             chan_badfrac = 1-weights.sum(axis=0)/float(nsub_good)
-            chan_is_bad = np.argwhere(chan_badfrac>self.configs.badsubtol)
+            #numpy2-safe:
+            chan_is_bad = np.flatnonzero(chan_badfrac>self.configs.badsubtol)
             for ichan in chan_is_bad:
                 clean_utils.zero_weight_chan(ar, ichan)
 

@@ -665,16 +665,17 @@ def remove_profile_inplace(ar, template, phs, nthreads=1):
 
 def zero_weight_subint(ar, isub):
     """Set the weight of sub-int 'isub' to zero (de-weight it entirely)."""
-    subint = ar.get_Integration(int(isub))
+    #numpy2-safe:
+    subint = ar.get_Integration(int(np.asarray(isub).item()))
     subint.uniform_weight(0.0)
-
 
 def zero_weight_chan(ar, ichan):
     """Set the weight of channel 'ichan' to zero in every sub-int."""
+    #numpy2-safe:
+    ichan = int(np.asarray(ichan).item())
     for isub in range(ar.get_nsubint()):
         subint = ar.get_Integration(int(isub))
-        subint.set_weight(int(ichan), 0.0)
-
+        subint.set_weight(ichan, 0.0)
 
 def write_psrsh_script(arf, outfn=None):
     """Write a psrsh script that applies the same weighting
