@@ -26,7 +26,7 @@ def apply_rcvrstd_cleaner(ar):
     rcvrstd_cleaner = cleaners.load_cleaner('rcvrstd')
     rcvrstd_cleaner.run(ar)
 
-def apply_surgical_cleaner(ar, tmp, cthresh=None, sthresh=None, plot=False, aggressive=False, iterations=1):
+def apply_surgical_cleaner(ar, tmp, cthresh=None, sthresh=None, plot=False, aggressive=False, iterations=1, piecewise_scale=False):
 
     """Apply the surgical cleaner to an archive in place.
 
@@ -42,6 +42,10 @@ def apply_surgical_cleaner(ar, tmp, cthresh=None, sthresh=None, plot=False, aggr
                 and algorithms. (Default: False)
             iterations: Number of times to run the surgical cleaner.
                 (Default: 1)
+            piecewise_scale: If True, force per-segment (piecewise) MAD
+                scaling of the frequency-direction statistics on. If False,
+                the setting is left to the (default or -C) config, so this
+                does not switch off a config that enables it. (Default: False)
 
         Outputs:
             None - The archive is cleaned in place.
@@ -62,6 +66,10 @@ def apply_surgical_cleaner(ar, tmp, cthresh=None, sthresh=None, plot=False, aggr
         param_parts.append("chanthresh={0}".format(cthresh))
     if sthresh is not None:
         param_parts.append("subintthresh={0}".format(sthresh))
+    if piecewise_scale:
+        # Only force it on; when the flag is absent leave the config's value
+        # untouched (so -C UWL, which enables it, is not overridden to off).
+        param_parts.append("piecewise_scale=True")
     surgical_parameters = ",".join(param_parts)
     surgical_cleaner.parse_config_string(surgical_parameters)
     surgical_cleaner.run(ar)
@@ -121,6 +129,12 @@ if __name__ == "__main__":
               help="Whether to use more aggressive cleaning thresholds and algorithms")
     parser.add_argument("-i", "--iterations", type=int, dest="iterations", default=1,
               help="Number of iterations to run the surgical cleaner [default = 1]")
+    parser.add_argument("-pw", "--piecewise", dest='piecewise_scale', action='store_true', default=False,
+              help="Scale the frequency-direction statistics to sigma using a "
+              "per-segment (piecewise) MAD that matches the piecewise detrend, "
+              "instead of one global MAD across the whole band. Recommended for "
+              "wideband receivers with a strong Tsys gradient (already on in the "
+              "UWL config). [default = off]")
     parser.add_argument("-C", "--config", type=str, dest="config_path", default=None,
               help="Custom config file for misbehaving receivers. Inputting UHF or L will "
               "automatically load the MeerKAT config files for those receivers. Inputting "
@@ -140,6 +154,7 @@ if __name__ == "__main__":
     output_path = args.output_path
     aggressive = args.aggressive
     iterations = args.iterations
+    piecewise_scale = args.piecewise_scale
     config_path = args.config_path
 
     #raise error if user tries to write multiple input files to one output name
@@ -219,7 +234,7 @@ if __name__ == "__main__":
                 subint_thresh if subint_thresh is not None else "cfg")
 
         apply_rcvrstd_cleaner(loaded_archive)
-        apply_surgical_cleaner(loaded_archive, template_path, cthresh=chan_thresh, sthresh=subint_thresh, plot=plot, aggressive=aggressive, iterations=iterations)
+        apply_surgical_cleaner(loaded_archive, template_path, cthresh=chan_thresh, sthresh=subint_thresh, plot=plot, aggressive=aggressive, iterations=iterations, piecewise_scale=piecewise_scale)
         apply_bandwagon_cleaner(loaded_archive, badchantol=badchantol, badsubtol=badsubtol)
 
         # Unload the Archive file

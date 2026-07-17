@@ -158,3 +158,15 @@ class TestSurgicalPiecewiseConfigResolution:
             self._RECEIVER + ",piecewise_scale=True,subint_mad_numpieces=16")
         assert c.configs.piecewise_scale is True
         assert c.configs.subint_mad_numpieces == 16
+
+    def test_shipped_uwl_config_enables_piecewise(self):
+        # The shipped UWL receiver config (loaded via -C UWL) should turn
+        # piecewise MAD scaling on by default.
+        import os
+        from coast_guard import config
+        uwl_path = os.path.join(config.base_config_dir, 'receivers',
+                                'UWL_3K_Murriyang.cfg')
+        overrides = config.read_file(uwl_path, required=True)
+        c = self._load_with_override(overrides['surgical_default_params'])
+        assert c.configs.piecewise_scale is True
+        assert c.configs.subint_mad_numpieces == 16
