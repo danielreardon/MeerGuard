@@ -124,6 +124,13 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                                     "piecewise_scale is True). If None, the "
                                     "finest subint_numpieces value is used. "
                                     "[default = None]")
+        # Establish safe (feature-off) defaults for the optional piecewise
+        # params *before* parsing surgical_default_params. A receiver/custom
+        # config that overrides surgical_default_params need not list these
+        # keys; if it omits them they stay at these defaults (rather than
+        # raising KeyError when read in _clean), and if it sets them the
+        # override below wins.
+        self.parse_config_string('piecewise_scale=False,subint_mad_numpieces=None')
         self.parse_config_string(config.cfg.surgical_default_params)
 
 
