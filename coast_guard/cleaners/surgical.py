@@ -4,6 +4,7 @@ The 'surgical' cleaner (surgical scrub).
 De-weights individual profiles (sub-int/channel cells) whose off-pulse
 residuals stand out relative to others in the same channel or sub-int,
 after removing a (optionally supplied) template profile.
+------------------------------------------------------
 """
 import numpy as np
 from coast_guard import config
@@ -180,7 +181,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             if self.configs.template is None:
                 # Sum over all axes except last, which is phase bins
                 template = np.apply_over_axes(np.sum, data, tuple(range(data.ndim - 1))).squeeze()
-                # smooth data 
+                # smooth data
                 template = savgol_filter(template, 5, 1)
             else:
                 template_ar = psrchive.Archive_load(self.configs.template)
@@ -190,15 +191,24 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                 if len(template_ar.get_frequencies()) > 1 and len(template_ar.get_frequencies()) < len(patient.get_frequencies()):
                     print("Template channel number doesn't match data... f-scrunching!")
                     template_ar.fscrunch()
+
                 template_data = template_ar.get_data().squeeze()
-                template = np.apply_over_axes(np.sum, template_data, tuple(range(template_data.ndim - 1))).squeeze()
-                # make sure template is 1D
-                if len(np.shape(template)) > 1:  # sum over frequencies too
-                    template_ar.fscrunch()  
-                    print("2D template found. Assuming it has same frequency coverage and channels as data!")
-                    template_phs = np.apply_over_axes(np.sum, template_data, tuple(range(template_data.ndim - 1))).squeeze()
-                else:
-                    template_phs = template
+                print(f'Dimensions of input template: {template_data.shape}')
+
+                if template_data.ndim > 2:
+                    #throw error for incorrect template shape
+                    raise ValueError(
+                        "Template '{0}' has shape {1} after squeezing. "
+                        "expected 1D (nbin,) or 2D (nchan x nbin)."
+                        "Check that you've T-scrunched your template!!!"
+                        .format(self.configs.template, template_data.shape,
+                                template_data.shape[0])
+                    )
+
+                template_phs = np.apply_over_axes(np.sum, template_data,
+                                                  tuple(range(template_data.ndim - 1))).squeeze()
+                template = template_data if template_data.ndim > 1 else template_phs
+
 
             print('Estimating template and profile phase offset')
             if self.configs.template is None:
@@ -223,7 +233,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
             if plot:
                 preop_patient = patient.clone()
             clean_utils.remove_profile_inplace(patient, template, phs)
-        
+
             print('Accessing weights and applying to patient')
             # re-set DM to 0
             # patient.dededisperse()
@@ -238,14 +248,14 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                 preop_data = preop_patient.get_data()[:,0,:,:]
                 preop_patient = []  # clear for the sake of memory
                 preop_data = clean_utils.apply_weights(preop_data, weights)
-            
+
             # Mask profiles where weight is 0
             mask_2d = np.bitwise_not(np.expand_dims(weights, 2).astype(bool))
             mask_3d = mask_2d.repeat(ar.get_nbin(), axis=2)
             data = np.ma.masked_array(data, mask=mask_3d)
             if plot:
-                preop_data = np.ma.masked_array(preop_data, mask=mask_3d)        
-    
+                preop_data = np.ma.masked_array(preop_data, mask=mask_3d)
+
             print('Masking on-pulse region as determined from template')
             # consider residual only in off-pulse region
             if len(np.shape(template)) > 1:  # sum over frequencies
@@ -271,7 +281,7 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                 # plt.plot(params[0]*masked_template + params[1], 'k')
                 plt.plot(params[0]*template_rot, alpha=0.5)
                 plt.plot(params[0]*masked_template, 'k')
-                plt.legend(('Pre-op data', 'Scaled and rotated template', 'Masked template'))            
+                plt.legend(('Pre-op data', 'Scaled and rotated template', 'Masked template'))
             # Loop through chans and subints to mask on-pulse phase bins
             for ii in range(0, np.shape(data)[0]):
                 for jj in range(0, np.shape(data)[1]):
