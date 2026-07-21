@@ -209,6 +209,10 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                                                   tuple(range(template_data.ndim - 1))).squeeze()
                 template = template_data if template_data.ndim > 1 else template_phs
 
+                # A 2D template is indexed by data channel during subtraction,
+                # so warn if its channel count does not match the data.
+                clean_utils.check_template_nchan(template, patient.get_nchan())
+
 
             print('Estimating template and profile phase offset')
             if self.configs.template is None:

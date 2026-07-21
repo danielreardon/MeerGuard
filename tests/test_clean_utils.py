@@ -9,7 +9,10 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 
+import warnings
+
 from coast_guard import clean_utils as cu
+from coast_guard import errors
 
 
 # ---------------------------------------------------------------------------
@@ -419,3 +422,67 @@ class TestPiecewiseMadIntegration:
             "piecewise_scale=True and assert the zapped-channel fraction in "
             "high-Tsys sub-bands drops to that of low-Tsys sub-bands, while "
             "injected narrowband RFI is still removed.")
+
+
+# ---------------------------------------------------------------------------
+# remove_profile1d: all-zero guard + dot-product amplitude estimate
+# ---------------------------------------------------------------------------
+class TestRemoveProfile1d:
+    @staticmethod
+    def _gaussian(nbin=64, centre=20, width=3.0):
+        x = np.arange(nbin, dtype=float)
+        return np.exp(-0.5 * ((x - centre) / width) ** 2)
+
+    def test_all_zero_template_returns_none_and_warns(self):
+        prof = self._gaussian()
+        template = np.zeros(64)
+        with pytest.warns(errors.CoastGuardWarning):
+            (isub, ichan), resid = cu.remove_profile1d(prof, 2, 5, template, 0)
+        assert (isub, ichan) == (2, 5)
+        assert resid is None
+        # With return_params the params are None too.
+        with pytest.warns(errors.CoastGuardWarning):
+            out = cu.remove_profile1d(prof, 0, 0, template, 0, return_params=True)
+        assert out[1] is None and out[2] is None
+
+    def test_dot_amplitude_recovers_scale(self):
+        template = self._gaussian()
+        prof = 3.0 * template
+        (_, _), resid, params = cu.remove_profile1d(prof, 0, 0, template, 0,
+                                                    return_params=True)
+        npt.assert_allclose(params[0], 3.0, atol=1e-6)
+        npt.assert_allclose(resid, 0.0, atol=1e-6)
+
+    def test_zero_median_template(self):
+        # Baseline-subtracted templates have (near) zero median, which made the
+        # old np.median(prof)/np.median(template) initial guess divide by ~0.
+        # The dot-product guess handles it.
+        template = self._gaussian() - np.median(self._gaussian())
+        assert np.median(template) == 0.0
+        prof = 2.5 * template
+        (_, _), resid, params = cu.remove_profile1d(prof, 0, 0, template, 0,
+                                                    return_params=True)
+        npt.assert_allclose(params[0], 2.5, atol=1e-6)
+        npt.assert_allclose(resid, 0.0, atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# check_template_nchan: warn on a 2D template / data channel-count mismatch
+# ---------------------------------------------------------------------------
+class TestCheckTemplateNchan:
+    def test_warns_on_2d_mismatch(self):
+        template2d = np.ones((8, 64))
+        with pytest.warns(errors.CoastGuardWarning):
+            cu.check_template_nchan(template2d, 16)
+
+    def test_no_warning_when_2d_matches(self):
+        template2d = np.ones((8, 64))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")   # any warning -> test failure
+            cu.check_template_nchan(template2d, 8)
+
+    def test_no_warning_for_1d_template(self):
+        template1d = np.ones(64)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            cu.check_template_nchan(template1d, 512)

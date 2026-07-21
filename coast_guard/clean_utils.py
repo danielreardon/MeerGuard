@@ -507,6 +507,35 @@ def fft_rotate(data, bins):
     # original length (irfft otherwise assumes an even-length signal).
     return np.fft.irfft(phasor*np.fft.rfft(data), n=data.size)
 
+def check_template_nchan(template, data_nchan):
+    """Warn if a 2D (per-channel) template's channel count does not match the
+        data being cleaned.
+
+        remove_profile_inplace() indexes a 2D template by data channel
+        (template[ichan]), so a template with a different number of channels
+        than the data is mis-aligned -- or, if it has more channels, silently
+        uses only the first 'data_nchan' of them. A 1D template is broadcast to
+        every channel and is always fine, so no warning is issued for it.
+
+        Inputs:
+            template: The template array (1D (nbin,) or 2D (nchan x nbin)).
+            data_nchan: The number of channels in the data being cleaned.
+
+        Output:
+            None - Emits a CoastGuardWarning on a 2D channel-count mismatch.
+    """
+    if np.ndim(template) <= 1:
+        return
+    template_nchan = np.shape(template)[0]
+    if template_nchan != data_nchan:
+        warnings.warn(
+            "2D template has %d channels but the data has %d. A 2D template is "
+            "indexed by data channel, so it must have the same number of "
+            "channels as the data; frequency-dependent subtraction may be "
+            "mis-aligned." % (template_nchan, data_nchan),
+            errors.CoastGuardWarning)
+
+
 def remove_profile1d(prof, isub, ichan, template, phs, return_params=False):
     """Fit and subtract a (rotated, scaled) template from a single profile.
 
