@@ -191,6 +191,8 @@ if __name__ == "__main__":
             config_path = os.path.join(config.base_config_dir, 'receivers', 'L-band_4K_MeerKAT.cfg')
         elif config_path in ('UWL', 'uwl'):
             config_path = os.path.join(config.base_config_dir, 'receivers', 'UWL_3K_Murriyang.cfg')
+        elif config_path in ('HBA', 'hba'):
+            config_path = os.path.join(config.base_config_dir, 'receivers', 'HBA_LOFAR.cfg')
 
         config_overrides = config.read_file(config_path, required=True)
         cfg_obj = config.cfg.get()

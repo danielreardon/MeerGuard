@@ -2,6 +2,8 @@
 Useful utility functions for cleaning a PSRCHIVE archive.
 
 Patrick Lazarus, Feb. 14, 2012
+
+------------------------------------------------------
 """
 import warnings
 import multiprocessing
@@ -413,7 +415,6 @@ def fft_rotate(data, bins):
     # original length (irfft otherwise assumes an even-length signal).
     return np.fft.irfft(phasor*np.fft.rfft(data), n=data.size)
 
-
 def remove_profile1d(prof, isub, ichan, template, phs, return_params=False):
     """Fit and subtract a (rotated, scaled) template from a single profile.
 
@@ -429,15 +430,29 @@ def remove_profile1d(prof, isub, ichan, template, phs, return_params=False):
         Outputs:
             (isub, ichan): The input indices.
             residual: The profile with the fitted template removed (zeros
-                if the fit failed).
-            params: (only if return_params) The best-fit amplitude(s).
+                if the fit failed, None if the template was degenerate).
+            params: (only if return_params) The best-fit amplitude(s), or
+                None if the template was degenerate.
     """
+    if not np.any(template):
+        
+        warnings.warn("All-zero template for (isub=%d, ichan=%d); no fit "
+                            "possible, zero-weighting this profile."
+                            % (isub, ichan), errors.CoastGuardWarning)
+        if return_params:
+            return (isub, ichan), None, None
+        else:
+            return (isub, ichan), None
+
     rotated_template = fft_rotate(template, phs)
+
+    #safer than median estimation method
+    denom = np.dot(rotated_template, rotated_template)
+    amp_guess = np.dot(rotated_template, prof) / denom
+
     err = lambda amp: amp*rotated_template - prof
-    params, status = scipy.optimize.leastsq(err, [np.median(prof)/np.median(template)])
-    #err = lambda (amp, base): amp*rotated_template + base - prof
-    #params, status = scipy.optimize.leastsq(err, [max(prof)/max(template),
-    #                                              np.min(prof)-np.min(rotated_template)])
+    params, status = scipy.optimize.leastsq(err, [amp_guess])
+
     if status not in (1,2,3,4):
         warnings.warn("Bad status for least squares fit when " \
                             "removing profile", errors.CoastGuardWarning)
@@ -450,6 +465,7 @@ def remove_profile1d(prof, isub, ichan, template, phs, return_params=False):
             return (isub, ichan), err(params), params
         else:
             return (isub, ichan), err(params)
+
 
 def remove_profile(data, nsubs, nchans, template, nthreads=None):
     """Remove a template profile from every sub-int/channel of 'data'.
