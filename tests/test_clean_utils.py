@@ -9,7 +9,10 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 
+import warnings
+
 from coast_guard import clean_utils as cu
+from coast_guard import errors
 
 
 # ---------------------------------------------------------------------------
@@ -277,3 +280,209 @@ class TestComprehensiveStats:
                                      aggressive=True)
         # max over diagnostics >= mean over diagnostics, elementwise.
         assert np.all(agg + 1e-9 >= avg)
+
+
+# ---------------------------------------------------------------------------
+# subint_scaler: piecewise-MAD scaling (frequency direction)
+# ---------------------------------------------------------------------------
+class TestSubintScalerBackwardCompat:
+    """With the flag off (or a single MAD segment) the piecewise path must
+    reduce EXACTLY to the original global-MAD behaviour."""
+
+    _KW = dict(subint_order=[1], subint_breakpoints=[[]], subint_numpieces=[1])
+
+    def test_flag_off_matches_global(self):
+        rng = np.random.default_rng(7)
+        arr = np.ma.masked_array(rng.normal(size=(4, 100)))
+        base = cu.subint_scaler(arr, piecewise_scale=False, **self._KW)
+        # Flag on but only one MAD segment -> identical to global.
+        same = cu.subint_scaler(arr, piecewise_scale=True,
+                                subint_mad_numpieces=1, **self._KW)
+        npt.assert_array_equal(np.ma.getdata(base), np.ma.getdata(same))
+        # Flag on, mad numpieces defaults to subint_numpieces[-1] == 1.
+        same2 = cu.subint_scaler(arr, piecewise_scale=True, **self._KW)
+        npt.assert_array_equal(np.ma.getdata(base), np.ma.getdata(same2))
+
+    def test_default_is_global(self):
+        # No piecewise kwargs at all -> original behaviour, reproduced by hand.
+        rng = np.random.default_rng(8)
+        arr = np.ma.masked_array(rng.normal(size=(2, 50)))
+        kw = dict(subint_order=[1], subint_breakpoints=[[]], subint_numpieces=[2])
+        out = cu.subint_scaler(arr, **kw)
+        exp = np.empty_like(arr)
+        for i in range(arr.shape[0]):
+            d = cu.iterative_detrend(arr[i, :], order=1, bp=[], numpieces=2)
+            med = np.ma.median(d)
+            mad = np.ma.median(np.abs(d - med))
+            exp[i, :] = (d - med) / (mad * 1.4826)
+        npt.assert_array_equal(np.ma.getdata(out), np.ma.getdata(exp))
+
+
+class TestSubintScalerPiecewise:
+    """Piecewise MAD keeps the 'sigma' definition local in frequency so a
+    Tsys gradient does not inflate high-Tsys channels' significance."""
+
+    _KW = dict(subint_order=[1], subint_breakpoints=[[]], subint_numpieces=[1])
+
+    @staticmethod
+    def _robust_spread(x):
+        x = np.asarray(x, dtype=float).ravel()
+        med = np.median(x)
+        return 1.4826 * np.median(np.abs(x - med))
+
+    def _tsys_ramp(self, nsub=4, nchan=512, seed=0):
+        # Per-channel off-pulse scatter ramps x5 across the band (1 -> 5).
+        rng = np.random.default_rng(seed)
+        sigma = 1.0 + 4.0 * np.arange(nchan) / (nchan - 1)
+        noise = rng.normal(size=(nsub, nchan)) * sigma[None, :]
+        return np.ma.masked_array(noise), sigma
+
+    def test_global_overflags_high_tsys_piecewise_balances(self):
+        arr, _ = self._tsys_ramp()
+        g = np.ma.getdata(cu.subint_scaler(arr, piecewise_scale=False, **self._KW))
+        p = np.ma.getdata(cu.subint_scaler(arr, piecewise_scale=True,
+                                           subint_mad_numpieces=8, **self._KW))
+        low, high = slice(0, 64), slice(448, 512)
+        # Global MAD: high-Tsys channels have a much larger scaled spread ->
+        # they exceed any fixed threshold "just because" the noise is higher.
+        g_ratio = self._robust_spread(g[:, high]) / self._robust_spread(g[:, low])
+        assert g_ratio > 3.0
+        # Piecewise MAD: spread ~1 in both sub-bands (balanced, no over-flag).
+        p_low = self._robust_spread(p[:, low])
+        p_high = self._robust_spread(p[:, high])
+        assert 0.6 < (p_high / p_low) < 1.7
+        npt.assert_allclose(p_low, 1.0, atol=0.35)
+        npt.assert_allclose(p_high, 1.0, atol=0.35)
+
+    def test_equal_excess_outlier_judged_locally(self):
+        # Two spikes of EQUAL absolute excess, one in a low-Tsys sub-band
+        # (a real, locally-significant outlier) and one in a high-Tsys
+        # sub-band (within the local noise).
+        arr, _ = self._tsys_ramp(seed=1)
+        delta = 18.0
+        lo_chan, hi_chan = 32, 480
+        arr[0, lo_chan] += delta
+        arr[0, hi_chan] += delta
+        g = np.ma.getdata(cu.subint_scaler(arr, piecewise_scale=False, **self._KW))
+        p = np.ma.getdata(cu.subint_scaler(arr, piecewise_scale=True,
+                                           subint_mad_numpieces=8, **self._KW))
+        # Global MAD gives the two equal-excess spikes near-equal significance
+        # (it cannot tell the real RFI from the high-Tsys noise excursion).
+        assert abs(g[0, lo_chan]) > 5 and abs(g[0, hi_chan]) > 5
+        assert 0.6 < abs(g[0, hi_chan]) / abs(g[0, lo_chan]) < 1.7
+        # Piecewise MAD: the low-Tsys spike is a strong local outlier; the
+        # high-Tsys one sits within its sub-band's noise.
+        assert abs(p[0, lo_chan]) > 8
+        assert abs(p[0, hi_chan]) < 5
+        assert abs(p[0, lo_chan]) > 2 * abs(p[0, hi_chan])
+
+
+class TestPiecewiseMadEdgeCases:
+    """Sparse, all-masked and zero-MAD segments must fall back gracefully."""
+
+    def test_sparse_masked_and_degenerate_segments(self):
+        # 4 MAD segments of 16 channels each:
+        #   seg0 fully masked, seg1 all-equal (MAD==0), seg2 <16 unmasked,
+        #   seg3 normal noise.
+        rng = np.random.default_rng(4)
+        nchan = 64
+        row = rng.normal(size=nchan)
+        row[16:32] = 5.0  # constant segment -> local MAD 0
+        arr = np.ma.masked_array(row.reshape(1, nchan),
+                                 mask=np.zeros((1, nchan), dtype=bool))
+        arr.mask[0, 0:16] = True    # fully-masked segment
+        arr.mask[0, 32:34] = True   # leaves 14 unmasked in seg2 (<16)
+        out = cu.subint_scaler(arr, subint_order=[0], subint_breakpoints=[[]],
+                               subint_numpieces=[1], piecewise_scale=True,
+                               subint_mad_numpieces=4)
+        # No NaN/Inf anywhere, even in the fallback segments.
+        assert np.all(np.isfinite(np.ma.filled(out, 0.0)))
+        # Masked input entries stay masked in the output.
+        assert np.all(out.mask[0, 0:16])
+        assert np.all(out.mask[0, 32:34])
+
+    def test_helper_matches_global_for_one_piece(self):
+        # _piecewise_mad_scale with numpieces=1 == a single global MAD scale.
+        rng = np.random.default_rng(5)
+        d = np.ma.masked_array(rng.normal(size=200))
+        med = np.ma.median(d)
+        mad = np.ma.median(np.abs(d - med))
+        expected = (d - med) / (mad * 1.4826)
+        got = cu._piecewise_mad_scale(d, numpieces=1)
+        npt.assert_allclose(np.ma.getdata(got), np.ma.getdata(expected), atol=1e-12)
+
+
+class TestPiecewiseMadIntegration:
+    """End-to-end check on a real wideband archive (needs psrchive + data)."""
+
+    def test_uwl_tsys_gradient(self):
+        pytest.skip(
+            "Integration test: requires psrchive and a real UWL archive with a "
+            "strong Tsys gradient. Run the surgical cleaner with "
+            "piecewise_scale=True and assert the zapped-channel fraction in "
+            "high-Tsys sub-bands drops to that of low-Tsys sub-bands, while "
+            "injected narrowband RFI is still removed.")
+
+
+# ---------------------------------------------------------------------------
+# remove_profile1d: all-zero guard + dot-product amplitude estimate
+# ---------------------------------------------------------------------------
+class TestRemoveProfile1d:
+    @staticmethod
+    def _gaussian(nbin=64, centre=20, width=3.0):
+        x = np.arange(nbin, dtype=float)
+        return np.exp(-0.5 * ((x - centre) / width) ** 2)
+
+    def test_all_zero_template_returns_none_and_warns(self):
+        prof = self._gaussian()
+        template = np.zeros(64)
+        with pytest.warns(errors.CoastGuardWarning):
+            (isub, ichan), resid = cu.remove_profile1d(prof, 2, 5, template, 0)
+        assert (isub, ichan) == (2, 5)
+        assert resid is None
+        # With return_params the params are None too.
+        with pytest.warns(errors.CoastGuardWarning):
+            out = cu.remove_profile1d(prof, 0, 0, template, 0, return_params=True)
+        assert out[1] is None and out[2] is None
+
+    def test_dot_amplitude_recovers_scale(self):
+        template = self._gaussian()
+        prof = 3.0 * template
+        (_, _), resid, params = cu.remove_profile1d(prof, 0, 0, template, 0,
+                                                    return_params=True)
+        npt.assert_allclose(params[0], 3.0, atol=1e-6)
+        npt.assert_allclose(resid, 0.0, atol=1e-6)
+
+    def test_zero_median_template(self):
+        # Baseline-subtracted templates have (near) zero median, which made the
+        # old np.median(prof)/np.median(template) initial guess divide by ~0.
+        # The dot-product guess handles it.
+        template = self._gaussian() - np.median(self._gaussian())
+        assert np.median(template) == 0.0
+        prof = 2.5 * template
+        (_, _), resid, params = cu.remove_profile1d(prof, 0, 0, template, 0,
+                                                    return_params=True)
+        npt.assert_allclose(params[0], 2.5, atol=1e-6)
+        npt.assert_allclose(resid, 0.0, atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# check_template_nchan: warn on a 2D template / data channel-count mismatch
+# ---------------------------------------------------------------------------
+class TestCheckTemplateNchan:
+    def test_warns_on_2d_mismatch(self):
+        template2d = np.ones((8, 64))
+        with pytest.warns(errors.CoastGuardWarning):
+            cu.check_template_nchan(template2d, 16)
+
+    def test_no_warning_when_2d_matches(self):
+        template2d = np.ones((8, 64))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")   # any warning -> test failure
+            cu.check_template_nchan(template2d, 8)
+
+    def test_no_warning_for_1d_template(self):
+        template1d = np.ones(64)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            cu.check_template_nchan(template1d, 512)

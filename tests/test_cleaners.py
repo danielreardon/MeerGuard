@@ -115,3 +115,58 @@ class TestConfigurationsToString:
         cfgstr = cleaner.get_config_string()
         assert 'badchantol=' in cfgstr
         assert 'badsubtol=' in cfgstr
+
+
+class TestSurgicalPiecewiseConfigResolution:
+    """Regression: the optional piecewise-scaling params must resolve even
+    when a receiver/custom config overrides ``surgical_default_params``
+    without listing them.
+
+    Reproduces the ``-C UHF/UWL/L`` path: ``set_override_config`` replaces
+    ``surgical_default_params`` with a receiver string that has no
+    ``piecewise_scale``/``subint_mad_numpieces`` keys. Previously the cleaner
+    never set them and reading them in ``_clean`` raised ``KeyError``; now they
+    default to feature-off but a config may still enable them.
+    """
+
+    # A receiver-style config string WITHOUT the new piecewise keys.
+    _RECEIVER = ("template=None,chan_breakpoints=None,chan_numpieces=1,"
+                 "chan_order=1,chanthresh=5,subint_breakpoints=None,"
+                 "subint_numpieces=8;16,subint_order=2;1,subintthresh=5,"
+                 "plot=None")
+
+    def _load_with_override(self, override_string):
+        from coast_guard import config
+        cfg = config.cfg.get()
+        cfg.clear_overrides()
+        cfg.set_override_config('surgical_default_params', override_string)
+        try:
+            return cleaners.load_cleaner('surgical')
+        finally:
+            cfg.clear_overrides()
+
+    def test_defaults_when_config_omits_them(self):
+        c = self._load_with_override(self._RECEIVER)
+        # No KeyError, and the safe (feature-off) defaults are in place.
+        assert c.configs.piecewise_scale is False
+        assert c.configs.subint_mad_numpieces is None
+        # The receiver's own params still took effect.
+        assert c.configs.subint_numpieces == [8, 16]
+
+    def test_config_can_enable_piecewise(self):
+        c = self._load_with_override(
+            self._RECEIVER + ",piecewise_scale=True,subint_mad_numpieces=16")
+        assert c.configs.piecewise_scale is True
+        assert c.configs.subint_mad_numpieces == 16
+
+    def test_shipped_uwl_config_enables_piecewise(self):
+        # The shipped UWL receiver config (loaded via -C UWL) should turn
+        # piecewise MAD scaling on by default.
+        import os
+        from coast_guard import config
+        uwl_path = os.path.join(config.base_config_dir, 'receivers',
+                                'UWL_3K_Murriyang.cfg')
+        overrides = config.read_file(uwl_path, required=True)
+        c = self._load_with_override(overrides['surgical_default_params'])
+        assert c.configs.piecewise_scale is True
+        assert c.configs.subint_mad_numpieces == 16

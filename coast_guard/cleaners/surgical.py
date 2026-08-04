@@ -106,6 +106,32 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                                aliases=['iterations', 'iter'],
                                nullable=True,
                                help="Number of iterations to run the surgical cleaner [default = 1]")
+        self.configs.add_param('piecewise_scale', config_types.BoolVal,
+                               aliases=['piecewise_scale'],
+                               nullable=True,
+                               help="If True, scale the frequency-direction "
+                                    "statistics to sigma using a per-segment "
+                                    "(piecewise) median/MAD that matches the "
+                                    "piecewise detrend, instead of a single "
+                                    "global MAD across the whole band. This "
+                                    "avoids over-flagging channels in high-Tsys "
+                                    "sub-bands on wideband receivers. "
+                                    "[default = False]")
+        self.configs.add_param('subint_mad_numpieces', config_types.IntVal,
+                               aliases=['subint_mad_numpieces'],
+                               nullable=True,
+                               help="Number of frequency segments to use for "
+                                    "the piecewise MAD scaling (only used when "
+                                    "piecewise_scale is True). If None, the "
+                                    "finest subint_numpieces value is used. "
+                                    "[default = None]")
+        # Establish safe (feature-off) defaults for the optional piecewise
+        # params *before* parsing surgical_default_params. A receiver/custom
+        # config that overrides surgical_default_params need not list these
+        # keys; if it omits them they stay at these defaults (rather than
+        # raising KeyError when read in _clean), and if it sets them the
+        # override below wins.
+        self.parse_config_string('piecewise_scale=False,subint_mad_numpieces=None')
         self.parse_config_string(config.cfg.surgical_default_params)
 
 
@@ -182,6 +208,10 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                 template_phs = np.apply_over_axes(np.sum, template_data,
                                                   tuple(range(template_data.ndim - 1))).squeeze()
                 template = template_data if template_data.ndim > 1 else template_phs
+
+                # A 2D template is indexed by data channel during subtraction,
+                # so warn if its channel count does not match the data.
+                clean_utils.check_template_nchan(template, patient.get_nchan())
 
 
             print('Estimating template and profile phase offset')
@@ -284,6 +314,8 @@ class SurgicalScrubCleaner(cleaners.BaseCleaner):
                                         subint_order=self.configs.subint_order, \
                                         subint_breakpoints=self.configs.subint_breakpoints, \
                                         subint_numpieces=self.configs.subint_numpieces, \
+                                        piecewise_scale=self.configs.piecewise_scale, \
+                                        subint_mad_numpieces=self.configs.subint_mad_numpieces, \
                                         aggressive=self.configs.aggressive \
                                         )
             if plot:
